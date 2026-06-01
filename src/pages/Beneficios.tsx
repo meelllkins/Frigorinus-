@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { ChevronDown } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import type { RegistroBeneficio } from '../types'
 
@@ -21,18 +22,42 @@ const initialForm = {
   fecha_beneficio: new Date().toISOString().split('T')[0],
 }
 
+const initialBatchForm = {
+  codigo_cliente: '',
+  numero_inicial: '',
+  numero_final: '',
+  fecha_beneficio: new Date().toISOString().split('T')[0],
+}
+
 export default function Beneficio() {
   const [activeTab, setActiveTab] = useState<'res' | 'cerdo'>('res')
+
+  // Formulario individual
   const [form, setForm] = useState(initialForm)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const formRef = useRef<HTMLFormElement>(null)
+  const codigoRef = useRef<HTMLInputElement>(null)
+  const numeroRef = useRef<HTMLInputElement>(null)
+
+  // Formulario en lote
+  const [showBatch, setShowBatch] = useState(false)
+  const [batchForm, setBatchForm] = useState(initialBatchForm)
+  const [batchSaving, setBatchSaving] = useState(false)
+  const [batchError, setBatchError] = useState('')
+  const [batchSuccess, setBatchSuccess] = useState('')
+
+  // Tabla
   const [registros, setRegistros] = useState<RegistroBeneficio[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showModal, setShowModal] = useState(false)
   const [dispatching, setDispatching] = useState(false)
   const selectAllRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => { fetchRegistros() }, [])
+  useEffect(() => {
+    fetchRegistros()
+    codigoRef.current?.focus()
+  }, [])
 
   useEffect(() => {
     if (selectAllRef.current) {
@@ -54,6 +79,9 @@ export default function Beneficio() {
     setActiveTab(tab)
     setForm(initialForm)
     setError('')
+    setBatchError('')
+    setBatchSuccess('')
+    setTimeout(() => codigoRef.current?.focus(), 0)
   }
 
   function toggleAll() {
@@ -105,6 +133,57 @@ export default function Beneficio() {
     setForm(initialForm)
     fetchRegistros()
     setSaving(false)
+    setTimeout(() => codigoRef.current?.focus(), 0)
+  }
+
+  async function handleBatchSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setBatchError('')
+    setBatchSuccess('')
+
+    const inicial = parseInt(batchForm.numero_inicial)
+    const final = parseInt(batchForm.numero_final)
+
+    if (isNaN(inicial) || isNaN(final) || final <= inicial) {
+      setBatchError('El número final debe ser mayor al inicial.')
+      return
+    }
+
+    setBatchSaving(true)
+
+    const rows = []
+    for (let n = inicial; n <= final; n++) {
+      rows.push({
+        codigo_cliente: batchForm.codigo_cliente.trim(),
+        numero_animal: String(n),
+        tipo_carne: activeTab,
+        fecha_beneficio: batchForm.fecha_beneficio,
+        fecha_cobro_frio: addDays(batchForm.fecha_beneficio, 2),
+        estado: 'activo',
+      })
+    }
+
+    const { data: inserted, error: err } = await supabase
+      .from('registros_beneficio')
+      .insert(rows)
+      .select('id')
+
+    if (err || !inserted) {
+      setBatchError('Error al guardar el lote.')
+      setBatchSaving(false)
+      return
+    }
+
+    if (activeTab === 'res') {
+      await supabase.from('inventario_visceras').insert(
+        inserted.map(r => ({ registro_id: r.id, estado: 'en_inventario' }))
+      )
+    }
+
+    setBatchSuccess(`Se registraron ${inserted.length} animales correctamente.`)
+    setBatchForm(initialBatchForm)
+    setBatchSaving(false)
+    fetchRegistros()
   }
 
   async function handleDespachar(r: RegistroBeneficio) {
@@ -143,7 +222,17 @@ export default function Beneficio() {
     fetchRegistros()
   }
 
+  const batchCount = (() => {
+    const ini = parseInt(batchForm.numero_inicial)
+    const fin = parseInt(batchForm.numero_final)
+    if (!isNaN(ini) && !isNaN(fin) && fin > ini) return fin - ini + 1
+    return null
+  })()
+
   const someSelected = selected.size > 0
+
+  const inputClass =
+    'w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-700 focus:ring-1 focus:ring-green-700 transition-colors'
 
   return (
     <div className="space-y-8">
@@ -198,27 +287,37 @@ export default function Beneficio() {
           ))}
         </div>
 
+        {/* Formulario individual */}
         <form
+          ref={formRef}
           onSubmit={handleSubmit}
           className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6 grid grid-cols-1 sm:grid-cols-3 gap-5"
         >
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1.5">Código cliente</label>
             <input
+              ref={codigoRef}
               type="text"
               value={form.codigo_cliente}
               onChange={e => setForm({ ...form, codigo_cliente: e.target.value })}
-              className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-700 focus:ring-1 focus:ring-green-700 transition-colors"
+              onKeyDown={e => {
+                if (e.key === 'Enter') { e.preventDefault(); numeroRef.current?.focus() }
+              }}
+              className={inputClass}
               required
             />
           </div>
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1.5">Número de animal</label>
             <input
+              ref={numeroRef}
               type="text"
               value={form.numero_animal}
               onChange={e => setForm({ ...form, numero_animal: e.target.value })}
-              className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-700 focus:ring-1 focus:ring-green-700 transition-colors"
+              onKeyDown={e => {
+                if (e.key === 'Enter') { e.preventDefault(); formRef.current?.requestSubmit() }
+              }}
+              className={inputClass}
               required
             />
           </div>
@@ -228,7 +327,7 @@ export default function Beneficio() {
               type="date"
               value={form.fecha_beneficio}
               onChange={e => setForm({ ...form, fecha_beneficio: e.target.value })}
-              className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-700 focus:ring-1 focus:ring-green-700 transition-colors"
+              className={inputClass}
               required
             />
           </div>
@@ -243,12 +342,101 @@ export default function Beneficio() {
             </button>
           </div>
         </form>
+
+        {/* Sección colapsable: lote */}
+        <div className="mt-4">
+          <button
+            type="button"
+            onClick={() => setShowBatch(b => !b)}
+            className="flex items-center gap-1.5 text-sm font-semibold text-gray-500 hover:text-gray-800 transition-colors"
+          >
+            <ChevronDown
+              size={16}
+              className={`transition-transform duration-200 ${showBatch ? 'rotate-180' : ''}`}
+            />
+            Registrar varios a la vez
+          </button>
+
+          {showBatch && (
+            <form
+              onSubmit={handleBatchSubmit}
+              className="mt-4 bg-gray-50 border border-gray-200 rounded-2xl p-6 grid grid-cols-1 sm:grid-cols-2 gap-5"
+            >
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Código cliente</label>
+                <input
+                  type="text"
+                  value={batchForm.codigo_cliente}
+                  onChange={e => setBatchForm({ ...batchForm, codigo_cliente: e.target.value })}
+                  className={inputClass}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Fecha de beneficio</label>
+                <input
+                  type="date"
+                  value={batchForm.fecha_beneficio}
+                  onChange={e => setBatchForm({ ...batchForm, fecha_beneficio: e.target.value })}
+                  className={inputClass}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Número animal inicial</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={batchForm.numero_inicial}
+                  onChange={e => setBatchForm({ ...batchForm, numero_inicial: e.target.value })}
+                  className={inputClass}
+                  placeholder="ej: 121"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Número animal final</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={batchForm.numero_final}
+                  onChange={e => setBatchForm({ ...batchForm, numero_final: e.target.value })}
+                  className={inputClass}
+                  placeholder="ej: 130"
+                  required
+                />
+              </div>
+
+              {batchCount !== null && (
+                <p className="sm:col-span-2 text-sm text-gray-600 font-medium">
+                  Se registrarán{' '}
+                  <span className="font-bold text-gray-900">{batchCount} animales</span>
+                </p>
+              )}
+              {batchError && (
+                <p className="sm:col-span-2 text-sm text-red-600 font-medium">{batchError}</p>
+              )}
+              {batchSuccess && (
+                <p className="sm:col-span-2 text-sm text-green-700 font-semibold">{batchSuccess}</p>
+              )}
+
+              <div className="sm:col-span-2">
+                <button
+                  type="submit"
+                  disabled={batchSaving || batchCount === null}
+                  className="bg-green-800 hover:bg-green-700 text-white rounded-lg px-7 py-2.5 text-sm font-bold tracking-wide transition-colors disabled:opacity-50 shadow-sm"
+                >
+                  {batchSaving ? 'Registrando...' : 'Registrar lote'}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
       </section>
 
       <section>
         <h2 className="text-xl font-bold text-gray-900 mb-5">Animales en cava</h2>
 
-        {/* Barra de despacho múltiple */}
         {someSelected && (
           <div className="mb-4 flex items-center justify-between bg-gray-900 text-white rounded-xl px-5 py-3">
             <span className="text-sm font-semibold">
