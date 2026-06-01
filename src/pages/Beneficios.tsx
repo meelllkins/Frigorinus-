@@ -16,6 +16,18 @@ function diasEnCava(fechaBeneficio: string): number {
   return Math.floor((hoy.getTime() - inicio.getTime()) / 86_400_000)
 }
 
+function downloadCSV(filename: string, rows: string[][]): void {
+  const esc = (v: string) => `"${v.replace(/"/g, '""')}"`
+  const csv = '﻿' + rows.map(row => row.map(esc).join(',')).join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 const initialForm = {
   codigo_cliente: '',
   numero_animal: '',
@@ -49,6 +61,7 @@ export default function Beneficio() {
 
   // Tabla
   const [registros, setRegistros] = useState<RegistroBeneficio[]>([])
+  const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showModal, setShowModal] = useState(false)
   const [dispatching, setDispatching] = useState(false)
@@ -59,12 +72,18 @@ export default function Beneficio() {
     codigoRef.current?.focus()
   }, [])
 
+  // Mantiene el estado indeterminate del checkbox de cabecera
   useEffect(() => {
-    if (selectAllRef.current) {
-      selectAllRef.current.indeterminate =
-        selected.size > 0 && selected.size < registros.length
-    }
-  }, [selected.size, registros.length])
+    if (!selectAllRef.current) return
+    const visible = registros
+      .filter(r => r.tipo_carne === activeTab)
+      .filter(r => {
+        const q = search.trim().toLowerCase()
+        return !q || `${r.codigo_cliente}-${r.numero_animal}`.toLowerCase().includes(q)
+      })
+    const selectedCount = visible.filter(r => selected.has(r.id)).length
+    selectAllRef.current.indeterminate = selectedCount > 0 && selectedCount < visible.length
+  }, [selected, registros, activeTab, search])
 
   async function fetchRegistros() {
     const { data } = await supabase
@@ -79,16 +98,35 @@ export default function Beneficio() {
     setActiveTab(tab)
     setForm(initialForm)
     setError('')
+    setSearch('')
+    setSelected(new Set())
     setBatchError('')
     setBatchSuccess('')
     setTimeout(() => codigoRef.current?.focus(), 0)
   }
 
+  // Registros visibles según tab activo + búsqueda
+  const q = search.trim().toLowerCase()
+  const visibleRegistros = registros
+    .filter(r => r.tipo_carne === activeTab)
+    .filter(r => !q || `${r.codigo_cliente}-${r.numero_animal}`.toLowerCase().includes(q))
+  const byTab = registros.filter(r => r.tipo_carne === activeTab)
+
   function toggleAll() {
-    if (selected.size === registros.length) {
-      setSelected(new Set())
+    const visibleIds = visibleRegistros.map(r => r.id)
+    const allSelected = visibleIds.length > 0 && visibleIds.every(id => selected.has(id))
+    if (allSelected) {
+      setSelected(prev => {
+        const next = new Set(prev)
+        visibleIds.forEach(id => next.delete(id))
+        return next
+      })
     } else {
-      setSelected(new Set(registros.map(r => r.id)))
+      setSelected(prev => {
+        const next = new Set(prev)
+        visibleIds.forEach(id => next.add(id))
+        return next
+      })
     }
   }
 
@@ -97,6 +135,18 @@ export default function Beneficio() {
     if (next.has(id)) next.delete(id)
     else next.add(id)
     setSelected(next)
+  }
+
+  function exportCSV() {
+    const today = new Date().toISOString().split('T')[0]
+    const header = ['Código', 'Tipo', 'Fecha de sacrificio', 'Días en cava']
+    const data = visibleRegistros.map(r => [
+      `${r.codigo_cliente}-${r.numero_animal}`,
+      r.tipo_carne === 'res' ? 'Res' : 'Cerdo',
+      r.fecha_beneficio,
+      String(diasEnCava(r.fecha_beneficio)),
+    ])
+    downloadCSV(`inventario-${today}.csv`, [header, ...data])
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -230,6 +280,8 @@ export default function Beneficio() {
   })()
 
   const someSelected = selected.size > 0
+  const allVisibleSelected =
+    visibleRegistros.length > 0 && visibleRegistros.every(r => selected.has(r.id))
 
   const inputClass =
     'w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-700 focus:ring-1 focus:ring-green-700 transition-colors'
@@ -437,6 +489,24 @@ export default function Beneficio() {
       <section>
         <h2 className="text-xl font-bold text-gray-900 mb-5">Animales en cava</h2>
 
+        {/* Toolbar: búsqueda + exportar */}
+        <div className="flex items-center justify-between mb-4 gap-4">
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Buscar por código..."
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-60 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 bg-white"
+          />
+          <button
+            onClick={exportCSV}
+            className="text-xs font-semibold text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 transition-colors whitespace-nowrap"
+          >
+            Exportar CSV
+          </button>
+        </div>
+
+        {/* Barra de despacho múltiple */}
         {someSelected && (
           <div className="mb-4 flex items-center justify-between bg-gray-900 text-white rounded-xl px-5 py-3">
             <span className="text-sm font-semibold">
@@ -459,7 +529,7 @@ export default function Beneficio() {
                   <input
                     ref={selectAllRef}
                     type="checkbox"
-                    checked={registros.length > 0 && selected.size === registros.length}
+                    checked={allVisibleSelected}
                     onChange={toggleAll}
                     className="w-4 h-4 rounded accent-white cursor-pointer"
                   />
@@ -472,14 +542,16 @@ export default function Beneficio() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {registros.length === 0 ? (
+              {visibleRegistros.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-10 text-center text-gray-400 text-sm">
-                    No hay animales en cava
+                    {byTab.length === 0
+                      ? `No hay ${activeTab === 'res' ? 'reses' : 'cerdos'} en cava`
+                      : 'Sin resultados para la búsqueda'}
                   </td>
                 </tr>
               ) : (
-                registros.map((r, i) => {
+                visibleRegistros.map((r, i) => {
                   const dias = diasEnCava(r.fecha_beneficio)
                   const isSelected = selected.has(r.id)
                   return (

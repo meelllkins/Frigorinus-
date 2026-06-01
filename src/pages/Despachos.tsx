@@ -15,10 +15,23 @@ interface DespachoCon {
   }
 }
 
+function downloadCSV(filename: string, rows: string[][]): void {
+  const esc = (v: string) => `"${v.replace(/"/g, '""')}"`
+  const csv = '﻿' + rows.map(row => row.map(esc).join(',')).join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export default function Despachos() {
   const [despachos, setDespachos] = useState<DespachoCon[]>([])
   const [revertConfirm, setRevertConfirm] = useState<string | null>(null)
   const [reverting, setReverting] = useState(false)
+  const [search, setSearch] = useState('')
 
   useEffect(() => { fetchDespachos() }, [])
 
@@ -67,9 +80,43 @@ export default function Despachos() {
     fetchDespachos()
   }
 
+  const q = search.trim().toLowerCase()
+  const visibleDespachos = despachos.filter(d =>
+    !q || `${d.registros_beneficio.codigo_cliente}-${d.registros_beneficio.numero_animal}`.toLowerCase().includes(q)
+  )
+
+  function exportCSV() {
+    const today = new Date().toISOString().split('T')[0]
+    const header = ['Código', 'Tipo de despacho', 'Fecha de despacho']
+    const data = visibleDespachos.map(d => [
+      `${d.registros_beneficio.codigo_cliente}-${d.registros_beneficio.numero_animal}`,
+      d.tipo_despacho === 'canal' ? 'Canal' : 'Víscera',
+      d.fecha_despacho,
+    ])
+    downloadCSV(`despachos-${today}.csv`, [header, ...data])
+  }
+
   return (
     <div>
       <h2 className="text-xl font-bold text-gray-900 mb-5">Historial de despachos</h2>
+
+      {/* Toolbar */}
+      <div className="flex items-center justify-between mb-4 gap-4">
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Buscar por código..."
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-60 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 bg-white"
+        />
+        <button
+          onClick={exportCSV}
+          className="text-xs font-semibold text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 transition-colors whitespace-nowrap"
+        >
+          Exportar CSV
+        </button>
+      </div>
+
       <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
         <table className="w-full text-sm">
           <thead>
@@ -81,14 +128,16 @@ export default function Despachos() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {despachos.length === 0 ? (
+            {visibleDespachos.length === 0 ? (
               <tr>
                 <td colSpan={4} className="px-4 py-10 text-center text-gray-400 text-sm">
-                  No hay despachos registrados
+                  {despachos.length === 0
+                    ? 'No hay despachos registrados'
+                    : 'Sin resultados para la búsqueda'}
                 </td>
               </tr>
             ) : (
-              despachos.map((d, i) => (
+              visibleDespachos.map((d, i) => (
                 <tr key={d.id} className={`transition-colors hover:bg-blue-50 ${i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`}>
                   <td className="px-4 py-3 font-mono font-semibold text-gray-900">
                     {d.registros_beneficio.codigo_cliente}-{d.registros_beneficio.numero_animal}

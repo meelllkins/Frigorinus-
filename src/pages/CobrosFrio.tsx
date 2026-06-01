@@ -15,8 +15,22 @@ function urgenciaBadge(dias: number): string {
   return 'bg-red-100 text-red-700'
 }
 
+function downloadCSV(filename: string, rows: string[][]): void {
+  const esc = (v: string) => `"${v.replace(/"/g, '""')}"`
+  const csv = '﻿' + rows.map(row => row.map(esc).join(',')).join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export default function CobrosFrio() {
   const [registros, setRegistros] = useState<RegistroBeneficio[]>([])
+  const [activeTab, setActiveTab] = useState<'res' | 'cerdo'>('res')
+  const [search, setSearch] = useState('')
 
   useEffect(() => {
     async function fetch() {
@@ -35,9 +49,64 @@ export default function CobrosFrio() {
     fetch()
   }, [])
 
+  const q = search.trim().toLowerCase()
+  const visibleRegistros = registros
+    .filter(r => r.tipo_carne === activeTab)
+    .filter(r => !q || `${r.codigo_cliente}-${r.numero_animal}`.toLowerCase().includes(q))
+
+  const byTab = registros.filter(r => r.tipo_carne === activeTab)
+
+  function exportCSV() {
+    const today = new Date().toISOString().split('T')[0]
+    const header = ['Código', 'Tipo', 'Fecha de sacrificio', 'Días en cava']
+    const data = visibleRegistros.map(r => [
+      `${r.codigo_cliente}-${r.numero_animal}`,
+      r.tipo_carne === 'res' ? 'Res' : 'Cerdo',
+      r.fecha_beneficio,
+      String(diasEnCava(r.fecha_beneficio)),
+    ])
+    downloadCSV(`cobros-frio-${today}.csv`, [header, ...data])
+  }
+
   return (
     <div>
       <h2 className="text-xl font-bold text-gray-900 mb-5">Cobros de frío pendientes</h2>
+
+      {/* Subtabs */}
+      <div className="flex w-fit border border-gray-200 rounded-xl overflow-hidden shadow-sm mb-5">
+        {(['res', 'cerdo'] as const).map(tab => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => { setActiveTab(tab); setSearch('') }}
+            className={`px-8 py-2.5 text-sm font-semibold transition-colors ${
+              activeTab === tab
+                ? 'bg-gray-900 text-white'
+                : 'bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-800'
+            }`}
+          >
+            {tab === 'res' ? 'Reses' : 'Cerdos'}
+          </button>
+        ))}
+      </div>
+
+      {/* Toolbar */}
+      <div className="flex items-center justify-between mb-4 gap-4">
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Buscar por código..."
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-60 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 bg-white"
+        />
+        <button
+          onClick={exportCSV}
+          className="text-xs font-semibold text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 transition-colors whitespace-nowrap"
+        >
+          Exportar CSV
+        </button>
+      </div>
+
       <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
         <table className="w-full text-sm">
           <thead>
@@ -49,14 +118,16 @@ export default function CobrosFrio() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {registros.length === 0 ? (
+            {visibleRegistros.length === 0 ? (
               <tr>
                 <td colSpan={4} className="px-4 py-10 text-center text-gray-400 text-sm">
-                  No hay cobros de frío pendientes
+                  {byTab.length === 0
+                    ? `No hay cobros de frío pendientes de ${activeTab === 'res' ? 'reses' : 'cerdos'}`
+                    : 'Sin resultados para la búsqueda'}
                 </td>
               </tr>
             ) : (
-              registros.map((r, i) => {
+              visibleRegistros.map((r, i) => {
                 const dias = diasEnCava(r.fecha_beneficio)
                 return (
                   <tr key={r.id} className={`transition-colors hover:bg-blue-50 ${i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`}>

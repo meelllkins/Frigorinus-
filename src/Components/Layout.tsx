@@ -33,7 +33,7 @@ export default function Layout() {
           {[
             { to: '/', label: 'Inventario Actual', icon: ClipboardList },
             { to: '/cobros', label: 'Cobros de Frío', icon: AlertTriangle },
-            { to: '/inventario', label: 'Inventario', icon: Package },
+            { to: '/inventario', label: 'Inventario Vísceras', icon: Package },
             { to: '/despachos', label: 'Despachos', icon: Truck },
           ].map(({ to, label, icon: Icon }) => (
             <NavLink
