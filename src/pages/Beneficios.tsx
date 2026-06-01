@@ -149,14 +149,14 @@ export default function Beneficio() {
       </section>
 
       <section>
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Registros activos</h2>
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Animales en cava</h2>
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Código</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Tipo</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Fecha beneficio</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">Tipo de carne</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">Fecha de sacrificio</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Días en cava</th>
                 <th className="px-4 py-3" />
               </tr>
@@ -192,7 +192,7 @@ export default function Beneficio() {
                           onClick={() => handleDespachar(r)}
                           className="text-xs font-medium text-gray-500 hover:text-gray-900 border border-gray-200 rounded-lg px-3 py-1 hover:border-gray-400 transition-colors"
                         >
-                          Despachar canal
+                          Despachar
                         </button>
                       </td>
                     </tr>

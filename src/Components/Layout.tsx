@@ -26,7 +26,7 @@ export default function Layout() {
       <nav className="bg-white border-b border-gray-200 px-6">
         <div className="flex gap-1">
           {[
-            { to: '/', label: 'Beneficio', icon: ClipboardList },
+            { to: '/', label: 'Inventario Actual', icon: ClipboardList },
             { to: '/cobros', label: 'Cobros de Frío', icon: AlertTriangle },
             { to: '/inventario', label: 'Inventario', icon: Package },
             { to: '/despachos', label: 'Despachos', icon: Truck },
