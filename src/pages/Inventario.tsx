@@ -42,33 +42,33 @@ export default function Inventario() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto">
-      <h2 className="text-lg font-semibold text-gray-900 mb-4">Inventario de vísceras</h2>
-      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+    <div>
+      <h2 className="text-xl font-bold text-gray-900 mb-5">Inventario de vísceras</h2>
+      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b border-gray-200">
-            <tr>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Código animal</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Estado</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Fecha ingreso</th>
+          <thead>
+            <tr className="bg-gray-800">
+              <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Código animal</th>
+              <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Estado</th>
+              <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Fecha ingreso</th>
               <th className="px-4 py-3" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {visceras.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={4} className="px-4 py-10 text-center text-gray-400 text-sm">
                   No hay vísceras en inventario
                 </td>
               </tr>
             ) : (
-              visceras.map(v => (
-                <tr key={v.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-mono text-gray-900">
+              visceras.map((v, i) => (
+                <tr key={v.id} className={`transition-colors hover:bg-blue-50 ${i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`}>
+                  <td className="px-4 py-3 font-mono font-semibold text-gray-900">
                     {v.registros_beneficio.codigo_cliente}-{v.registros_beneficio.numero_animal}
                   </td>
                   <td className="px-4 py-3">
-                    <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+                    <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
                       En inventario
                     </span>
                   </td>
@@ -76,7 +76,7 @@ export default function Inventario() {
                   <td className="px-4 py-3 text-right">
                     <button
                       onClick={() => handleDespachar(v)}
-                      className="text-xs font-medium text-gray-500 hover:text-gray-900 border border-gray-200 rounded-lg px-3 py-1 hover:border-gray-400 transition-colors"
+                      className="text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-3 py-1.5 transition-colors"
                     >
                       Despachar
                     </button>
