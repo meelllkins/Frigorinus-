@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import type { RegistroBeneficio } from '../types'
 
@@ -18,17 +18,28 @@ function diasEnCava(fechaBeneficio: string): number {
 const initialForm = {
   codigo_cliente: '',
   numero_animal: '',
-  tipo_carne: 'res' as 'res' | 'cerdo',
   fecha_beneficio: new Date().toISOString().split('T')[0],
 }
 
 export default function Beneficio() {
+  const [activeTab, setActiveTab] = useState<'res' | 'cerdo'>('res')
   const [form, setForm] = useState(initialForm)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [registros, setRegistros] = useState<RegistroBeneficio[]>([])
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [showModal, setShowModal] = useState(false)
+  const [dispatching, setDispatching] = useState(false)
+  const selectAllRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { fetchRegistros() }, [])
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate =
+        selected.size > 0 && selected.size < registros.length
+    }
+  }, [selected.size, registros.length])
 
   async function fetchRegistros() {
     const { data } = await supabase
@@ -37,6 +48,27 @@ export default function Beneficio() {
       .eq('estado', 'activo')
       .order('fecha_beneficio', { ascending: false })
     if (data) setRegistros(data)
+  }
+
+  function handleTabChange(tab: 'res' | 'cerdo') {
+    setActiveTab(tab)
+    setForm(initialForm)
+    setError('')
+  }
+
+  function toggleAll() {
+    if (selected.size === registros.length) {
+      setSelected(new Set())
+    } else {
+      setSelected(new Set(registros.map(r => r.id)))
+    }
+  }
+
+  function toggleOne(id: string) {
+    const next = new Set(selected)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setSelected(next)
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -49,7 +81,7 @@ export default function Beneficio() {
       .insert({
         codigo_cliente: form.codigo_cliente.trim(),
         numero_animal: form.numero_animal.trim(),
-        tipo_carne: form.tipo_carne,
+        tipo_carne: activeTab,
         fecha_beneficio: form.fecha_beneficio,
         fecha_cobro_frio: addDays(form.fecha_beneficio, 2),
         estado: 'activo',
@@ -63,7 +95,7 @@ export default function Beneficio() {
       return
     }
 
-    if (form.tipo_carne === 'res') {
+    if (activeTab === 'res') {
       await supabase.from('inventario_visceras').insert({
         registro_id: registro.id,
         estado: 'en_inventario',
@@ -83,16 +115,92 @@ export default function Beneficio() {
       tipo_despacho: 'canal',
       fecha_despacho: hoy,
     })
+    setSelected(prev => { const next = new Set(prev); next.delete(r.id); return next })
     fetchRegistros()
   }
 
+  async function handleDespacharMultiple() {
+    setDispatching(true)
+    const hoy = new Date().toISOString().split('T')[0]
+    const ids = Array.from(selected)
+
+    await supabase
+      .from('registros_beneficio')
+      .update({ estado: 'despachado' })
+      .in('id', ids)
+
+    await supabase.from('despachos').insert(
+      ids.map(id => ({
+        registro_id: id,
+        tipo_despacho: 'canal',
+        fecha_despacho: hoy,
+      }))
+    )
+
+    setSelected(new Set())
+    setShowModal(false)
+    setDispatching(false)
+    fetchRegistros()
+  }
+
+  const someSelected = selected.size > 0
+
   return (
     <div className="space-y-8">
+      {/* Modal de confirmación de despacho múltiple */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4">
+            <h3 className="text-base font-bold text-gray-900 mb-2">Confirmar despacho</h3>
+            <p className="text-sm text-gray-600 mb-6">
+              ¿Estás seguro de despachar{' '}
+              <span className="font-semibold text-gray-900">
+                {selected.size} {selected.size === 1 ? 'animal' : 'animales'}
+              </span>?
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowModal(false)}
+                className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleDespacharMultiple}
+                disabled={dispatching}
+                className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {dispatching ? 'Despachando...' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <section>
         <h2 className="text-xl font-bold text-gray-900 mb-5">Registrar animal</h2>
+
+        {/* Subtabs */}
+        <div className="flex w-fit border border-gray-200 rounded-xl overflow-hidden shadow-sm mb-6">
+          {(['res', 'cerdo'] as const).map(tab => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => handleTabChange(tab)}
+              className={`px-8 py-2.5 text-sm font-semibold transition-colors ${
+                activeTab === tab
+                  ? 'bg-gray-900 text-white'
+                  : 'bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-800'
+              }`}
+            >
+              {tab === 'res' ? 'Reses' : 'Cerdos'}
+            </button>
+          ))}
+        </div>
+
         <form
           onSubmit={handleSubmit}
-          className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6 grid grid-cols-1 sm:grid-cols-2 gap-5"
+          className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6 grid grid-cols-1 sm:grid-cols-3 gap-5"
         >
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1.5">Código cliente</label>
@@ -115,17 +223,6 @@ export default function Beneficio() {
             />
           </div>
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Tipo de carne</label>
-            <select
-              value={form.tipo_carne}
-              onChange={e => setForm({ ...form, tipo_carne: e.target.value as 'res' | 'cerdo' })}
-              className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-700 focus:ring-1 focus:ring-green-700 transition-colors bg-white"
-            >
-              <option value="res">Res</option>
-              <option value="cerdo">Cerdo</option>
-            </select>
-          </div>
-          <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1.5">Fecha de beneficio</label>
             <input
               type="date"
@@ -135,14 +232,14 @@ export default function Beneficio() {
               required
             />
           </div>
-          {error && <p className="sm:col-span-2 text-red-600 text-sm font-medium">{error}</p>}
-          <div className="sm:col-span-2">
+          {error && <p className="sm:col-span-3 text-red-600 text-sm font-medium">{error}</p>}
+          <div className="sm:col-span-3">
             <button
               type="submit"
               disabled={saving}
               className="bg-green-800 hover:bg-green-700 text-white rounded-lg px-7 py-2.5 text-sm font-bold tracking-wide transition-colors disabled:opacity-50 shadow-sm"
             >
-              {saving ? 'Guardando...' : 'Registrar animal'}
+              {saving ? 'Guardando...' : `Registrar ${activeTab === 'res' ? 'res' : 'cerdo'}`}
             </button>
           </div>
         </form>
@@ -150,10 +247,35 @@ export default function Beneficio() {
 
       <section>
         <h2 className="text-xl font-bold text-gray-900 mb-5">Animales en cava</h2>
+
+        {/* Barra de despacho múltiple */}
+        {someSelected && (
+          <div className="mb-4 flex items-center justify-between bg-gray-900 text-white rounded-xl px-5 py-3">
+            <span className="text-sm font-semibold">
+              {selected.size} {selected.size === 1 ? 'animal seleccionado' : 'animales seleccionados'}
+            </span>
+            <button
+              onClick={() => setShowModal(true)}
+              className="bg-red-600 hover:bg-red-500 text-white text-sm font-bold rounded-lg px-4 py-2 transition-colors"
+            >
+              Despachar {selected.size} seleccionados
+            </button>
+          </div>
+        )}
+
         <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-800">
+                <th className="px-4 py-3 w-10">
+                  <input
+                    ref={selectAllRef}
+                    type="checkbox"
+                    checked={registros.length > 0 && selected.size === registros.length}
+                    onChange={toggleAll}
+                    className="w-4 h-4 rounded accent-white cursor-pointer"
+                  />
+                </th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Código</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Tipo de carne</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Fecha de sacrificio</th>
@@ -164,26 +286,44 @@ export default function Beneficio() {
             <tbody className="divide-y divide-gray-100">
               {registros.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center text-gray-400 text-sm">
+                  <td colSpan={6} className="px-4 py-10 text-center text-gray-400 text-sm">
                     No hay animales en cava
                   </td>
                 </tr>
               ) : (
                 registros.map((r, i) => {
                   const dias = diasEnCava(r.fecha_beneficio)
+                  const isSelected = selected.has(r.id)
                   return (
-                    <tr key={r.id} className={`transition-colors hover:bg-blue-50 ${i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`}>
+                    <tr
+                      key={r.id}
+                      className={`transition-colors hover:bg-blue-50 ${
+                        isSelected ? 'bg-blue-50' : i % 2 === 1 ? 'bg-gray-50' : 'bg-white'
+                      }`}
+                    >
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleOne(r.id)}
+                          className="w-4 h-4 rounded accent-gray-900 cursor-pointer"
+                        />
+                      </td>
                       <td className="px-4 py-3 font-mono font-semibold text-gray-900">
                         {r.codigo_cliente}-{r.numero_animal}
                       </td>
-                      <td className="px-4 py-3 capitalize text-gray-700">{r.tipo_carne}</td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                          r.tipo_carne === 'res' ? 'bg-amber-100 text-amber-700' : 'bg-pink-100 text-pink-700'
+                        }`}>
+                          {r.tipo_carne === 'res' ? 'Res' : 'Cerdo'}
+                        </span>
+                      </td>
                       <td className="px-4 py-3 text-gray-700">{r.fecha_beneficio}</td>
                       <td className="px-4 py-3">
-                        <span
-                          className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                            dias >= 3 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
-                          }`}
-                        >
+                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                          dias >= 3 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                        }`}>
                           {dias} {dias === 1 ? 'día' : 'días'}
                         </span>
                       </td>

@@ -11,22 +11,61 @@ interface DespachoCon {
   registros_beneficio: {
     codigo_cliente: string
     numero_animal: string
+    tipo_carne: 'res' | 'cerdo'
   }
 }
 
 export default function Despachos() {
   const [despachos, setDespachos] = useState<DespachoCon[]>([])
+  const [revertConfirm, setRevertConfirm] = useState<string | null>(null)
+  const [reverting, setReverting] = useState(false)
 
-  useEffect(() => {
-    async function fetch() {
-      const { data } = await supabase
-        .from('despachos')
-        .select('*, registros_beneficio(codigo_cliente, numero_animal)')
-        .order('fecha_despacho', { ascending: false })
-      if (data) setDespachos(data as DespachoCon[])
+  useEffect(() => { fetchDespachos() }, [])
+
+  async function fetchDespachos() {
+    const { data } = await supabase
+      .from('despachos')
+      .select('*, registros_beneficio(codigo_cliente, numero_animal, tipo_carne)')
+      .order('created_at', { ascending: false })
+    if (data) setDespachos(data as DespachoCon[])
+  }
+
+  async function handleRevertir(d: DespachoCon) {
+    setReverting(true)
+
+    if (d.tipo_despacho === 'canal') {
+      await supabase
+        .from('registros_beneficio')
+        .update({ estado: 'activo' })
+        .eq('id', d.registro_id)
+
+      if (d.registros_beneficio.tipo_carne === 'res') {
+        await supabase
+          .from('inventario_visceras')
+          .update({ estado: 'en_inventario', fecha_despacho: null })
+          .eq('registro_id', d.registro_id)
+          .eq('estado', 'despachada')
+
+        await supabase
+          .from('despachos')
+          .delete()
+          .eq('registro_id', d.registro_id)
+          .eq('tipo_despacho', 'viscera')
+      }
+    } else {
+      await supabase
+        .from('inventario_visceras')
+        .update({ estado: 'en_inventario', fecha_despacho: null })
+        .eq('registro_id', d.registro_id)
+        .eq('estado', 'despachada')
     }
-    fetch()
-  }, [])
+
+    await supabase.from('despachos').delete().eq('id', d.id)
+
+    setRevertConfirm(null)
+    setReverting(false)
+    fetchDespachos()
+  }
 
   return (
     <div>
@@ -38,12 +77,13 @@ export default function Despachos() {
               <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Código</th>
               <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Tipo de despacho</th>
               <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Fecha de despacho</th>
+              <th className="px-4 py-3" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {despachos.length === 0 ? (
               <tr>
-                <td colSpan={3} className="px-4 py-10 text-center text-gray-400 text-sm">
+                <td colSpan={4} className="px-4 py-10 text-center text-gray-400 text-sm">
                   No hay despachos registrados
                 </td>
               </tr>
@@ -65,6 +105,33 @@ export default function Despachos() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-gray-700">{d.fecha_despacho}</td>
+                  <td className="px-4 py-3 text-right">
+                    {revertConfirm === d.id ? (
+                      <div className="flex items-center justify-end gap-2">
+                        <span className="text-xs text-gray-500">¿Confirmar?</span>
+                        <button
+                          onClick={() => handleRevertir(d)}
+                          disabled={reverting}
+                          className="text-xs font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
+                        >
+                          {reverting ? '...' : 'Sí'}
+                        </button>
+                        <button
+                          onClick={() => setRevertConfirm(null)}
+                          className="text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg px-3 py-1.5 transition-colors"
+                        >
+                          No
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setRevertConfirm(d.id)}
+                        className="text-xs font-semibold text-gray-500 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-lg px-3 py-1.5 transition-colors"
+                      >
+                        Revertir
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))
             )}
