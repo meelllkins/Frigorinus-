@@ -16,6 +16,14 @@ function diasEnCava(fechaBeneficio: string): number {
   return Math.floor((hoy.getTime() - inicio.getTime()) / 86_400_000)
 }
 
+function sortCodigos(codigos: string[]): string[] {
+  return [...codigos].sort((a, b) => {
+    const na = Number(a), nb = Number(b)
+    if (!isNaN(na) && !isNaN(nb)) return na - nb
+    return a.localeCompare(b)
+  })
+}
+
 function downloadCSV(filename: string, rows: string[][]): void {
   const esc = (v: string) => `"${v.replace(/"/g, '""')}"`
   const csv = '﻿' + rows.map(row => row.map(esc).join(',')).join('\n')
@@ -51,6 +59,7 @@ export default function Beneficio() {
   const formRef = useRef<HTMLFormElement>(null)
   const codigoRef = useRef<HTMLInputElement>(null)
   const numeroRef = useRef<HTMLInputElement>(null)
+  const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Formulario en lote
   const [showBatch, setShowBatch] = useState(false)
@@ -58,6 +67,7 @@ export default function Beneficio() {
   const [batchSaving, setBatchSaving] = useState(false)
   const [batchError, setBatchError] = useState('')
   const [batchSuccess, setBatchSuccess] = useState('')
+  const batchErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Tabla
   const [registros, setRegistros] = useState<RegistroBeneficio[]>([])
@@ -72,7 +82,6 @@ export default function Beneficio() {
     codigoRef.current?.focus()
   }, [])
 
-  // Mantiene el estado indeterminate del checkbox de cabecera
   useEffect(() => {
     if (!selectAllRef.current) return
     const visible = registros
@@ -94,6 +103,18 @@ export default function Beneficio() {
     if (data) setRegistros(data)
   }
 
+  function showError(msg: string) {
+    setError(msg)
+    if (errorTimerRef.current) clearTimeout(errorTimerRef.current)
+    errorTimerRef.current = setTimeout(() => setError(''), 4000)
+  }
+
+  function showBatchError(msg: string) {
+    setBatchError(msg)
+    if (batchErrorTimerRef.current) clearTimeout(batchErrorTimerRef.current)
+    batchErrorTimerRef.current = setTimeout(() => setBatchError(''), 4000)
+  }
+
   function handleTabChange(tab: 'res' | 'cerdo') {
     setActiveTab(tab)
     setForm(initialForm)
@@ -102,6 +123,8 @@ export default function Beneficio() {
     setSelected(new Set())
     setBatchError('')
     setBatchSuccess('')
+    if (errorTimerRef.current) clearTimeout(errorTimerRef.current)
+    if (batchErrorTimerRef.current) clearTimeout(batchErrorTimerRef.current)
     setTimeout(() => codigoRef.current?.focus(), 0)
   }
 
@@ -111,6 +134,10 @@ export default function Beneficio() {
     .filter(r => r.tipo_carne === activeTab)
     .filter(r => !q || `${r.codigo_cliente}-${r.numero_animal}`.toLowerCase().includes(q))
   const byTab = registros.filter(r => r.tipo_carne === activeTab)
+
+  const codigosEnCava = sortCodigos([
+    ...new Set(byTab.map(r => r.codigo_cliente))
+  ])
 
   function toggleAll() {
     const visibleIds = visibleRegistros.map(r => r.id)
@@ -168,7 +195,11 @@ export default function Beneficio() {
       .single()
 
     if (err || !registro) {
-      setError('Error al guardar el registro.')
+      showError(
+        err?.code === '23505'
+          ? 'Este animal ya está registrado en el inventario'
+          : 'Error al guardar. Intenta de nuevo'
+      )
       setSaving(false)
       return
     }
@@ -195,7 +226,7 @@ export default function Beneficio() {
     const final = parseInt(batchForm.numero_final)
 
     if (isNaN(inicial) || isNaN(final) || final <= inicial) {
-      setBatchError('El número final debe ser mayor al inicial.')
+      showBatchError('El número final debe ser mayor al inicial.')
       return
     }
 
@@ -219,7 +250,11 @@ export default function Beneficio() {
       .select('id')
 
     if (err || !inserted) {
-      setBatchError('Error al guardar el lote.')
+      showBatchError(
+        err?.code === '23505'
+          ? 'Uno o más animales del lote ya están registrados en el inventario'
+          : 'Error al guardar. Intenta de nuevo'
+      )
       setBatchSaving(false)
       return
     }
@@ -322,7 +357,7 @@ export default function Beneficio() {
         <h2 className="text-xl font-bold text-gray-900 mb-5">Registrar animal</h2>
 
         {/* Subtabs */}
-        <div className="flex w-fit border border-gray-200 rounded-xl overflow-hidden shadow-sm mb-6">
+        <div className="flex w-fit border border-gray-200 rounded-xl overflow-hidden shadow-sm mb-3">
           {(['res', 'cerdo'] as const).map(tab => (
             <button
               key={tab}
@@ -338,6 +373,14 @@ export default function Beneficio() {
             </button>
           ))}
         </div>
+
+        {/* Resumen de códigos en cava */}
+        {codigosEnCava.length > 0 && (
+          <p className="text-xs text-gray-500 mb-4">
+            Códigos en cava:{' '}
+            <span className="font-medium text-gray-700">{codigosEnCava.join(', ')}</span>
+          </p>
+        )}
 
         {/* Formulario individual */}
         <form

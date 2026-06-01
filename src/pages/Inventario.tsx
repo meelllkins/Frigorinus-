@@ -109,6 +109,12 @@ export default function Inventario() {
     !q || `${v.registros_beneficio.codigo_cliente}-${v.registros_beneficio.numero_animal}`.toLowerCase().includes(q)
   )
 
+  const codigosConVisceras = [...new Set(visceras.map(v => v.registros_beneficio.codigo_cliente))].sort((a, b) => {
+    const na = Number(a), nb = Number(b)
+    if (!isNaN(na) && !isNaN(nb)) return na - nb
+    return a.localeCompare(b)
+  })
+
   const allVisibleSelected =
     visibleVisceras.length > 0 && visibleVisceras.every(v => selected.has(v.id))
 
@@ -183,6 +189,14 @@ export default function Inventario() {
       )}
 
       <h2 className="text-xl font-bold text-gray-900 mb-5">Inventario de vísceras</h2>
+
+      {/* Resumen de códigos con vísceras */}
+      {codigosConVisceras.length > 0 && (
+        <p className="text-xs text-gray-500 mb-3">
+          Códigos con vísceras en inventario:{' '}
+          <span className="font-medium text-gray-700">{codigosConVisceras.join(', ')}</span>
+        </p>
+      )}
 
       {/* Toolbar */}
       <div className="flex items-center justify-between mb-4 gap-4">

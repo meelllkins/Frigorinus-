@@ -50,11 +50,16 @@ export default function CobrosFrio() {
   }, [])
 
   const q = search.trim().toLowerCase()
-  const visibleRegistros = registros
-    .filter(r => r.tipo_carne === activeTab)
-    .filter(r => !q || `${r.codigo_cliente}-${r.numero_animal}`.toLowerCase().includes(q))
-
   const byTab = registros.filter(r => r.tipo_carne === activeTab)
+  const visibleRegistros = byTab.filter(r =>
+    !q || `${r.codigo_cliente}-${r.numero_animal}`.toLowerCase().includes(q)
+  )
+
+  const codigosConCobro = [...new Set(byTab.map(r => r.codigo_cliente))].sort((a, b) => {
+    const na = Number(a), nb = Number(b)
+    if (!isNaN(na) && !isNaN(nb)) return na - nb
+    return a.localeCompare(b)
+  })
 
   function exportCSV() {
     const today = new Date().toISOString().split('T')[0]
@@ -89,6 +94,14 @@ export default function CobrosFrio() {
           </button>
         ))}
       </div>
+
+      {/* Resumen de códigos con cobro pendiente */}
+      {codigosConCobro.length > 0 && (
+        <p className="text-xs text-gray-500 mb-4">
+          Códigos con cobro pendiente:{' '}
+          <span className="font-medium text-gray-700">{codigosConCobro.join(', ')}</span>
+        </p>
+      )}
 
       {/* Toolbar */}
       <div className="flex items-center justify-between mb-4 gap-4">
