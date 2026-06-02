@@ -280,6 +280,7 @@ export default function Beneficio() {
     setForm(getInitialForm())
     fetchRegistros()
     setSaving(false)
+    if (window.innerWidth > 768) setTimeout(() => codigoRef.current?.focus(), 0)
   }
 
   async function handleBatchSubmit(e: React.FormEvent) {
@@ -642,7 +643,7 @@ export default function Beneficio() {
 
         <div className="overflow-x-auto rounded-2xl shadow-sm border border-gray-200">
         <div className="bg-white overflow-hidden">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm min-w-[600px]">
             <thead>
               <tr className="bg-gray-800">
                 <th className="px-4 py-3 w-10">

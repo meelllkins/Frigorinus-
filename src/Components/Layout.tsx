@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { ClipboardList, AlertTriangle, Package, Truck, LogOut, Thermometer, Download, Trash2 } from 'lucide-react'
@@ -8,6 +8,15 @@ export default function Layout() {
   const [confirmText, setConfirmText] = useState('')
   const [resetting, setResetting] = useState(false)
   const [installPrompt, setInstallPrompt] = useState<Event | null>(null)
+  const [showPwaModal, setShowPwaModal] = useState(false)
+
+  const pwa = useMemo(() => {
+    const ua = navigator.userAgent
+    const isIOS = /iPad|iPhone|iPod/.test(ua)
+    const isAndroid = /Android/.test(ua)
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+    return { isIOS, isAndroid, isMobile: isIOS || isAndroid, isStandalone }
+  }, [])
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -26,6 +35,11 @@ export default function Layout() {
     if (outcome === 'accepted') setInstallPrompt(null)
   }
 
+  const showManualInstallBtn = !installPrompt && pwa.isMobile && !pwa.isStandalone
+  const pwaInstruction = pwa.isIOS
+    ? 'Toca el botón compartir ⬆ en Safari y luego "Añadir a pantalla de inicio"'
+    : 'Toca los 3 puntos ⋮ en Chrome y luego "Instalar app"'
+
   const handleLogout = async () => {
     await supabase.auth.signOut()
   }
@@ -42,6 +56,24 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen bg-gray-100 font-sans">
+      {/* Modal instrucciones PWA */}
+      {showPwaModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4">
+            <h3 className="text-base font-bold text-gray-900 mb-3">Instalar Frigorinus</h3>
+            <p className="text-sm text-gray-600 mb-5">{pwaInstruction}</p>
+            <div className="flex justify-end">
+              <button
+                onClick={() => setShowPwaModal(false)}
+                className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                Entendido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal de reset */}
       {showResetModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -107,6 +139,15 @@ export default function Layout() {
             >
               <Download size={15} />
               <span className="hidden sm:inline">Instalar app</span>
+            </button>
+          )}
+          {showManualInstallBtn && (
+            <button
+              onClick={() => setShowPwaModal(true)}
+              className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors px-2 sm:px-3 py-1.5 rounded-lg hover:bg-gray-800"
+            >
+              <Download size={15} />
+              <span className="hidden sm:inline">Añadir a inicio</span>
             </button>
           )}
           <button

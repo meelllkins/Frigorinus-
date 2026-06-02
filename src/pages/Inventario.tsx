@@ -246,7 +246,7 @@ export default function Inventario() {
 
       <div className="overflow-x-auto rounded-2xl shadow-sm border border-gray-200">
       <div className="bg-white overflow-hidden">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm min-w-[600px]">
           <thead>
             <tr className="bg-gray-800">
               <th className="px-4 py-3 w-10">

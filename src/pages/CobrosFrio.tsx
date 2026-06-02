@@ -130,7 +130,7 @@ export default function CobrosFrio() {
 
       <div className="overflow-x-auto rounded-2xl shadow-sm border border-gray-200">
       <div className="bg-white overflow-hidden">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm min-w-[600px]">
           <thead>
             <tr className="bg-gray-800">
               <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Código</th>
