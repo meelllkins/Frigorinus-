@@ -15,8 +15,21 @@ interface VisceraCon {
   }
 }
 
-function localToday(): string {
+function localToday(): Date {
   const d = new Date()
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate())
+}
+
+function parsearFechaLocal(timestamp: string): Date {
+  const d = new Date(timestamp)
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate())
+}
+
+function formatFecha(d: Date): string {
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
+}
+
+function formatFechaFilename(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
@@ -31,10 +44,9 @@ function exportXLSX(filename: string, rows: string[][]): void {
 }
 
 function diasEnCava(createdAt: string): number {
-  const inicio = new Date(createdAt.split('T')[0] + 'T00:00:00')
-  const hoy = new Date()
-  hoy.setHours(0, 0, 0, 0)
-  return Math.floor((hoy.getTime() - inicio.getTime()) / 86_400_000)
+  const ingreso = parsearFechaLocal(createdAt)
+  const hoy = localToday()
+  return Math.floor((hoy.getTime() - ingreso.getTime()) / (1000 * 60 * 60 * 24))
 }
 
 function diasBadge(dias: number): string {
@@ -170,12 +182,12 @@ export default function Inventario() {
   }
 
   function exportCSV() {
-    const today = localToday()
+    const today = formatFechaFilename(localToday())
     const header = ['Código animal', 'Estado', 'Fecha de ingreso', 'Días en cava']
     const data = visibleVisceras.map(v => [
       `${v.registros_beneficio.codigo_cliente}-${v.registros_beneficio.numero_animal}`,
       'En inventario',
-      v.created_at.split('T')[0],
+      formatFecha(parsearFechaLocal(v.created_at)),
       String(diasEnCava(v.created_at)),
     ])
     exportXLSX(`inventario-visceras-${today}.xlsx`, [header, ...data])
@@ -320,7 +332,7 @@ export default function Inventario() {
                         En inventario
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-700">{v.created_at.split('T')[0]}</td>
+                    <td className="px-4 py-3 text-gray-700">{formatFecha(parsearFechaLocal(v.created_at))}</td>
                     <td className="px-4 py-3">
                       <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${diasBadge(diasEnCava(v.created_at))}`}>
                         {diasEnCava(v.created_at)} {diasEnCava(v.created_at) === 1 ? 'día' : 'días'}
