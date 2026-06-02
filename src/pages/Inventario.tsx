@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Truck } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 
 interface VisceraCon {
@@ -19,16 +20,27 @@ function localToday(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-function downloadCSV(filename: string, rows: string[][]): void {
-  const esc = (v: string) => `"${v.replace(/"/g, '""')}"`
-  const csv = '﻿' + rows.map(row => row.map(esc).join(',')).join('\n')
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
+function exportXLSX(filename: string, rows: string[][]): void {
+  const ws = XLSX.utils.aoa_to_sheet(rows)
+  ws['!cols'] = rows[0].map((_, ci) => ({
+    wch: Math.max(...rows.map(r => (r[ci] ?? '').length))
+  }))
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Datos')
+  XLSX.writeFile(wb, filename)
+}
+
+function diasEnCava(createdAt: string): number {
+  const inicio = new Date(createdAt.split('T')[0] + 'T00:00:00')
+  const hoy = new Date()
+  hoy.setHours(0, 0, 0, 0)
+  return Math.floor((hoy.getTime() - inicio.getTime()) / 86_400_000)
+}
+
+function diasBadge(dias: number): string {
+  if (dias <= 2) return 'bg-green-100 text-green-700'
+  if (dias <= 4) return 'bg-amber-100 text-amber-700'
+  return 'bg-red-100 text-red-700'
 }
 
 export default function Inventario() {
@@ -151,13 +163,14 @@ export default function Inventario() {
 
   function exportCSV() {
     const today = localToday()
-    const header = ['Código animal', 'Estado', 'Fecha ingreso']
+    const header = ['Código animal', 'Estado', 'Fecha de ingreso', 'Días en cava']
     const data = visibleVisceras.map(v => [
       `${v.registros_beneficio.codigo_cliente}-${v.registros_beneficio.numero_animal}`,
       'En inventario',
       v.created_at.split('T')[0],
+      String(diasEnCava(v.created_at)),
     ])
-    downloadCSV(`inventario-visceras-${today}.csv`, [header, ...data])
+    exportXLSX(`inventario-visceras-${today}.xlsx`, [header, ...data])
   }
 
   const someSelected = selected.size > 0
@@ -223,7 +236,7 @@ export default function Inventario() {
           onClick={exportCSV}
           className="text-xs font-semibold text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 transition-colors whitespace-nowrap"
         >
-          Exportar CSV
+          Exportar Excel
         </button>
       </div>
 
@@ -259,14 +272,15 @@ export default function Inventario() {
               </th>
               <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Código animal</th>
               <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Estado</th>
-              <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Fecha ingreso</th>
+              <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Fecha de ingreso</th>
+              <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Días en cava</th>
               <th className="px-4 py-3" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {visibleVisceras.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-10 text-center text-gray-400 text-sm">
+                <td colSpan={6} className="px-4 py-10 text-center text-gray-400 text-sm">
                   {visceras.length === 0
                     ? 'No hay vísceras en inventario'
                     : 'Sin resultados para la búsqueda'}
@@ -299,6 +313,11 @@ export default function Inventario() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-gray-700">{v.created_at.split('T')[0]}</td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${diasBadge(diasEnCava(v.created_at))}`}>
+                        {diasEnCava(v.created_at)} {diasEnCava(v.created_at) === 1 ? 'día' : 'días'}
+                      </span>
+                    </td>
                     <td className="px-4 py-3 text-right">
                       <button
                         onClick={() => handleDespachar(v)}

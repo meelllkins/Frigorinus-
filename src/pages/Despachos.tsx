@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Undo2 } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 
 interface DespachoCon {
@@ -21,16 +22,14 @@ function localToday(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-function downloadCSV(filename: string, rows: string[][]): void {
-  const esc = (v: string) => `"${v.replace(/"/g, '""')}"`
-  const csv = '﻿' + rows.map(row => row.map(esc).join(',')).join('\n')
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
+function exportXLSX(filename: string, rows: string[][]): void {
+  const ws = XLSX.utils.aoa_to_sheet(rows)
+  ws['!cols'] = rows[0].map((_, ci) => ({
+    wch: Math.max(...rows.map(r => (r[ci] ?? '').length))
+  }))
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Datos')
+  XLSX.writeFile(wb, filename)
 }
 
 export default function Despachos() {
@@ -99,7 +98,7 @@ export default function Despachos() {
       d.tipo_despacho === 'canal' ? 'Canal' : 'Víscera',
       d.fecha_despacho,
     ])
-    downloadCSV(`despachos-${today}.csv`, [header, ...data])
+    exportXLSX(`despachos-${today}.xlsx`, [header, ...data])
   }
 
   return (
@@ -119,7 +118,7 @@ export default function Despachos() {
           onClick={exportCSV}
           className="text-xs font-semibold text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 transition-colors whitespace-nowrap"
         >
-          Exportar CSV
+          Exportar Excel
         </button>
       </div>
 

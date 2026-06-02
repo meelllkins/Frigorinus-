@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { ChevronDown, Pencil, Truck } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import type { RegistroBeneficio } from '../types'
 
@@ -29,16 +30,14 @@ function sortCodigos(codigos: string[]): string[] {
   })
 }
 
-function downloadCSV(filename: string, rows: string[][]): void {
-  const esc = (v: string) => `"${v.replace(/"/g, '""')}"`
-  const csv = '﻿' + rows.map(row => row.map(esc).join(',')).join('\n')
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
+function exportXLSX(filename: string, rows: string[][]): void {
+  const ws = XLSX.utils.aoa_to_sheet(rows)
+  ws['!cols'] = rows[0].map((_, ci) => ({
+    wch: Math.max(...rows.map(r => (r[ci] ?? '').length))
+  }))
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Datos')
+  XLSX.writeFile(wb, filename)
 }
 
 function getInitialForm() {
@@ -239,7 +238,7 @@ export default function Beneficio() {
       r.fecha_beneficio,
       String(diasEnCava(r.fecha_beneficio)),
     ])
-    downloadCSV(`inventario-${today}.csv`, [header, ...data])
+    exportXLSX(`inventario-${today}.xlsx`, [header, ...data])
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -620,7 +619,7 @@ export default function Beneficio() {
             onClick={exportCSV}
             className="text-xs font-semibold text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 transition-colors whitespace-nowrap"
           >
-            Exportar CSV
+            Exportar Excel
           </button>
         </div>
 
