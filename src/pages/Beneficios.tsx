@@ -6,7 +6,7 @@ import type { RegistroBeneficio } from '../types'
 function addDays(dateStr: string, days: number): string {
   const d = new Date(dateStr + 'T00:00:00')
   d.setDate(d.getDate() + days)
-  return d.toISOString().split('T')[0]
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 function diasEnCava(fechaBeneficio: string): number {
@@ -14,6 +14,11 @@ function diasEnCava(fechaBeneficio: string): number {
   const hoy = new Date()
   hoy.setHours(0, 0, 0, 0)
   return Math.floor((hoy.getTime() - inicio.getTime()) / 86_400_000)
+}
+
+function localToday(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 function sortCodigos(codigos: string[]): string[] {
@@ -36,17 +41,12 @@ function downloadCSV(filename: string, rows: string[][]): void {
   URL.revokeObjectURL(url)
 }
 
-const initialForm = {
-  codigo_cliente: '',
-  numero_animal: '',
-  fecha_beneficio: new Date().toISOString().split('T')[0],
+function getInitialForm() {
+  return { codigo_cliente: '', numero_animal: '', fecha_beneficio: localToday() }
 }
 
-const initialBatchForm = {
-  codigo_cliente: '',
-  numero_inicial: '',
-  numero_final: '',
-  fecha_beneficio: new Date().toISOString().split('T')[0],
+function getInitialBatchForm() {
+  return { codigo_cliente: '', numero_inicial: '', numero_final: '', fecha_beneficio: localToday() }
 }
 
 interface EditForm {
@@ -59,7 +59,7 @@ export default function Beneficio() {
   const [activeTab, setActiveTab] = useState<'res' | 'cerdo'>('res')
 
   // Formulario individual
-  const [form, setForm] = useState(initialForm)
+  const [form, setForm] = useState(getInitialForm)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const formRef = useRef<HTMLFormElement>(null)
@@ -69,7 +69,7 @@ export default function Beneficio() {
 
   // Formulario en lote
   const [showBatch, setShowBatch] = useState(false)
-  const [batchForm, setBatchForm] = useState(initialBatchForm)
+  const [batchForm, setBatchForm] = useState(getInitialBatchForm)
   const [batchSaving, setBatchSaving] = useState(false)
   const [batchError, setBatchError] = useState('')
   const [batchSuccess, setBatchSuccess] = useState('')
@@ -136,7 +136,7 @@ export default function Beneficio() {
 
   function handleTabChange(tab: 'res' | 'cerdo') {
     setActiveTab(tab)
-    setForm(initialForm)
+    setForm(getInitialForm())
     setError('')
     setSearch('')
     setSelected(new Set())
@@ -233,7 +233,7 @@ export default function Beneficio() {
   }
 
   function exportCSV() {
-    const today = new Date().toISOString().split('T')[0]
+    const today = localToday()
     const header = ['Código', 'Tipo', 'Fecha de sacrificio', 'Días en cava']
     const data = visibleRegistros.map(r => [
       `${r.codigo_cliente}-${r.numero_animal}`,
@@ -279,7 +279,7 @@ export default function Beneficio() {
       })
     }
 
-    setForm(initialForm)
+    setForm(getInitialForm())
     fetchRegistros()
     setSaving(false)
     setTimeout(() => codigoRef.current?.focus(), 0)
@@ -334,13 +334,13 @@ export default function Beneficio() {
     }
 
     setBatchSuccess(`Se registraron ${inserted.length} animales correctamente.`)
-    setBatchForm(initialBatchForm)
+    setBatchForm(getInitialBatchForm())
     setBatchSaving(false)
     fetchRegistros()
   }
 
   async function handleDespachar(r: RegistroBeneficio) {
-    const hoy = new Date().toISOString().split('T')[0]
+    const hoy = localToday()
     await supabase.from('registros_beneficio').update({ estado: 'despachado' }).eq('id', r.id)
     await supabase.from('despachos').insert({
       registro_id: r.id,
@@ -353,7 +353,7 @@ export default function Beneficio() {
 
   async function handleDespacharMultiple() {
     setDispatching(true)
-    const hoy = new Date().toISOString().split('T')[0]
+    const hoy = localToday()
     const ids = Array.from(selected)
 
     await supabase

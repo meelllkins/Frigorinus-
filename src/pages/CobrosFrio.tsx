@@ -15,6 +15,11 @@ function urgenciaBadge(dias: number): string {
   return 'bg-red-100 text-red-700'
 }
 
+function localToday(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 function downloadCSV(filename: string, rows: string[][]): void {
   const esc = (v: string) => `"${v.replace(/"/g, '""')}"`
   const csv = '﻿' + rows.map(row => row.map(esc).join(',')).join('\n')
@@ -34,7 +39,7 @@ export default function CobrosFrio() {
 
   useEffect(() => {
     async function fetch() {
-      const hoy = new Date().toISOString().split('T')[0]
+      const hoy = localToday()
       const { data } = await supabase
         .from('registros_beneficio')
         .select('*')
@@ -59,7 +64,7 @@ export default function CobrosFrio() {
   })
 
   function exportCSV() {
-    const today = new Date().toISOString().split('T')[0]
+    const today = localToday()
     const header = ['Código', 'Tipo', 'Fecha de sacrificio', 'Días en cava']
     const data = visibleRegistros.map(r => [
       `${r.codigo_cliente}-${r.numero_animal}`,

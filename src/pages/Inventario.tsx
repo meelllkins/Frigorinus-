@@ -13,6 +13,11 @@ interface VisceraCon {
   }
 }
 
+function localToday(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 function downloadCSV(filename: string, rows: string[][]): void {
   const esc = (v: string) => `"${v.replace(/"/g, '""')}"`
   const csv = '﻿' + rows.map(row => row.map(esc).join(',')).join('\n')
@@ -55,7 +60,7 @@ export default function Inventario() {
   }
 
   async function handleDespachar(v: VisceraCon) {
-    const hoy = new Date().toISOString().split('T')[0]
+    const hoy = localToday()
     await supabase
       .from('inventario_visceras')
       .update({ estado: 'despachada', fecha_despacho: hoy })
@@ -75,7 +80,7 @@ export default function Inventario() {
 
   async function handleDespacharMultiple() {
     setDispatching(true)
-    const hoy = new Date().toISOString().split('T')[0]
+    const hoy = localToday()
     const ids = Array.from(selected)
     const candidates = visceras.filter(v => selected.has(v.id))
     const registroIds = candidates.map(v => v.registro_id)
@@ -144,7 +149,7 @@ export default function Inventario() {
   }
 
   function exportCSV() {
-    const today = new Date().toISOString().split('T')[0]
+    const today = localToday()
     const header = ['Código animal', 'Estado', 'Fecha ingreso']
     const data = visibleVisceras.map(v => [
       `${v.registros_beneficio.codigo_cliente}-${v.registros_beneficio.numero_animal}`,

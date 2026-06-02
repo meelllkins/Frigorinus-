@@ -15,6 +15,11 @@ interface DespachoCon {
   }
 }
 
+function localToday(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 function downloadCSV(filename: string, rows: string[][]): void {
   const esc = (v: string) => `"${v.replace(/"/g, '""')}"`
   const csv = '﻿' + rows.map(row => row.map(esc).join(',')).join('\n')
@@ -86,7 +91,7 @@ export default function Despachos() {
   )
 
   function exportCSV() {
-    const today = new Date().toISOString().split('T')[0]
+    const today = localToday()
     const header = ['Código', 'Tipo de despacho', 'Fecha de despacho']
     const data = visibleDespachos.map(d => [
       `${d.registros_beneficio.codigo_cliente}-${d.registros_beneficio.numero_animal}`,
