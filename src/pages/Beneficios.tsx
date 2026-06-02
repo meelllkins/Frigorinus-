@@ -112,7 +112,7 @@ export default function Beneficio() {
       .from('registros_beneficio')
       .select('*')
       .eq('estado', 'activo')
-      .order('fecha_beneficio', { ascending: false })
+      .order('created_at', { ascending: false })
     if (data) setRegistros(data)
   }
 
@@ -447,10 +447,16 @@ export default function Beneficio() {
 
         {/* Resumen de códigos en cava */}
         {codigosEnCava.length > 0 && (
-          <p className="text-xs text-gray-500 mb-4">
-            Códigos en cava:{' '}
-            <span className="font-medium text-gray-700">{codigosEnCava.join(', ')}</span>
-          </p>
+          <div className="mb-4">
+            <p className="text-xs text-gray-500 mb-1.5">Códigos en cava:</p>
+            <div className="flex flex-wrap gap-1.5">
+              {codigosEnCava.map(c => (
+                <span key={c} className="bg-gray-100 border border-gray-200 text-gray-700 text-xs font-bold px-2 py-0.5 rounded-md">
+                  {c}
+                </span>
+              ))}
+            </div>
+          </div>
         )}
 
         {/* Formulario individual */}

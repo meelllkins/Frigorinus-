@@ -40,11 +40,8 @@ export default function CobrosFrio() {
         .select('*')
         .eq('estado', 'activo')
         .lte('fecha_cobro_frio', hoy)
-      if (data) {
-        setRegistros(
-          [...data].sort((a, b) => diasEnCava(b.fecha_beneficio) - diasEnCava(a.fecha_beneficio))
-        )
-      }
+        .order('created_at', { ascending: false })
+      if (data) setRegistros(data)
     }
     fetch()
   }, [])
@@ -97,10 +94,16 @@ export default function CobrosFrio() {
 
       {/* Resumen de códigos con cobro pendiente */}
       {codigosConCobro.length > 0 && (
-        <p className="text-xs text-gray-500 mb-4">
-          Códigos con cobro pendiente:{' '}
-          <span className="font-medium text-gray-700">{codigosConCobro.join(', ')}</span>
-        </p>
+        <div className="mb-4">
+          <p className="text-xs text-gray-500 mb-1.5">Códigos con cobro pendiente:</p>
+          <div className="flex flex-wrap gap-1.5">
+            {codigosConCobro.map(c => (
+              <span key={c} className="bg-gray-100 border border-gray-200 text-gray-700 text-xs font-bold px-2 py-0.5 rounded-md">
+                {c}
+              </span>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* Toolbar */}

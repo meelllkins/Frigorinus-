@@ -192,10 +192,16 @@ export default function Inventario() {
 
       {/* Resumen de códigos con vísceras */}
       {codigosConVisceras.length > 0 && (
-        <p className="text-xs text-gray-500 mb-3">
-          Códigos con vísceras en inventario:{' '}
-          <span className="font-medium text-gray-700">{codigosConVisceras.join(', ')}</span>
-        </p>
+        <div className="mb-3">
+          <p className="text-xs text-gray-500 mb-1.5">Códigos con vísceras en inventario:</p>
+          <div className="flex flex-wrap gap-1.5">
+            {codigosConVisceras.map(c => (
+              <span key={c} className="bg-gray-100 border border-gray-200 text-gray-700 text-xs font-bold px-2 py-0.5 rounded-md">
+                {c}
+              </span>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* Toolbar */}
