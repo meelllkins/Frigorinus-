@@ -98,10 +98,6 @@ export default function Inventario() {
       tipo_despacho: 'viscera',
       fecha_despacho: hoy,
     })
-    await supabase
-      .from('registros_beneficio')
-      .update({ estado: 'despachado' })
-      .eq('id', v.registro_id)
     setSelected(prev => { const next = new Set(prev); next.delete(v.id); return next })
     fetchVisceras()
   }
@@ -111,7 +107,6 @@ export default function Inventario() {
     const hoy = localToday()
     const ids = Array.from(selected)
     const candidates = visceras.filter(v => selected.has(v.id))
-    const registroIds = candidates.map(v => v.registro_id)
 
     await supabase
       .from('inventario_visceras')
@@ -125,11 +120,6 @@ export default function Inventario() {
         fecha_despacho: hoy,
       }))
     )
-
-    await supabase
-      .from('registros_beneficio')
-      .update({ estado: 'despachado' })
-      .in('id', registroIds)
 
     setSelected(new Set())
     setShowModal(false)

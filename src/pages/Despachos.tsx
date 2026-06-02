@@ -82,11 +82,6 @@ export default function Despachos() {
         .update({ estado: 'en_inventario', fecha_despacho: null })
         .eq('registro_id', d.registro_id)
         .eq('estado', 'despachada')
-
-      await supabase
-        .from('registros_beneficio')
-        .update({ estado: 'activo' })
-        .eq('id', d.registro_id)
     }
 
     await supabase.from('despachos').delete().eq('id', d.id)
