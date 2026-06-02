@@ -76,6 +76,11 @@ export default function Despachos() {
         .update({ estado: 'en_inventario', fecha_despacho: null })
         .eq('registro_id', d.registro_id)
         .eq('estado', 'despachada')
+
+      await supabase
+        .from('registros_beneficio')
+        .update({ estado: 'activo' })
+        .eq('id', d.registro_id)
     }
 
     await supabase.from('despachos').delete().eq('id', d.id)
@@ -102,7 +107,7 @@ export default function Despachos() {
   }
 
   return (
-    <div className="overflow-x-hidden">
+    <div className="overflow-x-hidden touch-pan-y">
       <h2 className="text-xl font-bold text-gray-900 mb-5">Historial de despachos</h2>
 
       {/* Toolbar */}
@@ -122,7 +127,7 @@ export default function Despachos() {
         </button>
       </div>
 
-      <div className="w-full overflow-x-auto touch-pan-x rounded-2xl shadow-sm border border-gray-200 bg-white">
+      <div className="w-full overflow-x-auto rounded-2xl shadow-sm border border-gray-200 bg-white">
         <table className="min-w-[650px] w-full text-sm">
           <thead>
             <tr className="bg-gray-800">

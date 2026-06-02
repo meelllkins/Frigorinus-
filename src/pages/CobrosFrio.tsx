@@ -75,7 +75,7 @@ export default function CobrosFrio() {
   }
 
   return (
-    <div className="overflow-x-hidden">
+    <div className="overflow-x-hidden touch-pan-y">
       <h2 className="text-xl font-bold text-gray-900 mb-5">Cobros de frío pendientes</h2>
 
       {/* Subtabs */}
@@ -127,7 +127,7 @@ export default function CobrosFrio() {
         </button>
       </div>
 
-      <div className="w-full overflow-x-auto touch-pan-x rounded-2xl shadow-sm border border-gray-200 bg-white">
+      <div className="w-full overflow-x-auto rounded-2xl shadow-sm border border-gray-200 bg-white">
         <table className="min-w-[650px] w-full text-sm">
           <thead>
             <tr className="bg-gray-800">

@@ -390,7 +390,7 @@ export default function Beneficio() {
     'border border-gray-300 rounded-md px-2 py-1 text-xs focus:outline-none focus:border-green-700 focus:ring-1 focus:ring-green-700 bg-white'
 
   return (
-    <div className="space-y-8 overflow-x-hidden">
+    <div className="space-y-8 overflow-x-hidden touch-pan-y">
       {/* Modal de confirmación de despacho múltiple */}
       {showModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
@@ -640,7 +640,7 @@ export default function Beneficio() {
           </div>
         )}
 
-        <div className="w-full overflow-x-auto touch-pan-x rounded-2xl shadow-sm border border-gray-200 bg-white">
+        <div className="w-full overflow-x-auto rounded-2xl shadow-sm border border-gray-200 bg-white">
           <table className="min-w-[650px] w-full text-sm">
             <thead>
               <tr className="bg-gray-800">

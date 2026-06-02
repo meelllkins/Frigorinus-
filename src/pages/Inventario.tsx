@@ -62,6 +62,8 @@ export default function Inventario() {
   const [showModal, setShowModal] = useState(false)
   const [dispatching, setDispatching] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const selectAllRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { fetchVisceras() }, [])
@@ -174,6 +176,16 @@ export default function Inventario() {
     fetchVisceras()
   }
 
+  async function handleEliminarMultiple() {
+    setDeleting(true)
+    const ids = Array.from(selected)
+    await supabase.from('inventario_visceras').delete().in('id', ids)
+    setSelected(new Set())
+    setShowDeleteModal(false)
+    setDeleting(false)
+    fetchVisceras()
+  }
+
   function toggleOne(id: string) {
     const next = new Set(selected)
     if (next.has(id)) next.delete(id)
@@ -196,7 +208,37 @@ export default function Inventario() {
   const someSelected = selected.size > 0
 
   return (
-    <div className="overflow-x-hidden">
+    <div className="overflow-x-hidden touch-pan-y">
+      {/* Modal de confirmación de eliminación múltiple */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4">
+            <h3 className="text-base font-bold text-gray-900 mb-2">Confirmar eliminación</h3>
+            <p className="text-sm text-gray-600 mb-6">
+              ¿Estás seguro de eliminar{' '}
+              <span className="font-semibold text-gray-900">
+                {selected.size} {selected.size === 1 ? 'víscera' : 'vísceras'}
+              </span>? Esta acción no se puede deshacer.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleEliminarMultiple}
+                disabled={deleting}
+                className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {deleting ? 'Eliminando...' : 'Eliminar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal de confirmación de despacho múltiple */}
       {showModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
@@ -260,24 +302,33 @@ export default function Inventario() {
         </button>
       </div>
 
-      {/* Barra de despacho múltiple */}
+      {/* Barra de acciones múltiples */}
       {someSelected && (
         <div className="mb-4 flex items-center justify-between bg-gray-900 text-white rounded-xl px-4 py-3 gap-3">
           <span className="text-sm font-semibold">
             <span className="hidden sm:inline">{selected.size} {selected.size === 1 ? 'víscera seleccionada' : 'vísceras seleccionadas'}</span>
             <span className="sm:hidden">{selected.size} sel.</span>
           </span>
-          <button
-            onClick={() => setShowModal(true)}
-            className="bg-red-600 hover:bg-red-500 text-white text-sm font-bold rounded-lg px-3 sm:px-4 py-2 transition-colors whitespace-nowrap"
-          >
-            <span className="hidden sm:inline">Despachar {selected.size} seleccionadas</span>
-            <span className="sm:hidden">Despachar</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowDeleteModal(true)}
+              className="text-sm font-bold text-red-400 hover:text-red-300 transition-colors whitespace-nowrap"
+            >
+              <span className="hidden sm:inline">Eliminar {selected.size} seleccionadas</span>
+              <span className="sm:hidden">Eliminar</span>
+            </button>
+            <button
+              onClick={() => setShowModal(true)}
+              className="bg-red-600 hover:bg-red-500 text-white text-sm font-bold rounded-lg px-3 sm:px-4 py-2 transition-colors whitespace-nowrap"
+            >
+              <span className="hidden sm:inline">Despachar {selected.size} seleccionadas</span>
+              <span className="sm:hidden">Despachar</span>
+            </button>
+          </div>
         </div>
       )}
 
-      <div className="w-full overflow-x-auto touch-pan-x rounded-2xl shadow-sm border border-gray-200 bg-white">
+      <div className="w-full overflow-x-auto rounded-2xl shadow-sm border border-gray-200 bg-white">
         <table className="min-w-[650px] w-full text-sm">
           <thead>
             <tr className="bg-gray-800">
