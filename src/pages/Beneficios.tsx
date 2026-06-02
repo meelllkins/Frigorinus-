@@ -277,6 +277,7 @@ export default function Beneficio() {
     }
 
     setForm(getInitialForm())
+    setSearch('')
     fetchRegistros()
     setSaving(false)
     if (window.innerWidth > 768) setTimeout(() => codigoRef.current?.focus(), 0)
@@ -332,6 +333,7 @@ export default function Beneficio() {
 
     setBatchSuccess(`Se registraron ${inserted.length} animales correctamente.`)
     setBatchForm(getInitialBatchForm())
+    setSearch('')
     setBatchSaving(false)
     fetchRegistros()
   }
