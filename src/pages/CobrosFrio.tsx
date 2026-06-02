@@ -76,7 +76,7 @@ export default function CobrosFrio() {
   }
 
   return (
-    <div>
+    <div className="overflow-x-hidden">
       <h2 className="text-xl font-bold text-gray-900 mb-5">Cobros de frío pendientes</h2>
 
       {/* Subtabs */}
@@ -128,9 +128,8 @@ export default function CobrosFrio() {
         </button>
       </div>
 
-      <div className="overflow-x-auto rounded-2xl shadow-sm border border-gray-200">
-      <div className="bg-white overflow-hidden">
-        <table className="w-full text-sm min-w-[600px]">
+      <div className="w-full overflow-x-auto touch-pan-x rounded-2xl shadow-sm border border-gray-200 bg-white">
+        <table className="min-w-[650px] w-full text-sm">
           <thead>
             <tr className="bg-gray-800">
               <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Código</th>
@@ -169,7 +168,6 @@ export default function CobrosFrio() {
             )}
           </tbody>
         </table>
-      </div>
       </div>
     </div>
   )

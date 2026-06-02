@@ -163,7 +163,7 @@ export default function Inventario() {
   const someSelected = selected.size > 0
 
   return (
-    <div>
+    <div className="overflow-x-hidden">
       {/* Modal de confirmación de despacho múltiple */}
       {showModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
@@ -244,9 +244,8 @@ export default function Inventario() {
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-2xl shadow-sm border border-gray-200">
-      <div className="bg-white overflow-hidden">
-        <table className="w-full text-sm min-w-[600px]">
+      <div className="w-full overflow-x-auto touch-pan-x rounded-2xl shadow-sm border border-gray-200 bg-white">
+        <table className="min-w-[650px] w-full text-sm">
           <thead>
             <tr className="bg-gray-800">
               <th className="px-4 py-3 w-10">
@@ -315,7 +314,6 @@ export default function Inventario() {
             )}
           </tbody>
         </table>
-      </div>
       </div>
     </div>
   )
