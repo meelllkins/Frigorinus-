@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, Pencil } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import type { RegistroBeneficio } from '../types'
 
@@ -49,6 +49,12 @@ const initialBatchForm = {
   fecha_beneficio: new Date().toISOString().split('T')[0],
 }
 
+interface EditForm {
+  codigo_cliente: string
+  numero_animal: string
+  fecha_beneficio: string
+}
+
 export default function Beneficio() {
   const [activeTab, setActiveTab] = useState<'res' | 'cerdo'>('res')
 
@@ -68,6 +74,13 @@ export default function Beneficio() {
   const [batchError, setBatchError] = useState('')
   const [batchSuccess, setBatchSuccess] = useState('')
   const batchErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Edición inline
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editForm, setEditForm] = useState<EditForm | null>(null)
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState('')
+  const editErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Tabla
   const [registros, setRegistros] = useState<RegistroBeneficio[]>([])
@@ -115,6 +128,12 @@ export default function Beneficio() {
     batchErrorTimerRef.current = setTimeout(() => setBatchError(''), 4000)
   }
 
+  function showEditError(msg: string) {
+    setEditError(msg)
+    if (editErrorTimerRef.current) clearTimeout(editErrorTimerRef.current)
+    editErrorTimerRef.current = setTimeout(() => setEditError(''), 4000)
+  }
+
   function handleTabChange(tab: 'res' | 'cerdo') {
     setActiveTab(tab)
     setForm(initialForm)
@@ -123,9 +142,58 @@ export default function Beneficio() {
     setSelected(new Set())
     setBatchError('')
     setBatchSuccess('')
+    cancelEdit()
     if (errorTimerRef.current) clearTimeout(errorTimerRef.current)
     if (batchErrorTimerRef.current) clearTimeout(batchErrorTimerRef.current)
     setTimeout(() => codigoRef.current?.focus(), 0)
+  }
+
+  function startEdit(r: RegistroBeneficio) {
+    setEditingId(r.id)
+    setEditForm({
+      codigo_cliente: r.codigo_cliente,
+      numero_animal: r.numero_animal,
+      fecha_beneficio: r.fecha_beneficio,
+    })
+    setEditError('')
+    if (editErrorTimerRef.current) clearTimeout(editErrorTimerRef.current)
+  }
+
+  function cancelEdit() {
+    setEditingId(null)
+    setEditForm(null)
+    setEditError('')
+    if (editErrorTimerRef.current) clearTimeout(editErrorTimerRef.current)
+  }
+
+  async function handleSaveEdit(r: RegistroBeneficio) {
+    if (!editForm) return
+    setEditSaving(true)
+
+    const { error: err } = await supabase
+      .from('registros_beneficio')
+      .update({
+        codigo_cliente: editForm.codigo_cliente.trim(),
+        numero_animal: editForm.numero_animal.trim(),
+        fecha_beneficio: editForm.fecha_beneficio,
+        fecha_cobro_frio: addDays(editForm.fecha_beneficio, 2),
+      })
+      .eq('id', r.id)
+
+    if (err) {
+      showEditError(
+        err.code === '23505'
+          ? 'Este animal ya está registrado en el inventario'
+          : 'Error al guardar. Intenta de nuevo'
+      )
+      setEditSaving(false)
+      return
+    }
+
+    setEditingId(null)
+    setEditForm(null)
+    setEditSaving(false)
+    fetchRegistros()
   }
 
   // Registros visibles según tab activo + búsqueda
@@ -320,6 +388,9 @@ export default function Beneficio() {
 
   const inputClass =
     'w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-700 focus:ring-1 focus:ring-green-700 transition-colors'
+
+  const editInputClass =
+    'border border-gray-300 rounded-md px-2 py-1 text-xs focus:outline-none focus:border-green-700 focus:ring-1 focus:ring-green-700 bg-white'
 
   return (
     <div className="space-y-8">
@@ -595,8 +666,88 @@ export default function Beneficio() {
                 </tr>
               ) : (
                 visibleRegistros.map((r, i) => {
-                  const dias = diasEnCava(r.fecha_beneficio)
                   const isSelected = selected.has(r.id)
+                  const isEditing = editingId === r.id
+
+                  if (isEditing && editForm) {
+                    const diasEdit = diasEnCava(editForm.fecha_beneficio)
+                    return (
+                      <tr key={r.id} className="bg-amber-50 border-l-2 border-amber-400">
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleOne(r.id)}
+                            className="w-4 h-4 rounded accent-gray-900 cursor-pointer"
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="text"
+                              value={editForm.codigo_cliente}
+                              onChange={e => setEditForm({ ...editForm, codigo_cliente: e.target.value })}
+                              className={`${editInputClass} w-20`}
+                              autoFocus
+                            />
+                            <span className="text-gray-400 text-xs">-</span>
+                            <input
+                              type="text"
+                              value={editForm.numero_animal}
+                              onChange={e => setEditForm({ ...editForm, numero_animal: e.target.value })}
+                              className={`${editInputClass} w-16`}
+                            />
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                            r.tipo_carne === 'res' ? 'bg-amber-100 text-amber-700' : 'bg-pink-100 text-pink-700'
+                          }`}>
+                            {r.tipo_carne === 'res' ? 'Res' : 'Cerdo'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            type="date"
+                            value={editForm.fecha_beneficio}
+                            onChange={e => setEditForm({ ...editForm, fecha_beneficio: e.target.value })}
+                            className={editInputClass}
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                            diasEdit >= 3 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                          }`}>
+                            {diasEdit} {diasEdit === 1 ? 'día' : 'días'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col items-end gap-1">
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleSaveEdit(r)}
+                                disabled={editSaving}
+                                className="text-xs font-semibold text-white bg-green-800 hover:bg-green-700 rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
+                              >
+                                {editSaving ? '...' : 'Guardar'}
+                              </button>
+                              <button
+                                onClick={cancelEdit}
+                                className="text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg px-3 py-1.5 transition-colors"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                            {editError && (
+                              <span className="text-xs text-red-600 text-right">{editError}</span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  }
+
+                  const dias = diasEnCava(r.fecha_beneficio)
                   return (
                     <tr
                       key={r.id}
@@ -630,13 +781,22 @@ export default function Beneficio() {
                           {dias} {dias === 1 ? 'día' : 'días'}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-right">
-                        <button
-                          onClick={() => handleDespachar(r)}
-                          className="text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-3 py-1.5 transition-colors"
-                        >
-                          Despachar
-                        </button>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => startEdit(r)}
+                            className="p-1 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
+                            title="Editar"
+                          >
+                            <Pencil size={13} />
+                          </button>
+                          <button
+                            onClick={() => handleDespachar(r)}
+                            className="text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-3 py-1.5 transition-colors"
+                          >
+                            Despachar
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   )
