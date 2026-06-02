@@ -14,6 +14,7 @@ interface DespachoCon {
     codigo_cliente: string
     numero_animal: string
     tipo_carne: 'res' | 'cerdo'
+    fecha_beneficio: string
   }
 }
 
@@ -41,9 +42,14 @@ export default function Despachos() {
   useEffect(() => { fetchDespachos() }, [])
 
   async function fetchDespachos() {
+    const cutoff = new Date()
+    cutoff.setDate(cutoff.getDate() - 15)
+    const cutoffStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-${String(cutoff.getDate()).padStart(2, '0')}`
+    await supabase.from('despachos').delete().lt('fecha_despacho', cutoffStr)
+
     const { data } = await supabase
       .from('despachos')
-      .select('*, registros_beneficio(codigo_cliente, numero_animal, tipo_carne)')
+      .select('*, registros_beneficio(codigo_cliente, numero_animal, tipo_carne, fecha_beneficio)')
       .order('created_at', { ascending: false })
     if (data) setDespachos(data as DespachoCon[])
   }
@@ -97,10 +103,11 @@ export default function Despachos() {
 
   function exportCSV() {
     const today = localToday()
-    const header = ['Código', 'Tipo de despacho', 'Fecha de despacho']
+    const header = ['Código', 'Tipo de despacho', 'Fecha de sacrificio', 'Fecha de despacho']
     const data = visibleDespachos.map(d => [
       `${d.registros_beneficio.codigo_cliente}-${d.registros_beneficio.numero_animal}`,
       d.tipo_despacho === 'canal' ? 'Canal' : 'Víscera',
+      d.registros_beneficio.fecha_beneficio,
       d.fecha_despacho,
     ])
     exportXLSX(`despachos-${today}.xlsx`, [header, ...data])
@@ -133,6 +140,7 @@ export default function Despachos() {
             <tr className="bg-gray-800">
               <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Código</th>
               <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Tipo de despacho</th>
+              <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Fecha de sacrificio</th>
               <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Fecha de despacho</th>
               <th className="px-4 py-3" />
             </tr>
@@ -140,7 +148,7 @@ export default function Despachos() {
           <tbody className="divide-y divide-gray-100">
             {visibleDespachos.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-4 py-10 text-center text-gray-400 text-sm">
+                <td colSpan={5} className="px-4 py-10 text-center text-gray-400 text-sm">
                   {despachos.length === 0
                     ? 'No hay despachos registrados'
                     : 'Sin resultados para la búsqueda'}
@@ -163,6 +171,7 @@ export default function Despachos() {
                       {d.tipo_despacho === 'canal' ? 'Canal' : 'Víscera'}
                     </span>
                   </td>
+                  <td className="px-4 py-3 text-gray-700">{d.registros_beneficio.fecha_beneficio}</td>
                   <td className="px-4 py-3 text-gray-700">{d.fecha_despacho}</td>
                   <td className="px-4 py-3 text-right">
                     {revertConfirm === d.id ? (
