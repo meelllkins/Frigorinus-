@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Truck } from 'lucide-react'
+import { Truck, Trash2 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 
@@ -49,6 +49,7 @@ export default function Inventario() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showModal, setShowModal] = useState(false)
   const [dispatching, setDispatching] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const selectAllRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { fetchVisceras() }, [])
@@ -152,6 +153,13 @@ export default function Inventario() {
         return next
       })
     }
+  }
+
+  async function handleEliminar(id: string) {
+    await supabase.from('inventario_visceras').delete().eq('id', id)
+    setDeleteConfirm(null)
+    setSelected(prev => { const next = new Set(prev); next.delete(id); return next })
+    fetchVisceras()
   }
 
   function toggleOne(id: string) {
@@ -318,14 +326,43 @@ export default function Inventario() {
                         {diasEnCava(v.created_at)} {diasEnCava(v.created_at) === 1 ? 'día' : 'días'}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => handleDespachar(v)}
-                        className="flex items-center gap-1 ml-auto text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-2 sm:px-3 py-1.5 transition-colors"
-                      >
-                        <Truck size={12} />
-                        <span className="hidden sm:inline">Despachar</span>
-                      </button>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-2">
+                        {deleteConfirm === v.id ? (
+                          <>
+                            <span className="text-xs text-gray-500">¿Eliminar?</span>
+                            <button
+                              onClick={() => handleEliminar(v.id)}
+                              className="text-xs font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg px-2.5 py-1.5 transition-colors"
+                            >
+                              Sí
+                            </button>
+                            <button
+                              onClick={() => setDeleteConfirm(null)}
+                              className="text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg px-2.5 py-1.5 transition-colors"
+                            >
+                              No
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => { setDeleteConfirm(v.id); setDeleteConfirm(v.id) }}
+                              className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              title="Eliminar"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                            <button
+                              onClick={() => handleDespachar(v)}
+                              className="flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-2 sm:px-3 py-1.5 transition-colors"
+                            >
+                              <Truck size={12} />
+                              <span className="hidden sm:inline">Despachar</span>
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 )
