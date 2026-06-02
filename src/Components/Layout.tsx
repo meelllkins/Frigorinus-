@@ -1,12 +1,30 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { ClipboardList, AlertTriangle, Package, Truck, LogOut, Thermometer } from 'lucide-react'
+import { ClipboardList, AlertTriangle, Package, Truck, LogOut, Thermometer, Download } from 'lucide-react'
 
 export default function Layout() {
   const [showResetModal, setShowResetModal] = useState(false)
   const [confirmText, setConfirmText] = useState('')
   const [resetting, setResetting] = useState(false)
+  const [installPrompt, setInstallPrompt] = useState<Event | null>(null)
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      e.preventDefault()
+      setInstallPrompt(e)
+    }
+    window.addEventListener('beforeinstallprompt', handler)
+    return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [])
+
+  const handleInstall = async () => {
+    if (!installPrompt) return
+    const prompt = installPrompt as BeforeInstallPromptEvent
+    prompt.prompt()
+    const { outcome } = await prompt.userChoice
+    if (outcome === 'accepted') setInstallPrompt(null)
+  }
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -81,6 +99,15 @@ export default function Layout() {
           >
             Resetear datos
           </button>
+          {installPrompt && (
+            <button
+              onClick={handleInstall}
+              className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-gray-800"
+            >
+              <Download size={15} />
+              Instalar app
+            </button>
+          )}
           <button
             onClick={handleLogout}
             className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-gray-800"
