@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Undo2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
 interface DespachoCon {
@@ -122,7 +123,8 @@ export default function Despachos() {
         </button>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+      <div className="overflow-x-auto rounded-2xl shadow-sm border border-gray-200">
+      <div className="bg-white overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-800">
@@ -180,9 +182,10 @@ export default function Despachos() {
                     ) : (
                       <button
                         onClick={() => setRevertConfirm(d.id)}
-                        className="text-xs font-semibold text-gray-500 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-lg px-3 py-1.5 transition-colors"
+                        className="flex items-center gap-1 ml-auto text-xs font-semibold text-gray-500 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-lg px-2 sm:px-3 py-1.5 transition-colors"
                       >
-                        Revertir
+                        <Undo2 size={12} />
+                        <span className="hidden sm:inline">Revertir</span>
                       </button>
                     )}
                   </td>
@@ -191,6 +194,7 @@ export default function Despachos() {
             )}
           </tbody>
         </table>
+      </div>
       </div>
     </div>
   )

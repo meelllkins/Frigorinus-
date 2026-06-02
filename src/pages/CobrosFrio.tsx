@@ -128,7 +128,8 @@ export default function CobrosFrio() {
         </button>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+      <div className="overflow-x-auto rounded-2xl shadow-sm border border-gray-200">
+      <div className="bg-white overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-800">
@@ -168,6 +169,7 @@ export default function CobrosFrio() {
             )}
           </tbody>
         </table>
+      </div>
       </div>
     </div>
   )

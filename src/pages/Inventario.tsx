@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { Truck } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
 interface VisceraCon {
@@ -228,20 +229,23 @@ export default function Inventario() {
 
       {/* Barra de despacho múltiple */}
       {someSelected && (
-        <div className="mb-4 flex items-center justify-between bg-gray-900 text-white rounded-xl px-5 py-3">
+        <div className="mb-4 flex items-center justify-between bg-gray-900 text-white rounded-xl px-4 py-3 gap-3">
           <span className="text-sm font-semibold">
-            {selected.size} {selected.size === 1 ? 'víscera seleccionada' : 'vísceras seleccionadas'}
+            <span className="hidden sm:inline">{selected.size} {selected.size === 1 ? 'víscera seleccionada' : 'vísceras seleccionadas'}</span>
+            <span className="sm:hidden">{selected.size} sel.</span>
           </span>
           <button
             onClick={() => setShowModal(true)}
-            className="bg-red-600 hover:bg-red-500 text-white text-sm font-bold rounded-lg px-4 py-2 transition-colors"
+            className="bg-red-600 hover:bg-red-500 text-white text-sm font-bold rounded-lg px-3 sm:px-4 py-2 transition-colors whitespace-nowrap"
           >
-            Despachar {selected.size} seleccionadas
+            <span className="hidden sm:inline">Despachar {selected.size} seleccionadas</span>
+            <span className="sm:hidden">Despachar</span>
           </button>
         </div>
       )}
 
-      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+      <div className="overflow-x-auto rounded-2xl shadow-sm border border-gray-200">
+      <div className="bg-white overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-800">
@@ -299,9 +303,10 @@ export default function Inventario() {
                     <td className="px-4 py-3 text-right">
                       <button
                         onClick={() => handleDespachar(v)}
-                        className="text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-3 py-1.5 transition-colors"
+                        className="flex items-center gap-1 ml-auto text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-2 sm:px-3 py-1.5 transition-colors"
                       >
-                        Despachar
+                        <Truck size={12} />
+                        <span className="hidden sm:inline">Despachar</span>
                       </button>
                     </td>
                   </tr>
@@ -310,6 +315,7 @@ export default function Inventario() {
             )}
           </tbody>
         </table>
+      </div>
       </div>
     </div>
   )

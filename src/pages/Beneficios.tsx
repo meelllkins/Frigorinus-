@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { ChevronDown, Pencil } from 'lucide-react'
+import { ChevronDown, Pencil, Truck } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import type { RegistroBeneficio } from '../types'
 
@@ -92,7 +92,6 @@ export default function Beneficio() {
 
   useEffect(() => {
     fetchRegistros()
-    codigoRef.current?.focus()
   }, [])
 
   useEffect(() => {
@@ -145,7 +144,6 @@ export default function Beneficio() {
     cancelEdit()
     if (errorTimerRef.current) clearTimeout(errorTimerRef.current)
     if (batchErrorTimerRef.current) clearTimeout(batchErrorTimerRef.current)
-    setTimeout(() => codigoRef.current?.focus(), 0)
   }
 
   function startEdit(r: RegistroBeneficio) {
@@ -282,7 +280,6 @@ export default function Beneficio() {
     setForm(getInitialForm())
     fetchRegistros()
     setSaving(false)
-    setTimeout(() => codigoRef.current?.focus(), 0)
   }
 
   async function handleBatchSubmit(e: React.FormEvent) {
@@ -628,20 +625,23 @@ export default function Beneficio() {
 
         {/* Barra de despacho múltiple */}
         {someSelected && (
-          <div className="mb-4 flex items-center justify-between bg-gray-900 text-white rounded-xl px-5 py-3">
+          <div className="mb-4 flex items-center justify-between bg-gray-900 text-white rounded-xl px-4 py-3 gap-3">
             <span className="text-sm font-semibold">
-              {selected.size} {selected.size === 1 ? 'animal seleccionado' : 'animales seleccionados'}
+              <span className="hidden sm:inline">{selected.size} {selected.size === 1 ? 'animal seleccionado' : 'animales seleccionados'}</span>
+              <span className="sm:hidden">{selected.size} sel.</span>
             </span>
             <button
               onClick={() => setShowModal(true)}
-              className="bg-red-600 hover:bg-red-500 text-white text-sm font-bold rounded-lg px-4 py-2 transition-colors"
+              className="bg-red-600 hover:bg-red-500 text-white text-sm font-bold rounded-lg px-3 sm:px-4 py-2 transition-colors whitespace-nowrap"
             >
-              Despachar {selected.size} seleccionados
+              <span className="hidden sm:inline">Despachar {selected.size} seleccionados</span>
+              <span className="sm:hidden">Despachar</span>
             </button>
           </div>
         )}
 
-        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+        <div className="overflow-x-auto rounded-2xl shadow-sm border border-gray-200">
+        <div className="bg-white overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-800">
@@ -694,7 +694,6 @@ export default function Beneficio() {
                               value={editForm.codigo_cliente}
                               onChange={e => setEditForm({ ...editForm, codigo_cliente: e.target.value })}
                               className={`${editInputClass} w-20`}
-                              autoFocus
                             />
                             <span className="text-gray-400 text-xs">-</span>
                             <input
@@ -798,9 +797,10 @@ export default function Beneficio() {
                           </button>
                           <button
                             onClick={() => handleDespachar(r)}
-                            className="text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-3 py-1.5 transition-colors"
+                            className="flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-2 sm:px-3 py-1.5 transition-colors"
                           >
-                            Despachar
+                            <Truck size={12} />
+                            <span className="hidden sm:inline">Despachar</span>
                           </button>
                         </div>
                       </td>
@@ -810,6 +810,7 @@ export default function Beneficio() {
               )}
             </tbody>
           </table>
+        </div>
         </div>
       </section>
     </div>

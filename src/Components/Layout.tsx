@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { ClipboardList, AlertTriangle, Package, Truck, LogOut, Thermometer, Download } from 'lucide-react'
+import { ClipboardList, AlertTriangle, Package, Truck, LogOut, Thermometer, Download, Trash2 } from 'lucide-react'
 
 export default function Layout() {
   const [showResetModal, setShowResetModal] = useState(false)
@@ -82,48 +82,49 @@ export default function Layout() {
         </div>
       )}
 
-      <header className="bg-gray-900 px-6 py-4 flex items-center justify-between shadow-lg">
+      <header className="bg-gray-900 px-3 sm:px-6 py-4 flex items-center justify-between shadow-lg">
         <div className="flex items-center gap-3">
           <div className="bg-green-700 rounded-lg p-2 flex items-center justify-center">
             <Thermometer size={20} className="text-white" />
           </div>
           <div>
             <h1 className="text-base font-bold text-white tracking-wide leading-tight">Frigorinus</h1>
-            <p className="text-xs text-gray-400 leading-tight">Logística de planta</p>
+            <p className="text-xs text-gray-400 leading-tight hidden sm:block">Logística de planta</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-2">
           <button
             onClick={() => setShowResetModal(true)}
-            className="text-xs text-gray-500 hover:text-red-400 transition-colors px-2 py-1.5 rounded-lg hover:bg-gray-800"
+            className="flex items-center gap-2 text-sm text-gray-500 hover:text-red-400 transition-colors px-2 py-1.5 rounded-lg hover:bg-gray-800"
           >
-            Resetear datos
+            <Trash2 size={15} />
+            <span className="hidden sm:inline text-xs font-medium">Resetear</span>
           </button>
           {installPrompt && (
             <button
               onClick={handleInstall}
-              className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-gray-800"
+              className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors px-2 sm:px-3 py-1.5 rounded-lg hover:bg-gray-800"
             >
               <Download size={15} />
-              Instalar app
+              <span className="hidden sm:inline">Instalar app</span>
             </button>
           )}
           <button
             onClick={handleLogout}
-            className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-gray-800"
+            className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors px-2 sm:px-3 py-1.5 rounded-lg hover:bg-gray-800"
           >
             <LogOut size={15} />
-            Salir
+            <span className="hidden sm:inline">Salir</span>
           </button>
         </div>
       </header>
 
-      <nav className="bg-white shadow-sm border-b border-gray-200 px-6">
+      <nav className="bg-white shadow-sm border-b border-gray-200 px-1 sm:px-6">
         <div className="flex">
           {[
             { to: '/', label: 'Inventario Actual', icon: ClipboardList },
             { to: '/cobros', label: 'Cobros de Frío', icon: AlertTriangle },
-            { to: '/inventario', label: 'Inventario Vísceras', icon: Package },
+            { to: '/inventario', label: 'Vísceras', icon: Package },
             { to: '/despachos', label: 'Despachos', icon: Truck },
           ].map(({ to, label, icon: Icon }) => (
             <NavLink
@@ -131,7 +132,7 @@ export default function Layout() {
               to={to}
               end={to === '/'}
               className={({ isActive }) =>
-                `flex items-center gap-2 px-5 py-3.5 text-sm font-semibold border-b-2 transition-all ${
+                `flex items-center gap-1.5 px-2 sm:px-5 py-3.5 text-sm font-semibold border-b-2 transition-all ${
                   isActive
                     ? 'border-green-700 text-green-800 bg-green-50'
                     : 'border-transparent text-gray-500 hover:text-gray-800 hover:bg-gray-50'
@@ -139,7 +140,7 @@ export default function Layout() {
               }
             >
               <Icon size={15} />
-              {label}
+              <span className="hidden sm:inline">{label}</span>
             </NavLink>
           ))}
         </div>
