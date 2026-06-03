@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { ClipboardList, AlertTriangle, Package, Truck, LogOut, Thermometer, Download, Trash2 } from 'lucide-react'
+import { ClipboardList, AlertTriangle, Package, Truck, LogOut, Thermometer, Download, Trash2, NotebookPen } from 'lucide-react'
 
 export default function Layout() {
   const [showResetModal, setShowResetModal] = useState(false)
@@ -167,6 +167,7 @@ export default function Layout() {
             { to: '/cobros', label: 'Cobros de Frío', icon: AlertTriangle },
             { to: '/inventario', label: 'Vísceras', icon: Package },
             { to: '/despachos', label: 'Despachos', icon: Truck },
+            { to: '/notas', label: 'Notas', icon: NotebookPen },
           ].map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}

@@ -1,3 +1,40 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* TipTap / Notas editor */
+.notas-editor .ProseMirror {
+  min-height: 60vh;
+  outline: none;
+  line-height: 1.65;
+}
+@media (max-width: 640px) {
+  .notas-editor .ProseMirror {
+    min-height: calc(100dvh - 280px);
+  }
+}
+.notas-editor .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+.notas-editor .ProseMirror ul {
+  list-style: disc;
+  padding-left: 1.5rem;
+  margin: 0.25rem 0;
+}
+.notas-editor .ProseMirror ol {
+  list-style: decimal;
+  padding-left: 1.5rem;
+  margin: 0.25rem 0;
+}
+.notas-editor .ProseMirror li {
+  margin: 0.1rem 0;
+}
+.notas-editor .ProseMirror mark {
+  background-color: #fef08a;
+  border-radius: 2px;
+  padding: 0 1px;
+}
