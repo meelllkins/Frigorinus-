@@ -180,7 +180,7 @@ export default function Beneficio() {
     if (err) {
       showEditError(
         err.code === '23505'
-          ? 'Este animal ya está registrado en el inventario'
+          ? 'Ya existe un registro con ese animal y fecha de sacrificio'
           : 'Error al guardar. Intenta de nuevo'
       )
       setEditSaving(false)
@@ -262,7 +262,7 @@ export default function Beneficio() {
     if (err || !registro) {
       showError(
         err?.code === '23505'
-          ? 'Este animal ya está registrado en el inventario'
+          ? 'Este animal ya está registrado con esa fecha de sacrificio'
           : 'Error al guardar. Intenta de nuevo'
       )
       setSaving(false)
@@ -318,7 +318,7 @@ export default function Beneficio() {
     if (err || !inserted) {
       showBatchError(
         err?.code === '23505'
-          ? 'Uno o más animales del lote ya están registrados en el inventario'
+          ? 'Uno o más animales ya están registrados con esa fecha de sacrificio'
           : 'Error al guardar. Intenta de nuevo'
       )
       setBatchSaving(false)
