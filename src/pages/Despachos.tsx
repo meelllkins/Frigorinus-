@@ -132,7 +132,7 @@ export default function Despachos() {
         />
         <button
           onClick={exportCSV}
-          className="text-xs font-semibold text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 transition-colors whitespace-nowrap"
+          className="text-xs font-semibold text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 transition-all duration-200 whitespace-nowrap"
         >
           Exportar Excel
         </button>
@@ -160,13 +160,13 @@ export default function Despachos() {
               </tr>
             ) : (
               visibleDespachos.map((d, i) => (
-                <tr key={d.id} className={`transition-colors hover:bg-blue-50 ${i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`}>
+                <tr key={d.id} className={`transition-colors duration-150 hover:bg-blue-50 ${i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`}>
                   <td className="px-4 py-3 font-mono font-semibold text-gray-900">
                     {d.registros_beneficio.codigo_cliente}-{d.registros_beneficio.numero_animal}
                   </td>
                   <td className="px-4 py-3">
                     <span
-                      className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                      className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${
                         d.tipo_despacho === 'canal'
                           ? 'bg-gray-200 text-gray-700'
                           : 'bg-purple-100 text-purple-700'
@@ -184,13 +184,13 @@ export default function Despachos() {
                         <button
                           onClick={() => handleRevertir(d)}
                           disabled={reverting}
-                          className="text-xs font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
+                          className="text-xs font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg px-3 py-1.5 transition-all duration-200 active:scale-95 disabled:opacity-50"
                         >
                           {reverting ? '...' : 'Sí'}
                         </button>
                         <button
                           onClick={() => setRevertConfirm(null)}
-                          className="text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg px-3 py-1.5 transition-colors"
+                          className="text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg px-3 py-1.5 transition-all duration-200"
                         >
                           No
                         </button>
@@ -206,7 +206,7 @@ export default function Despachos() {
                         </button>
                         <button
                           onClick={() => setDeleteConfirm(null)}
-                          className="text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg px-3 py-1.5 transition-colors"
+                          className="text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg px-3 py-1.5 transition-all duration-200"
                         >
                           No
                         </button>
@@ -215,14 +215,14 @@ export default function Despachos() {
                       <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => { setDeleteConfirm(d.id); setRevertConfirm(null) }}
-                          className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+                          className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-all duration-200 hover:scale-105 active:scale-95"
                           title="Eliminar"
                         >
                           <Trash2 size={13} />
                         </button>
                         <button
                           onClick={() => { setRevertConfirm(d.id); setDeleteConfirm(null) }}
-                          className="flex items-center gap-1 text-xs font-semibold text-gray-500 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-lg px-2 sm:px-3 py-1.5 transition-colors"
+                          className="flex items-center gap-1 text-xs font-semibold text-gray-500 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-lg px-2 sm:px-3 py-1.5 transition-all duration-200 hover:scale-105 active:scale-95"
                         >
                           <Undo2 size={12} />
                           <span className="hidden sm:inline">Revertir</span>

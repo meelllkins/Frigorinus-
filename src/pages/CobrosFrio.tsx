@@ -85,7 +85,7 @@ export default function CobrosFrio() {
             key={tab}
             type="button"
             onClick={() => { setActiveTab(tab); setSearch('') }}
-            className={`px-8 py-2.5 text-sm font-semibold transition-colors ${
+            className={`px-8 py-2.5 text-sm font-semibold transition-all duration-200 ${
               activeTab === tab
                 ? 'bg-gray-900 text-white'
                 : 'bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-800'
@@ -121,7 +121,7 @@ export default function CobrosFrio() {
         />
         <button
           onClick={exportCSV}
-          className="text-xs font-semibold text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 transition-colors whitespace-nowrap"
+          className="text-xs font-semibold text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 transition-all duration-200 whitespace-nowrap"
         >
           Exportar Excel
         </button>
@@ -150,14 +150,14 @@ export default function CobrosFrio() {
               visibleRegistros.map((r, i) => {
                 const dias = diasEnCava(r.fecha_beneficio)
                 return (
-                  <tr key={r.id} className={`transition-colors hover:bg-blue-50 ${i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`}>
+                  <tr key={r.id} className={`transition-colors duration-150 hover:bg-blue-50 ${i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`}>
                     <td className="px-4 py-3 font-mono font-semibold text-gray-900">
                       {r.codigo_cliente}-{r.numero_animal}
                     </td>
                     <td className="px-4 py-3 capitalize text-gray-700">{r.tipo_carne}</td>
                     <td className="px-4 py-3 text-gray-700">{r.fecha_beneficio}</td>
                     <td className="px-4 py-3">
-                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${urgenciaBadge(dias)}`}>
+                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${urgenciaBadge(dias)} ${dias >= 5 ? 'animate-pulse' : ''}`}>
                         {dias} {dias === 1 ? 'día' : 'días'}
                       </span>
                     </td>

@@ -201,8 +201,8 @@ export default function Inventario() {
     <div className="overflow-x-hidden touch-pan-y">
       {/* Modal de confirmación de eliminación múltiple */}
       {showDeleteModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 animate-scaleIn">
             <h3 className="text-base font-bold text-gray-900 mb-2">Confirmar eliminación</h3>
             <p className="text-sm text-gray-600 mb-6">
               ¿Estás seguro de eliminar{' '}
@@ -213,14 +213,14 @@ export default function Inventario() {
             <div className="flex gap-3 justify-end">
               <button
                 onClick={() => setShowDeleteModal(false)}
-                className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-all duration-200"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleEliminarMultiple}
                 disabled={deleting}
-                className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg transition-colors disabled:opacity-50"
+                className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg transition-all duration-200 active:scale-95 disabled:opacity-50"
               >
                 {deleting ? 'Eliminando...' : 'Eliminar'}
               </button>
@@ -231,8 +231,8 @@ export default function Inventario() {
 
       {/* Modal de confirmación de despacho múltiple */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 animate-scaleIn">
             <h3 className="text-base font-bold text-gray-900 mb-2">Confirmar despacho</h3>
             <p className="text-sm text-gray-600 mb-6">
               ¿Estás seguro de despachar{' '}
@@ -243,14 +243,14 @@ export default function Inventario() {
             <div className="flex gap-3 justify-end">
               <button
                 onClick={() => setShowModal(false)}
-                className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-all duration-200"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleDespacharMultiple}
                 disabled={dispatching}
-                className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg transition-colors disabled:opacity-50"
+                className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg transition-all duration-200 active:scale-95 disabled:opacity-50"
               >
                 {dispatching ? 'Despachando...' : 'Confirmar'}
               </button>
@@ -286,7 +286,7 @@ export default function Inventario() {
         />
         <button
           onClick={exportCSV}
-          className="text-xs font-semibold text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 transition-colors whitespace-nowrap"
+          className="text-xs font-semibold text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 transition-all duration-200 whitespace-nowrap"
         >
           Exportar Excel
         </button>
@@ -294,7 +294,7 @@ export default function Inventario() {
 
       {/* Barra de acciones múltiples */}
       {someSelected && (
-        <div className="mb-4 flex items-center justify-between bg-gray-900 text-white rounded-xl px-4 py-3 gap-3">
+        <div className="mb-4 flex items-center justify-between bg-gray-900 text-white rounded-xl px-4 py-3 gap-3 animate-slideDown">
           <span className="text-sm font-semibold">
             <span className="hidden sm:inline">{selected.size} {selected.size === 1 ? 'víscera seleccionada' : 'vísceras seleccionadas'}</span>
             <span className="sm:hidden">{selected.size} sel.</span>
@@ -302,14 +302,14 @@ export default function Inventario() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowDeleteModal(true)}
-              className="text-sm font-bold text-red-400 hover:text-red-300 transition-colors whitespace-nowrap"
+              className="text-sm font-bold text-red-400 hover:text-red-300 transition-all duration-200 whitespace-nowrap"
             >
               <span className="hidden sm:inline">Eliminar {selected.size} seleccionadas</span>
               <span className="sm:hidden">Eliminar</span>
             </button>
             <button
               onClick={() => setShowModal(true)}
-              className="bg-red-600 hover:bg-red-500 text-white text-sm font-bold rounded-lg px-3 sm:px-4 py-2 transition-colors whitespace-nowrap"
+              className="bg-red-600 hover:bg-red-500 text-white text-sm font-bold rounded-lg px-3 sm:px-4 py-2 transition-all duration-200 active:scale-95 whitespace-nowrap"
             >
               <span className="hidden sm:inline">Despachar {selected.size} seleccionadas</span>
               <span className="sm:hidden">Despachar</span>
@@ -353,7 +353,7 @@ export default function Inventario() {
                 return (
                   <tr
                     key={v.id}
-                    className={`transition-colors hover:bg-blue-50 ${
+                    className={`transition-colors duration-150 hover:bg-blue-50 ${
                       isSelected ? 'bg-blue-50' : i % 2 === 1 ? 'bg-gray-50' : 'bg-white'
                     }`}
                   >
@@ -369,13 +369,13 @@ export default function Inventario() {
                       {v.registros_beneficio.codigo_cliente}-{v.registros_beneficio.numero_animal}
                     </td>
                     <td className="px-4 py-3">
-                      <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
+                      <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 bg-blue-100 text-blue-700">
                         En inventario
                       </span>
                     </td>
                     <td className="px-4 py-3 text-gray-700">{formatFecha(parsearFechaLocal(v.created_at))}</td>
                     <td className="px-4 py-3">
-                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${diasBadge(diasEnCava(v.created_at))}`}>
+                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${diasBadge(diasEnCava(v.created_at))} ${diasEnCava(v.created_at) >= 5 ? 'animate-pulse' : ''}`}>
                         {diasEnCava(v.created_at)} {diasEnCava(v.created_at) === 1 ? 'día' : 'días'}
                       </span>
                     </td>
@@ -386,13 +386,13 @@ export default function Inventario() {
                             <span className="text-xs text-gray-500">¿Eliminar?</span>
                             <button
                               onClick={() => handleEliminar(v.id)}
-                              className="text-xs font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg px-2.5 py-1.5 transition-colors"
+                              className="text-xs font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg px-2.5 py-1.5 transition-all duration-200 active:scale-95"
                             >
                               Sí
                             </button>
                             <button
                               onClick={() => setDeleteConfirm(null)}
-                              className="text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg px-2.5 py-1.5 transition-colors"
+                              className="text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg px-2.5 py-1.5 transition-all duration-200"
                             >
                               No
                             </button>
@@ -401,14 +401,14 @@ export default function Inventario() {
                           <>
                             <button
                               onClick={() => { setDeleteConfirm(v.id); setDeleteConfirm(v.id) }}
-                              className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200 hover:scale-105 active:scale-95"
                               title="Eliminar"
                             >
                               <Trash2 size={13} />
                             </button>
                             <button
                               onClick={() => handleDespachar(v)}
-                              className="flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-2 sm:px-3 py-1.5 transition-colors"
+                              className="flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-2 sm:px-3 py-1.5 transition-all duration-200 hover:scale-105 active:scale-95"
                             >
                               <Truck size={12} />
                               <span className="hidden sm:inline">Despachar</span>

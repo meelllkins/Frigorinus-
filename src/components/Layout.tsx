@@ -58,14 +58,14 @@ export default function Layout() {
     <div className="min-h-screen bg-gray-100 font-sans">
       {/* Modal instrucciones PWA */}
       {showPwaModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 animate-scaleIn">
             <h3 className="text-base font-bold text-gray-900 mb-3">Instalar Frigorinus</h3>
             <p className="text-sm text-gray-600 mb-5">{pwaInstruction}</p>
             <div className="flex justify-end">
               <button
                 onClick={() => setShowPwaModal(false)}
-                className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-all duration-200"
               >
                 Entendido
               </button>
@@ -76,8 +76,8 @@ export default function Layout() {
 
       {/* Modal de reset */}
       {showResetModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 animate-scaleIn">
             <h3 className="text-base font-bold text-gray-900 mb-1">Resetear todos los datos</h3>
             <p className="text-sm text-red-600 font-semibold mb-3">Esta acción no se puede deshacer.</p>
             <p className="text-sm text-gray-600 mb-4">
@@ -98,14 +98,14 @@ export default function Layout() {
             <div className="flex gap-3 justify-end">
               <button
                 onClick={() => { setShowResetModal(false); setConfirmText('') }}
-                className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-all duration-200"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleReset}
                 disabled={!canReset || resetting}
-                className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg transition-colors disabled:opacity-40"
+                className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg transition-all duration-200 active:scale-95 disabled:opacity-40"
               >
                 {resetting ? 'Borrando...' : 'Confirmar reset'}
               </button>
@@ -127,7 +127,7 @@ export default function Layout() {
         <div className="flex items-center gap-1 sm:gap-2">
           <button
             onClick={() => setShowResetModal(true)}
-            className="flex items-center gap-2 text-sm text-gray-500 hover:text-red-400 transition-colors px-2 py-1.5 rounded-lg hover:bg-gray-800"
+            className="flex items-center gap-2 text-sm text-gray-500 hover:text-red-400 transition-all duration-200 active:scale-95 px-2 py-1.5 rounded-lg hover:bg-gray-800"
           >
             <Trash2 size={15} />
             <span className="hidden sm:inline text-xs font-medium">Resetear</span>
@@ -135,7 +135,7 @@ export default function Layout() {
           {installPrompt && (
             <button
               onClick={handleInstall}
-              className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors px-2 sm:px-3 py-1.5 rounded-lg hover:bg-gray-800"
+              className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-all duration-200 active:scale-95 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-gray-800"
             >
               <Download size={15} />
               <span className="hidden sm:inline">Instalar app</span>
@@ -144,7 +144,7 @@ export default function Layout() {
           {showManualInstallBtn && (
             <button
               onClick={() => setShowPwaModal(true)}
-              className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors px-2 sm:px-3 py-1.5 rounded-lg hover:bg-gray-800"
+              className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-all duration-200 active:scale-95 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-gray-800"
             >
               <Download size={15} />
               <span className="hidden sm:inline">Añadir a inicio</span>
@@ -152,7 +152,7 @@ export default function Layout() {
           )}
           <button
             onClick={handleLogout}
-            className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors px-2 sm:px-3 py-1.5 rounded-lg hover:bg-gray-800"
+            className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-all duration-200 active:scale-95 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-gray-800"
           >
             <LogOut size={15} />
             <span className="hidden sm:inline">Salir</span>
@@ -174,7 +174,7 @@ export default function Layout() {
               to={to}
               end={to === '/'}
               className={({ isActive }) =>
-                `flex items-center gap-1.5 px-2 sm:px-5 py-3.5 text-sm font-semibold border-b-2 transition-all ${
+                `flex items-center gap-1.5 px-2 sm:px-5 py-3.5 text-sm font-semibold border-b-2 transition-all duration-200 ${
                   isActive
                     ? 'border-green-700 text-green-800 bg-green-50'
                     : 'border-transparent text-gray-500 hover:text-gray-800 hover:bg-gray-50'

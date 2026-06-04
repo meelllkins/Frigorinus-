@@ -549,8 +549,8 @@ export default function Beneficio() {
     <div className="space-y-8 overflow-x-hidden touch-pan-y">
       {/* Modal de confirmación de despacho múltiple */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 animate-scaleIn">
             <h3 className="text-base font-bold text-gray-900 mb-2">Confirmar despacho</h3>
             <p className="text-sm text-gray-600 mb-6">
               ¿Estás seguro de despachar{' '}
@@ -561,14 +561,14 @@ export default function Beneficio() {
             <div className="flex gap-3 justify-end">
               <button
                 onClick={() => setShowModal(false)}
-                className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-all duration-200"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleDespacharMultiple}
                 disabled={dispatching}
-                className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg transition-colors disabled:opacity-50"
+                className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg transition-all duration-200 active:scale-95 disabled:opacity-50"
               >
                 {dispatching ? 'Despachando...' : 'Confirmar'}
               </button>
@@ -579,8 +579,8 @@ export default function Beneficio() {
 
       {/* Modal de despacho individual con vísceras (solo reses) */}
       {visceraModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 animate-scaleIn">
             <h3 className="text-base font-bold text-gray-900 mb-2">Despachar canal y vísceras</h3>
             <p className="text-sm text-gray-600 mb-4">
               Canal{' '}
@@ -622,14 +622,14 @@ export default function Beneficio() {
                   <button
                     onClick={handleDespacharCanalSolo}
                     disabled={visceraDispatching}
-                    className="px-4 py-2 text-sm font-semibold text-gray-700 border border-gray-300 rounded-lg transition-colors hover:bg-gray-50 disabled:opacity-50"
+                    className="px-4 py-2 text-sm font-semibold text-gray-700 border border-gray-300 rounded-lg transition-all duration-200 hover:bg-gray-50 disabled:opacity-50"
                   >
                     Despachar canal solamente
                   </button>
                   <button
                     onClick={handleDespacharCanalYVisceras}
                     disabled={visceraDispatching}
-                    className="px-4 py-2 text-sm font-bold text-white bg-green-800 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50"
+                    className="px-4 py-2 text-sm font-bold text-white bg-green-800 hover:bg-green-700 rounded-lg transition-all duration-200 active:scale-95 disabled:opacity-50"
                   >
                     {visceraDispatching ? 'Despachando...' : 'Despachar selección'}
                   </button>
@@ -638,7 +638,7 @@ export default function Beneficio() {
                 <button
                   onClick={handleDespacharCanalSolo}
                   disabled={visceraDispatching}
-                  className="px-4 py-2 text-sm font-bold text-white bg-green-800 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50"
+                  className="px-4 py-2 text-sm font-bold text-white bg-green-800 hover:bg-green-700 rounded-lg transition-all duration-200 active:scale-95 disabled:opacity-50"
                 >
                   {visceraDispatching ? 'Despachando...' : 'Despachar canal'}
                 </button>
@@ -650,8 +650,8 @@ export default function Beneficio() {
 
       {/* Modal resumen de vísceras post despacho múltiple */}
       {visceraMultiModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 animate-scaleIn max-h-[90vh] overflow-y-auto">
             <h3 className="text-base font-bold text-gray-900 mb-2">¿Despachar vísceras también?</h3>
             <p className="text-sm text-gray-600 mb-4">
               Se despacharon{' '}
@@ -688,14 +688,14 @@ export default function Beneficio() {
               <button
                 onClick={() => { setVisceraMultiModal(null); setVisceraMultiSelected(new Set()) }}
                 disabled={visceraMultiDispatching}
-                className="px-4 py-2 text-sm font-semibold text-gray-700 border border-gray-300 rounded-lg transition-colors hover:bg-gray-50 disabled:opacity-50"
+                className="px-4 py-2 text-sm font-semibold text-gray-700 border border-gray-300 rounded-lg transition-all duration-200 hover:bg-gray-50 disabled:opacity-50"
               >
                 No despachar vísceras
               </button>
               <button
                 onClick={handleDespacharSeleccionMulti}
                 disabled={visceraMultiDispatching}
-                className="px-4 py-2 text-sm font-bold text-white bg-green-800 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50"
+                className="px-4 py-2 text-sm font-bold text-white bg-green-800 hover:bg-green-700 rounded-lg transition-all duration-200 active:scale-95 disabled:opacity-50"
               >
                 {visceraMultiDispatching ? 'Despachando...' : 'Despachar selección'}
               </button>
@@ -714,7 +714,7 @@ export default function Beneficio() {
               key={tab}
               type="button"
               onClick={() => handleTabChange(tab)}
-              className={`px-8 py-2.5 text-sm font-semibold transition-colors ${
+              className={`px-8 py-2.5 text-sm font-semibold transition-all duration-200 ${
                 activeTab === tab
                   ? 'bg-gray-900 text-white'
                   : 'bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-800'
@@ -788,7 +788,7 @@ export default function Beneficio() {
             <button
               type="submit"
               disabled={saving}
-              className="bg-green-800 hover:bg-green-700 text-white rounded-lg px-7 py-2.5 text-sm font-bold tracking-wide transition-colors disabled:opacity-50 shadow-sm"
+              className="bg-green-800 hover:bg-green-700 text-white rounded-lg px-7 py-2.5 text-sm font-bold tracking-wide transition-all duration-200 active:scale-95 disabled:opacity-50 shadow-sm"
             >
               {saving ? 'Guardando...' : `Registrar ${activeTab === 'res' ? 'res' : 'cerdo'}`}
             </button>
@@ -800,7 +800,7 @@ export default function Beneficio() {
           <button
             type="button"
             onClick={() => setShowBatch(b => !b)}
-            className="flex items-center gap-1.5 text-sm font-semibold text-gray-500 hover:text-gray-800 transition-colors"
+            className="flex items-center gap-1.5 text-sm font-semibold text-gray-500 hover:text-gray-800 transition-all duration-200"
           >
             <ChevronDown
               size={16}
@@ -876,7 +876,7 @@ export default function Beneficio() {
                 <button
                   type="submit"
                   disabled={batchSaving || batchCount === null}
-                  className="bg-green-800 hover:bg-green-700 text-white rounded-lg px-7 py-2.5 text-sm font-bold tracking-wide transition-colors disabled:opacity-50 shadow-sm"
+                  className="bg-green-800 hover:bg-green-700 text-white rounded-lg px-7 py-2.5 text-sm font-bold tracking-wide transition-all duration-200 active:scale-95 disabled:opacity-50 shadow-sm"
                 >
                   {batchSaving ? 'Registrando...' : 'Registrar lote'}
                 </button>
@@ -900,7 +900,7 @@ export default function Beneficio() {
           />
           <button
             onClick={exportCSV}
-            className="text-xs font-semibold text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 transition-colors whitespace-nowrap"
+            className="text-xs font-semibold text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 transition-all duration-200 whitespace-nowrap"
           >
             Exportar Excel
           </button>
@@ -908,7 +908,7 @@ export default function Beneficio() {
 
         {/* Barra de despacho múltiple */}
         {someSelected && (
-          <div className="mb-4 flex items-center justify-between bg-gray-900 text-white rounded-xl px-4 py-3 gap-3">
+          <div className="mb-4 flex items-center justify-between bg-gray-900 text-white rounded-xl px-4 py-3 gap-3 animate-slideDown">
             <span className="text-sm font-semibold">
               <span className="hidden sm:inline">{selected.size} {selected.size === 1 ? 'animal seleccionado' : 'animales seleccionados'}</span>
               <span className="sm:hidden">{selected.size} sel.</span>
@@ -923,7 +923,7 @@ export default function Beneficio() {
                   setShowModal(true)
                 }
               }}
-              className="bg-red-600 hover:bg-red-500 text-white text-sm font-bold rounded-lg px-3 sm:px-4 py-2 transition-colors whitespace-nowrap"
+              className="bg-red-600 hover:bg-red-500 text-white text-sm font-bold rounded-lg px-3 sm:px-4 py-2 transition-all duration-200 active:scale-95 whitespace-nowrap"
             >
               <span className="hidden sm:inline">Despachar {selected.size} seleccionados</span>
               <span className="sm:hidden">Despachar</span>
@@ -995,7 +995,7 @@ export default function Beneficio() {
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                          <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${
                             r.tipo_carne === 'res' ? 'bg-amber-100 text-amber-700' : 'bg-pink-100 text-pink-700'
                           }`}>
                             {r.tipo_carne === 'res' ? 'Res' : 'Cerdo'}
@@ -1010,9 +1010,9 @@ export default function Beneficio() {
                           />
                         </td>
                         <td className="px-4 py-3">
-                          <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                          <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${
                             diasEdit >= 3 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
-                          }`}>
+                          } ${diasEdit >= 5 ? 'animate-pulse' : ''}`}>
                             {diasEdit} {diasEdit === 1 ? 'día' : 'días'}
                           </span>
                         </td>
@@ -1022,7 +1022,7 @@ export default function Beneficio() {
                               <button
                                 onClick={() => handleSaveEdit(r)}
                                 disabled={editSaving}
-                                className="text-xs font-semibold text-white bg-green-800 hover:bg-green-700 rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
+                                className="text-xs font-semibold text-white bg-green-800 hover:bg-green-700 rounded-lg px-3 py-1.5 transition-all duration-200 active:scale-95 disabled:opacity-50"
                               >
                                 {editSaving ? '...' : 'Guardar'}
                               </button>
@@ -1046,7 +1046,7 @@ export default function Beneficio() {
                   return (
                     <tr
                       key={r.id}
-                      className={`transition-colors hover:bg-blue-50 ${
+                      className={`transition-colors duration-150 hover:bg-blue-50 ${
                         isSelected ? 'bg-blue-50' : i % 2 === 1 ? 'bg-gray-50' : 'bg-white'
                       }`}
                     >
@@ -1070,9 +1070,9 @@ export default function Beneficio() {
                       </td>
                       <td className="px-4 py-3 text-gray-700">{r.fecha_beneficio}</td>
                       <td className="px-4 py-3">
-                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${
                           dias >= 3 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
-                        }`}>
+                        } ${dias >= 5 ? 'animate-pulse' : ''}`}>
                           {dias} {dias === 1 ? 'día' : 'días'}
                         </span>
                       </td>
@@ -1080,14 +1080,14 @@ export default function Beneficio() {
                         <div className="flex items-center justify-end gap-2">
                           <button
                             onClick={() => startEdit(r)}
-                            className="p-1 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
+                            className="p-1 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded transition-all duration-200 hover:scale-105 active:scale-95"
                             title="Editar"
                           >
                             <Pencil size={13} />
                           </button>
                           <button
                             onClick={() => handleDespachar(r)}
-                            className="flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-2 sm:px-3 py-1.5 transition-colors"
+                            className="flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-2 sm:px-3 py-1.5 transition-all duration-200 hover:scale-105 active:scale-95"
                           >
                             <Truck size={12} />
                             <span className="hidden sm:inline">Despachar</span>

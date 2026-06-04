@@ -74,7 +74,7 @@ export default function Notas() {
   if (!editor) return null
 
   const btn = (active: boolean) =>
-    `p-1.5 rounded transition-colors shrink-0 ${active ? 'bg-gray-600' : 'hover:bg-gray-700'}`
+    `p-1.5 rounded transition-all duration-150 active:scale-95 shrink-0 ${active ? 'bg-gray-600' : 'hover:bg-gray-700'}`
 
   const isRed = editor.isActive('textStyle', { color: RED_COLOR })
 
@@ -86,7 +86,7 @@ export default function Notas() {
           Notas de trabajo
         </h2>
         <span
-          className={`text-sm font-medium transition-colors ${
+          className={`text-sm font-medium transition-all duration-300 ${
             saveStatus === 'saved'
               ? 'text-green-700'
               : saveStatus === 'error'
