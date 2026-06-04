@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 
 export default function Login() {
+  const [email, setEmail] = useState('rafa@frigorinus.com')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -12,7 +13,7 @@ export default function Login() {
     setError('')
 
     const { error } = await supabase.auth.signInWithPassword({
-      email: 'rafa@frigorinus.com',
+      email: email,
       password,
     })
 
@@ -31,6 +32,19 @@ export default function Login() {
           <p className="text-gray-500 text-sm mt-1">Control de logística de planta</p>
         </div>
         <form onSubmit={handleLogin} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Correo
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+              placeholder="Ingresa tu correo"
+              required
+            />
+          </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Contraseña
