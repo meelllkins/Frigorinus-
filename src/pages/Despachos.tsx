@@ -93,7 +93,9 @@ export default function Despachos() {
   }
 
   async function handleEliminar(d: DespachoCon) {
+    await supabase.from('inventario_visceras').delete().eq('registro_id', d.registro_id)
     await supabase.from('despachos').delete().eq('id', d.id)
+    await supabase.from('registros_beneficio').delete().eq('id', d.registro_id)
     setDeleteConfirm(null)
     fetchDespachos()
   }
