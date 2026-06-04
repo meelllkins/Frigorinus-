@@ -115,6 +115,7 @@ export default function Beneficio() {
     canalesCount: number
     groups: VisceraGroup[]
   } | null>(null)
+  const [visceraMultiSelected, setVisceraMultiSelected] = useState<Set<string>>(new Set())
   const [visceraMultiDispatching, setVisceraMultiDispatching] = useState(false)
   const selectAllRef = useRef<HTMLInputElement>(null)
 
@@ -443,24 +444,31 @@ export default function Beneficio() {
     fetchRegistros()
   }
 
-  async function handleDespacharTodasVisceras() {
+  async function handleDespacharSeleccionMulti() {
     if (!visceraMultiModal) return
+    const selectedIds = Array.from(visceraMultiSelected)
+    if (selectedIds.length === 0) {
+      setVisceraMultiModal(null)
+      setVisceraMultiSelected(new Set())
+      return
+    }
     setVisceraMultiDispatching(true)
     const hoy = localToday()
     const allVisceras = visceraMultiModal.groups.flatMap(g => g.visceras)
-    const allIds = allVisceras.map(v => v.id)
+    const toDispatch = allVisceras.filter(v => visceraMultiSelected.has(v.id))
     await supabase
       .from('inventario_visceras')
       .update({ estado: 'despachada', fecha_despacho: hoy })
-      .in('id', allIds)
+      .in('id', selectedIds)
     await supabase.from('despachos').insert(
-      allVisceras.map(v => ({
+      toDispatch.map(v => ({
         registro_id: v.registro_id,
         tipo_despacho: 'viscera',
         fecha_despacho: hoy,
       }))
     )
     setVisceraMultiModal(null)
+    setVisceraMultiSelected(new Set())
     setVisceraMultiDispatching(false)
   }
 
@@ -510,9 +518,11 @@ export default function Beneficio() {
           }
           groupMap.get(v.registro_id)!.visceras.push(v)
         }
+        const allGroups = Array.from(groupMap.values())
+        setVisceraMultiSelected(new Set(allGroups.flatMap(g => g.visceras.map(v => v.id))))
         setVisceraMultiModal({
           canalesCount: ids.length,
-          groups: Array.from(groupMap.values()),
+          groups: allGroups,
         })
       }
     }
@@ -641,33 +651,53 @@ export default function Beneficio() {
       {/* Modal resumen de vísceras post despacho múltiple */}
       {visceraMultiModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 max-h-[90vh] overflow-y-auto">
             <h3 className="text-base font-bold text-gray-900 mb-2">¿Despachar vísceras también?</h3>
             <p className="text-sm text-gray-600 mb-4">
               Se despacharon{' '}
-              <span className="font-semibold text-gray-900">{visceraMultiModal.canalesCount} canales</span>. Los siguientes códigos tienen vísceras disponibles en cava:
+              <span className="font-semibold text-gray-900">{visceraMultiModal.canalesCount} canales</span>. Selecciona las vísceras a despachar:
             </p>
-            <ul className="mb-5 space-y-1">
+            <div className="mb-5 space-y-4">
               {visceraMultiModal.groups.map(g => (
-                <li key={g.registro_id} className="text-sm text-gray-700">
-                  • <span className="font-mono font-semibold">{g.codigo}</span> → {g.visceras.length} {g.visceras.length === 1 ? 'víscera disponible' : 'vísceras disponibles'}
-                </li>
+                <div key={g.registro_id}>
+                  <p className="text-xs font-semibold text-gray-500 mb-1.5 uppercase tracking-wide font-mono">{g.codigo}</p>
+                  <div className="space-y-2 pl-1">
+                    {g.visceras.map(v => (
+                      <label key={v.id} className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={visceraMultiSelected.has(v.id)}
+                          onChange={() => {
+                            const next = new Set(visceraMultiSelected)
+                            if (next.has(v.id)) next.delete(v.id)
+                            else next.add(v.id)
+                            setVisceraMultiSelected(next)
+                          }}
+                          className="w-4 h-4 rounded accent-green-700 cursor-pointer"
+                        />
+                        <span className="text-sm text-gray-700">
+                          Ingresada: {formatVisceraDate(v.created_at)}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
               ))}
-            </ul>
-            <div className="flex gap-3 justify-end">
+            </div>
+            <div className="flex gap-3 justify-end flex-wrap">
               <button
-                onClick={() => setVisceraMultiModal(null)}
+                onClick={() => { setVisceraMultiModal(null); setVisceraMultiSelected(new Set()) }}
                 disabled={visceraMultiDispatching}
                 className="px-4 py-2 text-sm font-semibold text-gray-700 border border-gray-300 rounded-lg transition-colors hover:bg-gray-50 disabled:opacity-50"
               >
                 No despachar vísceras
               </button>
               <button
-                onClick={handleDespacharTodasVisceras}
+                onClick={handleDespacharSeleccionMulti}
                 disabled={visceraMultiDispatching}
                 className="px-4 py-2 text-sm font-bold text-white bg-green-800 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50"
               >
-                {visceraMultiDispatching ? 'Despachando...' : 'Despachar todas las vísceras'}
+                {visceraMultiDispatching ? 'Despachando...' : 'Despachar selección'}
               </button>
             </div>
           </div>

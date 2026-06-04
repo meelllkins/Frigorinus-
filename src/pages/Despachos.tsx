@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Undo2 } from 'lucide-react'
+import { Undo2, Trash2 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 
@@ -37,6 +37,7 @@ export default function Despachos() {
   const [despachos, setDespachos] = useState<DespachoCon[]>([])
   const [revertConfirm, setRevertConfirm] = useState<string | null>(null)
   const [reverting, setReverting] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [search, setSearch] = useState('')
 
   useEffect(() => { fetchDespachos() }, [])
@@ -88,6 +89,12 @@ export default function Despachos() {
 
     setRevertConfirm(null)
     setReverting(false)
+    fetchDespachos()
+  }
+
+  async function handleEliminar(d: DespachoCon) {
+    await supabase.from('despachos').delete().eq('id', d.id)
+    setDeleteConfirm(null)
     fetchDespachos()
   }
 
@@ -186,14 +193,39 @@ export default function Despachos() {
                           No
                         </button>
                       </div>
+                    ) : deleteConfirm === d.id ? (
+                      <div className="flex items-center justify-end gap-2">
+                        <span className="text-xs text-gray-500">¿Eliminar?</span>
+                        <button
+                          onClick={() => handleEliminar(d)}
+                          className="text-xs font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg px-3 py-1.5 transition-colors"
+                        >
+                          Sí
+                        </button>
+                        <button
+                          onClick={() => setDeleteConfirm(null)}
+                          className="text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg px-3 py-1.5 transition-colors"
+                        >
+                          No
+                        </button>
+                      </div>
                     ) : (
-                      <button
-                        onClick={() => setRevertConfirm(d.id)}
-                        className="flex items-center gap-1 ml-auto text-xs font-semibold text-gray-500 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-lg px-2 sm:px-3 py-1.5 transition-colors"
-                      >
-                        <Undo2 size={12} />
-                        <span className="hidden sm:inline">Revertir</span>
-                      </button>
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => { setDeleteConfirm(d.id); setRevertConfirm(null) }}
+                          className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Eliminar"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                        <button
+                          onClick={() => { setRevertConfirm(d.id); setDeleteConfirm(null) }}
+                          className="flex items-center gap-1 text-xs font-semibold text-gray-500 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-lg px-2 sm:px-3 py-1.5 transition-colors"
+                        >
+                          <Undo2 size={12} />
+                          <span className="hidden sm:inline">Revertir</span>
+                        </button>
+                      </div>
                     )}
                   </td>
                 </tr>
