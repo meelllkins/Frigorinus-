@@ -48,6 +48,24 @@ function getInitialBatchForm() {
   return { codigo_cliente: '', numero_inicial: '', numero_final: '', fecha_beneficio: localToday() }
 }
 
+interface VisceraSingle {
+  id: string
+  registro_id: string
+  created_at: string
+}
+
+interface VisceraGroup {
+  codigo: string
+  registro_id: string
+  visceras: VisceraSingle[]
+}
+
+function formatVisceraDate(timestamp: string): string {
+  const d = new Date(timestamp)
+  const local = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  return `${String(local.getDate()).padStart(2, '0')}/${String(local.getMonth() + 1).padStart(2, '0')}/${local.getFullYear()}`
+}
+
 interface EditForm {
   codigo_cliente: string
   numero_animal: string
@@ -87,6 +105,17 @@ export default function Beneficio() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showModal, setShowModal] = useState(false)
   const [dispatching, setDispatching] = useState(false)
+  const [visceraModal, setVisceraModal] = useState<{
+    registro: RegistroBeneficio
+    visceras: VisceraSingle[]
+  } | null>(null)
+  const [visceraSelected, setVisceraSelected] = useState<Set<string>>(new Set())
+  const [visceraDispatching, setVisceraDispatching] = useState(false)
+  const [visceraMultiModal, setVisceraMultiModal] = useState<{
+    canalesCount: number
+    groups: VisceraGroup[]
+  } | null>(null)
+  const [visceraMultiDispatching, setVisceraMultiDispatching] = useState(false)
   const selectAllRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -339,7 +368,35 @@ export default function Beneficio() {
   }
 
   async function handleDespachar(r: RegistroBeneficio) {
+    if (r.tipo_carne === 'cerdo') {
+      const hoy = localToday()
+      await supabase.from('registros_beneficio').update({ estado: 'despachado' }).eq('id', r.id)
+      await supabase.from('despachos').insert({
+        registro_id: r.id,
+        tipo_despacho: 'canal',
+        fecha_despacho: hoy,
+      })
+      setSelected(prev => { const next = new Set(prev); next.delete(r.id); return next })
+      fetchRegistros()
+      return
+    }
+
+    const { data } = await supabase
+      .from('inventario_visceras')
+      .select('id, registro_id, created_at')
+      .eq('registro_id', r.id)
+      .eq('estado', 'en_inventario')
+
+    const visceras = (data ?? []) as VisceraSingle[]
+    setVisceraSelected(new Set(visceras.map(v => v.id)))
+    setVisceraModal({ registro: r, visceras })
+  }
+
+  async function handleDespacharCanalSolo() {
+    if (!visceraModal) return
+    setVisceraDispatching(true)
     const hoy = localToday()
+    const r = visceraModal.registro
     await supabase.from('registros_beneficio').update({ estado: 'despachado' }).eq('id', r.id)
     await supabase.from('despachos').insert({
       registro_id: r.id,
@@ -347,7 +404,64 @@ export default function Beneficio() {
       fecha_despacho: hoy,
     })
     setSelected(prev => { const next = new Set(prev); next.delete(r.id); return next })
+    setVisceraModal(null)
+    setVisceraSelected(new Set())
+    setVisceraDispatching(false)
     fetchRegistros()
+  }
+
+  async function handleDespacharCanalYVisceras() {
+    if (!visceraModal) return
+    setVisceraDispatching(true)
+    const hoy = localToday()
+    const r = visceraModal.registro
+    await supabase.from('registros_beneficio').update({ estado: 'despachado' }).eq('id', r.id)
+    await supabase.from('despachos').insert({
+      registro_id: r.id,
+      tipo_despacho: 'canal',
+      fecha_despacho: hoy,
+    })
+    const selectedIds = Array.from(visceraSelected)
+    if (selectedIds.length > 0) {
+      await supabase
+        .from('inventario_visceras')
+        .update({ estado: 'despachada', fecha_despacho: hoy })
+        .in('id', selectedIds)
+      const selectedVisceras = visceraModal.visceras.filter(v => visceraSelected.has(v.id))
+      await supabase.from('despachos').insert(
+        selectedVisceras.map(v => ({
+          registro_id: v.registro_id,
+          tipo_despacho: 'viscera',
+          fecha_despacho: hoy,
+        }))
+      )
+    }
+    setSelected(prev => { const next = new Set(prev); next.delete(r.id); return next })
+    setVisceraModal(null)
+    setVisceraSelected(new Set())
+    setVisceraDispatching(false)
+    fetchRegistros()
+  }
+
+  async function handleDespacharTodasVisceras() {
+    if (!visceraMultiModal) return
+    setVisceraMultiDispatching(true)
+    const hoy = localToday()
+    const allVisceras = visceraMultiModal.groups.flatMap(g => g.visceras)
+    const allIds = allVisceras.map(v => v.id)
+    await supabase
+      .from('inventario_visceras')
+      .update({ estado: 'despachada', fecha_despacho: hoy })
+      .in('id', allIds)
+    await supabase.from('despachos').insert(
+      allVisceras.map(v => ({
+        registro_id: v.registro_id,
+        tipo_despacho: 'viscera',
+        fecha_despacho: hoy,
+      }))
+    )
+    setVisceraMultiModal(null)
+    setVisceraMultiDispatching(false)
   }
 
   async function handleDespacharMultiple() {
@@ -368,10 +482,40 @@ export default function Beneficio() {
       }))
     )
 
+    const resIds = registros
+      .filter(r => ids.includes(r.id) && r.tipo_carne === 'res')
+      .map(r => r.id)
+
     setSelected(new Set())
     setShowModal(false)
     setDispatching(false)
     fetchRegistros()
+
+    if (resIds.length > 0) {
+      const { data } = await supabase
+        .from('inventario_visceras')
+        .select('id, registro_id, created_at')
+        .in('registro_id', resIds)
+        .eq('estado', 'en_inventario')
+
+      const visceras = (data ?? []) as VisceraSingle[]
+      if (visceras.length > 0) {
+        const groupMap = new Map<string, VisceraGroup>()
+        for (const v of visceras) {
+          const reg = registros.find(r => r.id === v.registro_id)
+          if (!reg) continue
+          const codigo = `${reg.codigo_cliente}-${reg.numero_animal}`
+          if (!groupMap.has(v.registro_id)) {
+            groupMap.set(v.registro_id, { codigo, registro_id: v.registro_id, visceras: [] })
+          }
+          groupMap.get(v.registro_id)!.visceras.push(v)
+        }
+        setVisceraMultiModal({
+          canalesCount: ids.length,
+          groups: Array.from(groupMap.values()),
+        })
+      }
+    }
   }
 
   const batchCount = (() => {
@@ -417,6 +561,113 @@ export default function Beneficio() {
                 className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg transition-colors disabled:opacity-50"
               >
                 {dispatching ? 'Despachando...' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de despacho individual con vísceras (solo reses) */}
+      {visceraModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4">
+            <h3 className="text-base font-bold text-gray-900 mb-2">Despachar canal y vísceras</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Canal{' '}
+              <span className="font-semibold text-gray-900">
+                {visceraModal.registro.codigo_cliente}-{visceraModal.registro.numero_animal}
+              </span>{' '}
+              lista para despacho.
+            </p>
+            {visceraModal.visceras.length > 0 ? (
+              <div className="mb-5">
+                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Vísceras disponibles</p>
+                <div className="space-y-2">
+                  {visceraModal.visceras.map(v => (
+                    <label key={v.id} className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={visceraSelected.has(v.id)}
+                        onChange={() => {
+                          const next = new Set(visceraSelected)
+                          if (next.has(v.id)) next.delete(v.id)
+                          else next.add(v.id)
+                          setVisceraSelected(next)
+                        }}
+                        className="w-4 h-4 rounded accent-green-700 cursor-pointer"
+                      />
+                      <span className="text-sm text-gray-700">
+                        Ingresada: {formatVisceraDate(v.created_at)}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500 mb-5">Esta res no tiene vísceras disponibles en cava.</p>
+            )}
+            <div className="flex gap-3 justify-end flex-wrap">
+              {visceraModal.visceras.length > 0 ? (
+                <>
+                  <button
+                    onClick={handleDespacharCanalSolo}
+                    disabled={visceraDispatching}
+                    className="px-4 py-2 text-sm font-semibold text-gray-700 border border-gray-300 rounded-lg transition-colors hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Despachar canal solamente
+                  </button>
+                  <button
+                    onClick={handleDespacharCanalYVisceras}
+                    disabled={visceraDispatching}
+                    className="px-4 py-2 text-sm font-bold text-white bg-green-800 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {visceraDispatching ? 'Despachando...' : 'Despachar selección'}
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={handleDespacharCanalSolo}
+                  disabled={visceraDispatching}
+                  className="px-4 py-2 text-sm font-bold text-white bg-green-800 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {visceraDispatching ? 'Despachando...' : 'Despachar canal'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal resumen de vísceras post despacho múltiple */}
+      {visceraMultiModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4">
+            <h3 className="text-base font-bold text-gray-900 mb-2">¿Despachar vísceras también?</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Se despacharon{' '}
+              <span className="font-semibold text-gray-900">{visceraMultiModal.canalesCount} canales</span>. Los siguientes códigos tienen vísceras disponibles en cava:
+            </p>
+            <ul className="mb-5 space-y-1">
+              {visceraMultiModal.groups.map(g => (
+                <li key={g.registro_id} className="text-sm text-gray-700">
+                  • <span className="font-mono font-semibold">{g.codigo}</span> → {g.visceras.length} {g.visceras.length === 1 ? 'víscera disponible' : 'vísceras disponibles'}
+                </li>
+              ))}
+            </ul>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setVisceraMultiModal(null)}
+                disabled={visceraMultiDispatching}
+                className="px-4 py-2 text-sm font-semibold text-gray-700 border border-gray-300 rounded-lg transition-colors hover:bg-gray-50 disabled:opacity-50"
+              >
+                No despachar vísceras
+              </button>
+              <button
+                onClick={handleDespacharTodasVisceras}
+                disabled={visceraMultiDispatching}
+                className="px-4 py-2 text-sm font-bold text-white bg-green-800 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {visceraMultiDispatching ? 'Despachando...' : 'Despachar todas las vísceras'}
               </button>
             </div>
           </div>
@@ -633,7 +884,15 @@ export default function Beneficio() {
               <span className="sm:hidden">{selected.size} sel.</span>
             </span>
             <button
-              onClick={() => setShowModal(true)}
+              onClick={() => {
+                if (selected.size === 1) {
+                  const id = Array.from(selected)[0]
+                  const r = registros.find(reg => reg.id === id)
+                  if (r) handleDespachar(r)
+                } else {
+                  setShowModal(true)
+                }
+              }}
               className="bg-red-600 hover:bg-red-500 text-white text-sm font-bold rounded-lg px-3 sm:px-4 py-2 transition-colors whitespace-nowrap"
             >
               <span className="hidden sm:inline">Despachar {selected.size} seleccionados</span>
