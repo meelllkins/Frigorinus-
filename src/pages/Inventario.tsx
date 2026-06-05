@@ -474,7 +474,7 @@ export default function Inventario() {
                 </th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Código animal</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Estado</th>
-                <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Fecha de ingreso</th>
+                <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Fecha de sacrificio</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Días en cava</th>
                 <th className="px-4 py-3" />
               </tr>
@@ -514,7 +514,7 @@ export default function Inventario() {
                           En inventario
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-gray-700">{formatFecha(parsearFechaLocal(v.created_at))}</td>
+                      <td className="px-4 py-3 text-gray-700">{formatFecha(new Date(v.registros_beneficio.fecha_beneficio + 'T00:00:00'))}</td>
                       <td className="px-4 py-3">
                         <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${diasBadge(diasEnCava(v.registros_beneficio.fecha_beneficio + 'T00:00:00'))} ${diasEnCava(v.registros_beneficio.fecha_beneficio + 'T00:00:00') >= 5 ? 'animate-pulse' : ''}`}>
                           {diasEnCava(v.registros_beneficio.fecha_beneficio + 'T00:00:00')} {diasEnCava(v.registros_beneficio.fecha_beneficio + 'T00:00:00') === 1 ? 'día' : 'días'}
