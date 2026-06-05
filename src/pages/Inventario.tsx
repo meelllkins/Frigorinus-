@@ -134,6 +134,7 @@ export default function Inventario() {
       .maybeSingle()
 
     let registroId: string
+    let isNewRegistro = false
 
     if (existente) {
       // Verificar que no tenga ya una víscera activa
@@ -176,6 +177,7 @@ export default function Inventario() {
       }
 
       registroId = nuevo.id
+      isNewRegistro = true
     }
 
     await supabase.from('inventario_visceras').insert({
@@ -183,9 +185,12 @@ export default function Inventario() {
       estado: 'en_inventario',
     })
 
+    if (isNewRegistro) {
+      await new Promise(r => setTimeout(r, 800))
+    }
+    await fetchVisceras()
     setRegForm(getInitialRegForm())
     setRegSaving(false)
-    fetchVisceras()
     if (window.innerWidth > 768) setTimeout(() => regCodigoRef.current?.focus(), 0)
   }
 
