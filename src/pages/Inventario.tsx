@@ -120,33 +120,66 @@ export default function Inventario() {
     setRegSaving(true)
     setRegError('')
 
-    const { data: registro, error: err } = await supabase
-      .from('registros_beneficio')
-      .insert({
-        codigo_cliente: regForm.codigo_cliente.trim(),
-        numero_animal: regForm.numero_animal.trim(),
-        tipo_carne: 'res',
-        fecha_beneficio: regForm.fecha_beneficio,
-        fecha_cobro_frio: addDays(regForm.fecha_beneficio, 2),
-        estado: 'despachado',
-      })
-      .select()
-      .single()
+    const codigo = regForm.codigo_cliente.trim()
+    const numero = regForm.numero_animal.trim()
+    const fecha = regForm.fecha_beneficio
 
-    if (err || !registro) {
-      const msg =
-        err?.code === '23505'
-          ? 'Esta res ya está registrada con esa fecha'
-          : 'Error al registrar. Intenta de nuevo.'
-      setRegError(msg)
-      if (regErrorTimerRef.current) clearTimeout(regErrorTimerRef.current)
-      regErrorTimerRef.current = setTimeout(() => setRegError(''), 4000)
-      setRegSaving(false)
-      return
+    // Buscar si ya existe un registro con esos datos
+    const { data: existente } = await supabase
+      .from('registros_beneficio')
+      .select('id')
+      .eq('codigo_cliente', codigo)
+      .eq('numero_animal', numero)
+      .eq('fecha_beneficio', fecha)
+      .maybeSingle()
+
+    let registroId: string
+
+    if (existente) {
+      // Verificar que no tenga ya una víscera activa
+      const { data: visceraActiva } = await supabase
+        .from('inventario_visceras')
+        .select('id')
+        .eq('registro_id', existente.id)
+        .eq('estado', 'en_inventario')
+        .maybeSingle()
+
+      if (visceraActiva) {
+        setRegError('Este animal ya tiene una víscera activa en inventario.')
+        if (regErrorTimerRef.current) clearTimeout(regErrorTimerRef.current)
+        regErrorTimerRef.current = setTimeout(() => setRegError(''), 4000)
+        setRegSaving(false)
+        return
+      }
+
+      registroId = existente.id
+    } else {
+      const { data: nuevo, error: err } = await supabase
+        .from('registros_beneficio')
+        .insert({
+          codigo_cliente: codigo,
+          numero_animal: numero,
+          tipo_carne: 'res',
+          fecha_beneficio: fecha,
+          fecha_cobro_frio: addDays(fecha, 2),
+          estado: 'despachado',
+        })
+        .select('id')
+        .single()
+
+      if (err || !nuevo) {
+        setRegError('Error al registrar. Intenta de nuevo.')
+        if (regErrorTimerRef.current) clearTimeout(regErrorTimerRef.current)
+        regErrorTimerRef.current = setTimeout(() => setRegError(''), 4000)
+        setRegSaving(false)
+        return
+      }
+
+      registroId = nuevo.id
     }
 
     await supabase.from('inventario_visceras').insert({
-      registro_id: registro.id,
+      registro_id: registroId,
       estado: 'en_inventario',
     })
 
