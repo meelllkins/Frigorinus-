@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Undo2, Trash2, Archive, X } from 'lucide-react'
+import { Undo2, Trash2, Archive, X, AlertTriangle } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 
@@ -55,6 +55,7 @@ export default function Despachos() {
   const [reverting, setReverting] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [proximosAArchivar, setProximosAArchivar] = useState(0)
   const [showArchivo, setShowArchivo] = useState(false)
   const [archivo, setArchivo] = useState<DespachoArchivado[]>([])
   const [loadingArchivo, setLoadingArchivo] = useState(false)
@@ -94,7 +95,15 @@ export default function Despachos() {
       .from('despachos')
       .select('*, registros_beneficio(codigo_cliente, numero_animal, tipo_carne, fecha_beneficio)')
       .order('created_at', { ascending: false })
-    if (data) setDespachos(data as DespachoCon[])
+    if (data) {
+      setDespachos(data as DespachoCon[])
+      const warning = new Date()
+      warning.setDate(warning.getDate() - 12)
+      const warningStr = `${warning.getFullYear()}-${String(warning.getMonth() + 1).padStart(2, '0')}-${String(warning.getDate()).padStart(2, '0')}`
+      setProximosAArchivar(
+        (data as DespachoCon[]).filter(d => d.fecha_despacho >= cutoffStr && d.fecha_despacho <= warningStr).length
+      )
+    }
   }
 
   async function fetchArchivo() {
@@ -230,6 +239,26 @@ export default function Despachos() {
           </button>
         </div>
       </div>
+
+      {/* Banner de aviso */}
+      {proximosAArchivar > 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-amber-50 border border-amber-300 rounded-xl p-4 mb-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle size={17} className="text-amber-500 mt-0.5 shrink-0" />
+            <p className="text-sm text-amber-800">
+              <span className="font-semibold">{proximosAArchivar} {proximosAArchivar === 1 ? 'despacho' : 'despachos'}</span>{' '}
+              {proximosAArchivar === 1 ? 'será archivado' : 'serán archivados'} en los próximos 3 días.
+              Expórtalos antes si los necesitas.
+            </p>
+          </div>
+          <button
+            onClick={exportCSV}
+            className="shrink-0 text-xs font-semibold text-amber-800 hover:text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded-lg px-3 py-2 transition-all duration-200 whitespace-nowrap"
+          >
+            Exportar ahora
+          </button>
+        </div>
+      )}
 
       <div className="w-full overflow-x-auto rounded-2xl shadow-sm border border-gray-200 bg-white">
         <table className="min-w-[650px] w-full text-sm">
