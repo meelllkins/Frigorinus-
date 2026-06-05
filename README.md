@@ -31,7 +31,6 @@
   - [Estructura del proyecto](#estructura-del-proyecto)
   - [Calidad de código (ESLint)](#calidad-de-código-eslint)
   - [Notas y recomendaciones](#notas-y-recomendaciones)
-  - [Licencia](#licencia)
 
 ---
 
@@ -307,7 +306,3 @@ El proyecto incluye configuración de ESLint (`eslint.config.js`) y el README or
 - **UX:** la app ya está muy bien encaminada con el enfoque “panel + módulos + PWA”.
 
 ---
-
-## Licencia
-
-No se especifica una licencia en el repositorio. Si deseas que el proyecto sea reutilizable/abierto, agrega un archivo `LICENSE` (por ejemplo MIT, Apache-2.0, etc.).
