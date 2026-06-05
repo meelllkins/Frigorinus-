@@ -122,6 +122,9 @@ export default function Beneficio() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState('')
   const deleteErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [showDeleteMultiModal, setShowDeleteMultiModal] = useState(false)
+  const [deletingMulti, setDeletingMulti] = useState(false)
+  const [deleteMultiError, setDeleteMultiError] = useState('')
   const selectAllRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -507,6 +510,43 @@ export default function Beneficio() {
     fetchRegistros()
   }
 
+  async function handleEliminarMultiple() {
+    setDeletingMulti(true)
+    setDeleteMultiError('')
+    const ids = Array.from(selected)
+    const toDelete = registros.filter(r => ids.includes(r.id))
+    const failed: string[] = []
+
+    for (const r of toDelete) {
+      if (r.tipo_carne === 'res') {
+        const { error: errV } = await supabase
+          .from('inventario_visceras')
+          .delete()
+          .eq('registro_id', r.id)
+        if (errV) {
+          failed.push(`${r.codigo_cliente}-${r.numero_animal}`)
+          continue
+        }
+      }
+      const { error: errR } = await supabase
+        .from('registros_beneficio')
+        .delete()
+        .eq('id', r.id)
+      if (errR) {
+        failed.push(`${r.codigo_cliente}-${r.numero_animal}`)
+      }
+    }
+
+    setDeletingMulti(false)
+    setSelected(new Set())
+    fetchRegistros()
+    if (failed.length > 0) {
+      setDeleteMultiError(`No se pudieron eliminar: ${failed.join(', ')}.`)
+    } else {
+      setShowDeleteMultiModal(false)
+    }
+  }
+
   async function handleDespacharSeleccionMulti() {
     if (!visceraMultiModal) return
     const selectedIds = Array.from(visceraMultiSelected)
@@ -634,6 +674,40 @@ export default function Beneficio() {
                 className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg transition-all duration-200 active:scale-95 disabled:opacity-50"
               >
                 {dispatching ? 'Despachando...' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de confirmación de eliminación múltiple */}
+      {showDeleteMultiModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 animate-scaleIn">
+            <h3 className="text-base font-bold text-gray-900 mb-2">Confirmar eliminación</h3>
+            <p className="text-sm text-gray-600 mb-6">
+              ¿Estás seguro de eliminar{' '}
+              <span className="font-semibold text-gray-900">
+                {selected.size} {selected.size === 1 ? 'animal' : 'animales'}
+              </span>? Esta acción no se puede deshacer.
+            </p>
+            {deleteMultiError && (
+              <p className="text-sm text-red-600 font-medium mb-4">{deleteMultiError}</p>
+            )}
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => { setShowDeleteMultiModal(false); setDeleteMultiError('') }}
+                disabled={deletingMulti}
+                className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-all duration-200 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleEliminarMultiple}
+                disabled={deletingMulti}
+                className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg transition-all duration-200 active:scale-95 disabled:opacity-50"
+              >
+                {deletingMulti ? 'Eliminando...' : 'Eliminar'}
               </button>
             </div>
           </div>
@@ -986,21 +1060,30 @@ export default function Beneficio() {
               <span className="hidden sm:inline">{selected.size} {selected.size === 1 ? 'animal seleccionado' : 'animales seleccionados'}</span>
               <span className="sm:hidden">{selected.size} sel.</span>
             </span>
-            <button
-              onClick={() => {
-                if (selected.size === 1) {
-                  const id = Array.from(selected)[0]
-                  const r = registros.find(reg => reg.id === id)
-                  if (r) handleDespachar(r)
-                } else {
-                  setShowModal(true)
-                }
-              }}
-              className="bg-red-600 hover:bg-red-500 text-white text-sm font-bold rounded-lg px-3 sm:px-4 py-2 transition-all duration-200 active:scale-95 whitespace-nowrap"
-            >
-              <span className="hidden sm:inline">Despachar {selected.size} seleccionados</span>
-              <span className="sm:hidden">Despachar</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { setShowDeleteMultiModal(true); setDeleteMultiError('') }}
+                className="text-sm font-bold text-red-400 hover:text-red-300 transition-all duration-200 whitespace-nowrap"
+              >
+                <span className="hidden sm:inline">Eliminar {selected.size} seleccionados</span>
+                <span className="sm:hidden">Eliminar</span>
+              </button>
+              <button
+                onClick={() => {
+                  if (selected.size === 1) {
+                    const id = Array.from(selected)[0]
+                    const r = registros.find(reg => reg.id === id)
+                    if (r) handleDespachar(r)
+                  } else {
+                    setShowModal(true)
+                  }
+                }}
+                className="bg-red-600 hover:bg-red-500 text-white text-sm font-bold rounded-lg px-3 sm:px-4 py-2 transition-all duration-200 active:scale-95 whitespace-nowrap"
+              >
+                <span className="hidden sm:inline">Despachar {selected.size} seleccionados</span>
+                <span className="sm:hidden">Despachar</span>
+              </button>
+            </div>
           </div>
         )}
 
