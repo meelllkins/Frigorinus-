@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { ChevronDown, Pencil, Truck } from 'lucide-react'
+import { ChevronDown, Pencil, Truck, X } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import type { RegistroBeneficio } from '../types'
@@ -52,6 +52,8 @@ interface VisceraSingle {
   id: string
   registro_id: string
   created_at: string
+  numero_animal: string
+  codigo_cliente: string
 }
 
 interface VisceraGroup {
@@ -382,13 +384,27 @@ export default function Beneficio() {
       return
     }
 
+    const { data: registrosCliente } = await supabase
+      .from('registros_beneficio')
+      .select('id, numero_animal')
+      .eq('codigo_cliente', r.codigo_cliente)
+      .eq('tipo_carne', 'res')
+
+    const ids = (registrosCliente ?? []).map(x => x.id)
+
     const { data } = await supabase
       .from('inventario_visceras')
-      .select('id, registro_id, created_at')
-      .eq('registro_id', r.id)
+      .select('id, registro_id, created_at, registros_beneficio(numero_animal, codigo_cliente)')
+      .in('registro_id', ids)
       .eq('estado', 'en_inventario')
 
-    const visceras = (data ?? []) as VisceraSingle[]
+    const visceras = (data ?? []).map((v: any) => ({
+      id: v.id,
+      registro_id: v.registro_id,
+      created_at: v.created_at,
+      numero_animal: v.registros_beneficio?.numero_animal ?? '',
+      codigo_cliente: v.registros_beneficio?.codigo_cliente ?? '',
+    })) as VisceraSingle[]
     setVisceraSelected(new Set(visceras.map(v => v.id)))
     setVisceraModal({ registro: r, visceras })
   }
@@ -581,7 +597,17 @@ export default function Beneficio() {
       {visceraModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn">
           <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 animate-scaleIn">
-            <h3 className="text-base font-bold text-gray-900 mb-2">Despachar canal y vísceras</h3>
+            <div className="flex items-start justify-between mb-2">
+              <h3 className="text-base font-bold text-gray-900">
+                Vísceras disponibles — Cliente {visceraModal.registro.codigo_cliente}
+              </h3>
+              <button
+                onClick={() => setVisceraModal(null)}
+                className="ml-3 p-1 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
             <p className="text-sm text-gray-600 mb-4">
               Canal{' '}
               <span className="font-semibold text-gray-900">
@@ -607,14 +633,14 @@ export default function Beneficio() {
                         className="w-4 h-4 rounded accent-green-700 cursor-pointer"
                       />
                       <span className="text-sm text-gray-700">
-                        Ingresada: {formatVisceraDate(v.created_at)}
+                        Animal {v.codigo_cliente}-{v.numero_animal} — Ingresó {formatVisceraDate(v.created_at)}
                       </span>
                     </label>
                   ))}
                 </div>
               </div>
             ) : (
-              <p className="text-sm text-gray-500 mb-5">Esta res no tiene vísceras disponibles en cava.</p>
+              <p className="text-sm text-gray-500 mb-5">Este cliente no tiene vísceras disponibles en cava.</p>
             )}
             <div className="flex gap-3 justify-end flex-wrap">
               {visceraModal.visceras.length > 0 ? (
