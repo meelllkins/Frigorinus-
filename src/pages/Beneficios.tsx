@@ -302,10 +302,14 @@ export default function Beneficio() {
     }
 
     if (activeTab === 'res') {
-      await supabase.from('inventario_visceras').insert({
-        registro_id: registro.id,
-        estado: 'en_inventario',
-      })
+      const { data: viscera } = await supabase
+        .from('inventario_visceras')
+        .select('id')
+        .eq('registro_id', registro.id)
+        .maybeSingle()
+      if (!viscera) {
+        showError('El animal se registró, pero su víscera no se creó automáticamente. Contacta al administrador.')
+      }
     }
 
     setForm(getInitialForm())
@@ -345,7 +349,7 @@ export default function Beneficio() {
     const { data: inserted, error: err } = await supabase
       .from('registros_beneficio')
       .insert(rows)
-      .select('id')
+      .select('id, numero_animal')
 
     if (err || !inserted) {
       showBatchError(
@@ -358,9 +362,20 @@ export default function Beneficio() {
     }
 
     if (activeTab === 'res') {
-      await supabase.from('inventario_visceras').insert(
-        inserted.map(r => ({ registro_id: r.id, estado: 'en_inventario' }))
-      )
+      const insertedIds = inserted.map(r => r.id)
+      const { data: viscerasCreadas } = await supabase
+        .from('inventario_visceras')
+        .select('registro_id')
+        .in('registro_id', insertedIds)
+      const createdIds = new Set((viscerasCreadas ?? []).map(v => v.registro_id))
+      const failedAnimals = inserted
+        .filter(r => !createdIds.has(r.id))
+        .map(r => `${batchForm.codigo_cliente.trim()}-${r.numero_animal}`)
+      if (failedAnimals.length > 0) {
+        setBatchError(
+          `Las vísceras no se crearon para: ${failedAnimals.join(', ')}. Contacta al administrador.`
+        )
+      }
     }
 
     setBatchSuccess(`Se registraron ${inserted.length} animales correctamente.`)
