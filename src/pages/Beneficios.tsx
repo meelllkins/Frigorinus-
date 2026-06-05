@@ -426,7 +426,7 @@ export default function Beneficio() {
       numero_animal: v.registros_beneficio?.numero_animal ?? '',
       codigo_cliente: v.registros_beneficio?.codigo_cliente ?? '',
     })) as VisceraSingle[]
-    setVisceraSelected(new Set(visceras.map(v => v.id)))
+    setVisceraSelected(new Set())
     setVisceraModal({ registro: r, visceras })
   }
 
@@ -622,7 +622,7 @@ export default function Beneficio() {
           groupMap.get(v.registro_id)!.visceras.push(v)
         }
         const allGroups = Array.from(groupMap.values())
-        setVisceraMultiSelected(new Set(allGroups.flatMap(g => g.visceras.map(v => v.id))))
+        setVisceraMultiSelected(new Set())
         setVisceraMultiModal({
           canalesCount: ids.length,
           groups: allGroups,
@@ -738,7 +738,25 @@ export default function Beneficio() {
             </p>
             {visceraModal.visceras.length > 0 ? (
               <div className="mb-5">
-                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Vísceras disponibles</p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Vísceras disponibles</p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setVisceraSelected(new Set(visceraModal.visceras.map(v => v.id)))}
+                      className="text-xs font-semibold text-green-700 hover:text-green-900 bg-green-50 hover:bg-green-100 border border-green-200 rounded px-2 py-0.5 transition-colors"
+                    >
+                      Seleccionar todos
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVisceraSelected(new Set())}
+                      className="text-xs font-semibold text-gray-600 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded px-2 py-0.5 transition-colors"
+                    >
+                      Desmarcar todos
+                    </button>
+                  </div>
+                </div>
                 <div className="space-y-2">
                   {visceraModal.visceras.map(v => (
                     <label key={v.id} className="flex items-center gap-3 cursor-pointer">
@@ -804,6 +822,22 @@ export default function Beneficio() {
               Se despacharon{' '}
               <span className="font-semibold text-gray-900">{visceraMultiModal.canalesCount} canales</span>. Selecciona las vísceras a despachar:
             </p>
+            <div className="flex gap-2 mb-3">
+              <button
+                type="button"
+                onClick={() => setVisceraMultiSelected(new Set(visceraMultiModal.groups.flatMap(g => g.visceras.map(v => v.id))))}
+                className="text-xs font-semibold text-green-700 hover:text-green-900 bg-green-50 hover:bg-green-100 border border-green-200 rounded px-2 py-0.5 transition-colors"
+              >
+                Seleccionar todos
+              </button>
+              <button
+                type="button"
+                onClick={() => setVisceraMultiSelected(new Set())}
+                className="text-xs font-semibold text-gray-600 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded px-2 py-0.5 transition-colors"
+              >
+                Desmarcar todos
+              </button>
+            </div>
             <div className="mb-5 space-y-4">
               {visceraMultiModal.groups.map(g => (
                 <div key={g.registro_id}>
