@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Truck, Trash2 } from 'lucide-react'
+import { Truck, Trash2, PlusCircle } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 
@@ -18,6 +18,17 @@ interface VisceraCon {
 function localToday(): Date {
   const d = new Date()
   return new Date(d.getFullYear(), d.getMonth(), d.getDate())
+}
+
+function localTodayStr(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function addDays(dateStr: string, days: number): string {
+  const d = new Date(dateStr + 'T00:00:00')
+  d.setDate(d.getDate() + days)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 function parsearFechaLocal(timestamp: string): Date {
@@ -55,6 +66,13 @@ function diasBadge(dias: number): string {
   return 'bg-red-100 text-red-700'
 }
 
+function getInitialRegForm() {
+  return { codigo_cliente: '', numero_animal: '', fecha_beneficio: localTodayStr() }
+}
+
+const inputClass =
+  'w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-700 focus:ring-1 focus:ring-green-700 transition-colors'
+
 export default function Inventario() {
   const [visceras, setVisceras] = useState<VisceraCon[]>([])
   const [search, setSearch] = useState('')
@@ -65,6 +83,15 @@ export default function Inventario() {
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const selectAllRef = useRef<HTMLInputElement>(null)
+
+  const [regForm, setRegForm] = useState(getInitialRegForm)
+  const [regSaving, setRegSaving] = useState(false)
+  const [regError, setRegError] = useState('')
+  const regCodigoRef = useRef<HTMLInputElement>(null)
+  const regNumeroRef = useRef<HTMLInputElement>(null)
+  const regFechaRef = useRef<HTMLInputElement>(null)
+  const regFormRef = useRef<HTMLFormElement>(null)
+  const regErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => { fetchVisceras() }, [])
 
@@ -85,6 +112,47 @@ export default function Inventario() {
       .eq('estado', 'en_inventario')
       .order('created_at', { ascending: false })
     if (data) setVisceras(data as VisceraCon[])
+  }
+
+  async function handleRegistrar(e: React.FormEvent) {
+    e.preventDefault()
+    setRegSaving(true)
+    setRegError('')
+
+    const { data: registro, error: err } = await supabase
+      .from('registros_beneficio')
+      .insert({
+        codigo_cliente: regForm.codigo_cliente.trim(),
+        numero_animal: regForm.numero_animal.trim(),
+        tipo_carne: 'res',
+        fecha_beneficio: regForm.fecha_beneficio,
+        fecha_cobro_frio: addDays(regForm.fecha_beneficio, 2),
+        estado: 'despachado',
+      })
+      .select()
+      .single()
+
+    if (err || !registro) {
+      const msg =
+        err?.code === '23505'
+          ? 'Esta res ya está registrada con esa fecha'
+          : 'Error al registrar. Intenta de nuevo.'
+      setRegError(msg)
+      if (regErrorTimerRef.current) clearTimeout(regErrorTimerRef.current)
+      regErrorTimerRef.current = setTimeout(() => setRegError(''), 4000)
+      setRegSaving(false)
+      return
+    }
+
+    await supabase.from('inventario_visceras').insert({
+      registro_id: registro.id,
+      estado: 'en_inventario',
+    })
+
+    setRegForm(getInitialRegForm())
+    setRegSaving(false)
+    fetchVisceras()
+    if (window.innerWidth > 768) setTimeout(() => regCodigoRef.current?.focus(), 0)
   }
 
   async function handleDespachar(v: VisceraCon) {
@@ -198,7 +266,7 @@ export default function Inventario() {
   const someSelected = selected.size > 0
 
   return (
-    <div className="overflow-x-hidden touch-pan-y">
+    <div className="space-y-8 overflow-x-hidden touch-pan-y">
       {/* Modal de confirmación de eliminación múltiple */}
       {showDeleteModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn">
@@ -259,171 +327,244 @@ export default function Inventario() {
         </div>
       )}
 
-      <h2 className="text-xl font-bold text-gray-900 mb-5">Inventario de vísceras</h2>
-
-      {/* Resumen de códigos con vísceras */}
-      {codigosConVisceras.length > 0 && (
-        <div className="mb-3">
-          <p className="text-xs text-gray-500 mb-1.5">Códigos con vísceras en inventario:</p>
-          <div className="flex flex-wrap gap-1.5">
-            {codigosConVisceras.map(c => (
-              <span key={c} className="bg-gray-100 border border-gray-200 text-gray-700 text-xs font-bold px-2 py-0.5 rounded-md">
-                {c}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Toolbar */}
-      <div className="flex items-center justify-between mb-4 gap-4">
-        <input
-          type="text"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Buscar por código..."
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-60 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 bg-white"
-        />
-        <button
-          onClick={exportCSV}
-          className="text-xs font-semibold text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 transition-all duration-200 whitespace-nowrap"
+      {/* Sección: Registrar víscera manualmente */}
+      <section>
+        <h2 className="text-xl font-bold text-gray-900 mb-5 flex items-center gap-2">
+          <PlusCircle size={20} className="text-green-800" />
+          Registrar víscera manualmente
+        </h2>
+        <form
+          ref={regFormRef}
+          onSubmit={handleRegistrar}
+          className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6 grid grid-cols-1 sm:grid-cols-3 gap-3"
         >
-          Exportar Excel
-        </button>
-      </div>
-
-      {/* Barra de acciones múltiples */}
-      {someSelected && (
-        <div className="mb-4 flex items-center justify-between bg-gray-900 text-white rounded-xl px-4 py-3 gap-3 animate-slideDown">
-          <span className="text-sm font-semibold">
-            <span className="hidden sm:inline">{selected.size} {selected.size === 1 ? 'víscera seleccionada' : 'vísceras seleccionadas'}</span>
-            <span className="sm:hidden">{selected.size} sel.</span>
-          </span>
-          <div className="flex items-center gap-2">
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Código cliente</label>
+            <input
+              ref={regCodigoRef}
+              type="text"
+              value={regForm.codigo_cliente}
+              onChange={e => setRegForm({ ...regForm, codigo_cliente: e.target.value })}
+              onKeyDown={e => {
+                if (e.key === 'Enter') { e.preventDefault(); regNumeroRef.current?.focus() }
+              }}
+              placeholder="Código cliente"
+              className={inputClass}
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">N° animal</label>
+            <input
+              ref={regNumeroRef}
+              type="text"
+              value={regForm.numero_animal}
+              onChange={e => setRegForm({ ...regForm, numero_animal: e.target.value })}
+              onKeyDown={e => {
+                if (e.key === 'Enter') { e.preventDefault(); regFechaRef.current?.focus() }
+              }}
+              placeholder="N° animal"
+              className={inputClass}
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Fecha de beneficio</label>
+            <input
+              ref={regFechaRef}
+              type="date"
+              value={regForm.fecha_beneficio}
+              onChange={e => setRegForm({ ...regForm, fecha_beneficio: e.target.value })}
+              onKeyDown={e => {
+                if (e.key === 'Enter') { e.preventDefault(); regFormRef.current?.requestSubmit() }
+              }}
+              className={inputClass}
+              required
+            />
+          </div>
+          {regError && (
+            <p className="sm:col-span-3 text-red-600 text-sm font-medium">{regError}</p>
+          )}
+          <div className="sm:col-span-3">
             <button
-              onClick={() => setShowDeleteModal(true)}
-              className="text-sm font-bold text-red-400 hover:text-red-300 transition-all duration-200 whitespace-nowrap"
+              type="submit"
+              disabled={regSaving}
+              className="bg-green-800 hover:bg-green-700 text-white rounded-lg px-7 py-2.5 text-sm font-bold tracking-wide transition-all duration-200 active:scale-95 disabled:opacity-50 shadow-sm"
             >
-              <span className="hidden sm:inline">Eliminar {selected.size} seleccionadas</span>
-              <span className="sm:hidden">Eliminar</span>
-            </button>
-            <button
-              onClick={() => setShowModal(true)}
-              className="bg-red-600 hover:bg-red-500 text-white text-sm font-bold rounded-lg px-3 sm:px-4 py-2 transition-all duration-200 active:scale-95 whitespace-nowrap"
-            >
-              <span className="hidden sm:inline">Despachar {selected.size} seleccionadas</span>
-              <span className="sm:hidden">Despachar</span>
+              {regSaving ? 'Registrando...' : 'Registrar víscera'}
             </button>
           </div>
-        </div>
-      )}
+        </form>
+      </section>
 
-      <div className="w-full overflow-x-auto rounded-2xl shadow-sm border border-gray-200 bg-white">
-        <table className="min-w-[650px] w-full text-sm">
-          <thead>
-            <tr className="bg-gray-800">
-              <th className="px-4 py-3 w-10">
-                <input
-                  ref={selectAllRef}
-                  type="checkbox"
-                  checked={allVisibleSelected}
-                  onChange={toggleAll}
-                  className="w-4 h-4 rounded accent-white cursor-pointer"
-                />
-              </th>
-              <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Código animal</th>
-              <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Estado</th>
-              <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Fecha de ingreso</th>
-              <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Días en cava</th>
-              <th className="px-4 py-3" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {visibleVisceras.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-gray-400 text-sm">
-                  {visceras.length === 0
-                    ? 'No hay vísceras en inventario'
-                    : 'Sin resultados para la búsqueda'}
-                </td>
+      {/* Sección: Inventario */}
+      <section>
+        <h2 className="text-xl font-bold text-gray-900 mb-5">Inventario de vísceras</h2>
+
+        {/* Resumen de códigos con vísceras */}
+        {codigosConVisceras.length > 0 && (
+          <div className="mb-3">
+            <p className="text-xs text-gray-500 mb-1.5">Códigos con vísceras en inventario:</p>
+            <div className="flex flex-wrap gap-1.5">
+              {codigosConVisceras.map(c => (
+                <span key={c} className="bg-gray-100 border border-gray-200 text-gray-700 text-xs font-bold px-2 py-0.5 rounded-md">
+                  {c}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Toolbar */}
+        <div className="flex items-center justify-between mb-4 gap-4">
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Buscar por código..."
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-60 focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 bg-white"
+          />
+          <button
+            onClick={exportCSV}
+            className="text-xs font-semibold text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 transition-all duration-200 whitespace-nowrap"
+          >
+            Exportar Excel
+          </button>
+        </div>
+
+        {/* Barra de acciones múltiples */}
+        {someSelected && (
+          <div className="mb-4 flex items-center justify-between bg-gray-900 text-white rounded-xl px-4 py-3 gap-3 animate-slideDown">
+            <span className="text-sm font-semibold">
+              <span className="hidden sm:inline">{selected.size} {selected.size === 1 ? 'víscera seleccionada' : 'vísceras seleccionadas'}</span>
+              <span className="sm:hidden">{selected.size} sel.</span>
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowDeleteModal(true)}
+                className="text-sm font-bold text-red-400 hover:text-red-300 transition-all duration-200 whitespace-nowrap"
+              >
+                <span className="hidden sm:inline">Eliminar {selected.size} seleccionadas</span>
+                <span className="sm:hidden">Eliminar</span>
+              </button>
+              <button
+                onClick={() => setShowModal(true)}
+                className="bg-red-600 hover:bg-red-500 text-white text-sm font-bold rounded-lg px-3 sm:px-4 py-2 transition-all duration-200 active:scale-95 whitespace-nowrap"
+              >
+                <span className="hidden sm:inline">Despachar {selected.size} seleccionadas</span>
+                <span className="sm:hidden">Despachar</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="w-full overflow-x-auto rounded-2xl shadow-sm border border-gray-200 bg-white">
+          <table className="min-w-[650px] w-full text-sm">
+            <thead>
+              <tr className="bg-gray-800">
+                <th className="px-4 py-3 w-10">
+                  <input
+                    ref={selectAllRef}
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleAll}
+                    className="w-4 h-4 rounded accent-white cursor-pointer"
+                  />
+                </th>
+                <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Código animal</th>
+                <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Estado</th>
+                <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Fecha de ingreso</th>
+                <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Días en cava</th>
+                <th className="px-4 py-3" />
               </tr>
-            ) : (
-              visibleVisceras.map((v, i) => {
-                const isSelected = selected.has(v.id)
-                return (
-                  <tr
-                    key={v.id}
-                    className={`transition-colors duration-150 hover:bg-blue-50 ${
-                      isSelected ? 'bg-blue-50' : i % 2 === 1 ? 'bg-gray-50' : 'bg-white'
-                    }`}
-                  >
-                    <td className="px-4 py-3">
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => toggleOne(v.id)}
-                        className="w-4 h-4 rounded accent-gray-900 cursor-pointer"
-                      />
-                    </td>
-                    <td className="px-4 py-3 font-mono font-semibold text-gray-900">
-                      {v.registros_beneficio.codigo_cliente}-{v.registros_beneficio.numero_animal}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 bg-blue-100 text-blue-700">
-                        En inventario
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">{formatFecha(parsearFechaLocal(v.created_at))}</td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${diasBadge(diasEnCava(v.created_at))} ${diasEnCava(v.created_at) >= 5 ? 'animate-pulse' : ''}`}>
-                        {diasEnCava(v.created_at)} {diasEnCava(v.created_at) === 1 ? 'día' : 'días'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-2">
-                        {deleteConfirm === v.id ? (
-                          <>
-                            <span className="text-xs text-gray-500">¿Eliminar?</span>
-                            <button
-                              onClick={() => handleEliminar(v.id)}
-                              className="text-xs font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg px-2.5 py-1.5 transition-all duration-200 active:scale-95"
-                            >
-                              Sí
-                            </button>
-                            <button
-                              onClick={() => setDeleteConfirm(null)}
-                              className="text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg px-2.5 py-1.5 transition-all duration-200"
-                            >
-                              No
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <button
-                              onClick={() => { setDeleteConfirm(v.id); setDeleteConfirm(v.id) }}
-                              className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200 hover:scale-105 active:scale-95"
-                              title="Eliminar"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                            <button
-                              onClick={() => handleDespachar(v)}
-                              className="flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-2 sm:px-3 py-1.5 transition-all duration-200 hover:scale-105 active:scale-95"
-                            >
-                              <Truck size={12} />
-                              <span className="hidden sm:inline">Despachar</span>
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {visibleVisceras.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-10 text-center text-gray-400 text-sm">
+                    {visceras.length === 0
+                      ? 'No hay vísceras en inventario'
+                      : 'Sin resultados para la búsqueda'}
+                  </td>
+                </tr>
+              ) : (
+                visibleVisceras.map((v, i) => {
+                  const isSelected = selected.has(v.id)
+                  return (
+                    <tr
+                      key={v.id}
+                      className={`transition-colors duration-150 hover:bg-blue-50 ${
+                        isSelected ? 'bg-blue-50' : i % 2 === 1 ? 'bg-gray-50' : 'bg-white'
+                      }`}
+                    >
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleOne(v.id)}
+                          className="w-4 h-4 rounded accent-gray-900 cursor-pointer"
+                        />
+                      </td>
+                      <td className="px-4 py-3 font-mono font-semibold text-gray-900">
+                        {v.registros_beneficio.codigo_cliente}-{v.registros_beneficio.numero_animal}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 bg-blue-100 text-blue-700">
+                          En inventario
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-700">{formatFecha(parsearFechaLocal(v.created_at))}</td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${diasBadge(diasEnCava(v.created_at))} ${diasEnCava(v.created_at) >= 5 ? 'animate-pulse' : ''}`}>
+                          {diasEnCava(v.created_at)} {diasEnCava(v.created_at) === 1 ? 'día' : 'días'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-2">
+                          {deleteConfirm === v.id ? (
+                            <>
+                              <span className="text-xs text-gray-500">¿Eliminar?</span>
+                              <button
+                                onClick={() => handleEliminar(v.id)}
+                                className="text-xs font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg px-2.5 py-1.5 transition-all duration-200 active:scale-95"
+                              >
+                                Sí
+                              </button>
+                              <button
+                                onClick={() => setDeleteConfirm(null)}
+                                className="text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg px-2.5 py-1.5 transition-all duration-200"
+                              >
+                                No
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => setDeleteConfirm(v.id)}
+                                className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200 hover:scale-105 active:scale-95"
+                                title="Eliminar"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                              <button
+                                onClick={() => handleDespachar(v)}
+                                className="flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-2 sm:px-3 py-1.5 transition-all duration-200 hover:scale-105 active:scale-95"
+                              >
+                                <Truck size={12} />
+                                <span className="hidden sm:inline">Despachar</span>
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   )
 }
