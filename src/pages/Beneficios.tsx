@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { ChevronDown, Pencil, Truck, X } from 'lucide-react'
+import { ChevronDown, Pencil, Trash2, Truck, X } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import type { RegistroBeneficio } from '../types'
@@ -119,6 +119,9 @@ export default function Beneficio() {
   } | null>(null)
   const [visceraMultiSelected, setVisceraMultiSelected] = useState<Set<string>>(new Set())
   const [visceraMultiDispatching, setVisceraMultiDispatching] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState('')
+  const deleteErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const selectAllRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -472,6 +475,35 @@ export default function Beneficio() {
     setVisceraModal(null)
     setVisceraSelected(new Set())
     setVisceraDispatching(false)
+    fetchRegistros()
+  }
+
+  async function handleEliminarRegistro(r: RegistroBeneficio) {
+    setDeleteError('')
+    if (r.tipo_carne === 'res') {
+      const { error: errViscera } = await supabase
+        .from('inventario_visceras')
+        .delete()
+        .eq('registro_id', r.id)
+      if (errViscera) {
+        setDeleteError('Error al eliminar la víscera. Intenta de nuevo.')
+        if (deleteErrorTimerRef.current) clearTimeout(deleteErrorTimerRef.current)
+        deleteErrorTimerRef.current = setTimeout(() => setDeleteError(''), 4000)
+        return
+      }
+    }
+    const { error: errRegistro } = await supabase
+      .from('registros_beneficio')
+      .delete()
+      .eq('id', r.id)
+    if (errRegistro) {
+      setDeleteError('Error al eliminar el animal. Intenta de nuevo.')
+      if (deleteErrorTimerRef.current) clearTimeout(deleteErrorTimerRef.current)
+      deleteErrorTimerRef.current = setTimeout(() => setDeleteError(''), 4000)
+      return
+    }
+    setDeleteConfirm(null)
+    setSelected(prev => { const next = new Set(prev); next.delete(r.id); return next })
     fetchRegistros()
   }
 
@@ -1118,21 +1150,53 @@ export default function Beneficio() {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => startEdit(r)}
-                            className="p-1 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded transition-all duration-200 hover:scale-105 active:scale-95"
-                            title="Editar"
-                          >
-                            <Pencil size={13} />
-                          </button>
-                          <button
-                            onClick={() => handleDespachar(r)}
-                            className="flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-2 sm:px-3 py-1.5 transition-all duration-200 hover:scale-105 active:scale-95"
-                          >
-                            <Truck size={12} />
-                            <span className="hidden sm:inline">Despachar</span>
-                          </button>
+                        <div className="flex flex-col items-end gap-1">
+                          <div className="flex items-center justify-end gap-2">
+                            {deleteConfirm === r.id ? (
+                              <>
+                                <span className="text-xs text-gray-500">¿Eliminar?</span>
+                                <button
+                                  onClick={() => handleEliminarRegistro(r)}
+                                  className="text-xs font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg px-2.5 py-1.5 transition-all duration-200 active:scale-95"
+                                >
+                                  Sí
+                                </button>
+                                <button
+                                  onClick={() => { setDeleteConfirm(null); setDeleteError('') }}
+                                  className="text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg px-2.5 py-1.5 transition-all duration-200"
+                                >
+                                  No
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => { setDeleteConfirm(r.id); setDeleteError('') }}
+                                  className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200 hover:scale-105 active:scale-95"
+                                  title="Eliminar"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                                <button
+                                  onClick={() => startEdit(r)}
+                                  className="p-1 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded transition-all duration-200 hover:scale-105 active:scale-95"
+                                  title="Editar"
+                                >
+                                  <Pencil size={13} />
+                                </button>
+                                <button
+                                  onClick={() => handleDespachar(r)}
+                                  className="flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-2 sm:px-3 py-1.5 transition-all duration-200 hover:scale-105 active:scale-95"
+                                >
+                                  <Truck size={12} />
+                                  <span className="hidden sm:inline">Despachar</span>
+                                </button>
+                              </>
+                            )}
+                          </div>
+                          {deleteConfirm === r.id && deleteError && (
+                            <span className="text-xs text-red-600 text-right">{deleteError}</span>
+                          )}
                         </div>
                       </td>
                     </tr>
