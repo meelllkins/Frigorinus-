@@ -12,6 +12,7 @@ interface VisceraCon {
   registros_beneficio: {
     codigo_cliente: string
     numero_animal: string
+    fecha_beneficio: string
   }
 }
 
@@ -108,7 +109,7 @@ export default function Inventario() {
   async function fetchVisceras() {
     const { data } = await supabase
       .from('inventario_visceras')
-      .select('*, registros_beneficio(codigo_cliente, numero_animal)')
+      .select('*, registros_beneficio(codigo_cliente, numero_animal, fecha_beneficio)')
       .eq('estado', 'en_inventario')
       .order('created_at', { ascending: false })
     if (data) setVisceras(data as VisceraCon[])
@@ -513,10 +514,10 @@ export default function Inventario() {
                           En inventario
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-gray-700">{formatFecha(parsearFechaLocal(v.created_at))}</td>
+                      <td className="px-4 py-3 text-gray-700">{formatFecha(new Date(v.registros_beneficio.fecha_beneficio + 'T00:00:00'))}</td>
                       <td className="px-4 py-3">
-                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${diasBadge(diasEnCava(v.created_at))} ${diasEnCava(v.created_at) >= 5 ? 'animate-pulse' : ''}`}>
-                          {diasEnCava(v.created_at)} {diasEnCava(v.created_at) === 1 ? 'día' : 'días'}
+                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${diasBadge(diasEnCava(v.registros_beneficio.fecha_beneficio + 'T00:00:00'))} ${diasEnCava(v.registros_beneficio.fecha_beneficio + 'T00:00:00') >= 5 ? 'animate-pulse' : ''}`}>
+                          {diasEnCava(v.registros_beneficio.fecha_beneficio + 'T00:00:00')} {diasEnCava(v.registros_beneficio.fecha_beneficio + 'T00:00:00') === 1 ? 'día' : 'días'}
                         </span>
                       </td>
                       <td className="px-4 py-3">
