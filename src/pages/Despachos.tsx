@@ -17,6 +17,7 @@ interface DespachoCon {
     tipo_carne: 'res' | 'cerdo'
     fecha_beneficio: string
   }
+  viscera: { tipo: 'roja' | 'blanca' | null } | null
 }
 
 interface DespachoArchivado {
@@ -48,6 +49,13 @@ function exportXLSX(filename: string, rows: string[][]): void {
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Datos')
   XLSX.writeFile(wb, filename)
+}
+
+// Mismos colores que tipoBadge() de Inventario.tsx (consistencia visual)
+function tipoBadge(tipo: 'roja' | 'blanca' | null): { label: string; cls: string } {
+  if (tipo === 'roja') return { label: 'Roja', cls: 'bg-red-100 text-red-700' }
+  if (tipo === 'blanca') return { label: 'Blanca', cls: 'bg-slate-50 text-slate-600 border border-slate-300' }
+  return { label: 'Sin tipo', cls: 'bg-gray-100 text-gray-400' }
 }
 
 export default function Despachos() {
@@ -94,7 +102,7 @@ export default function Despachos() {
 
     const { data } = await supabase
       .from('despachos')
-      .select('*, registros_beneficio(codigo_cliente, numero_animal, tipo_carne, fecha_beneficio)')
+      .select('*, registros_beneficio(codigo_cliente, numero_animal, tipo_carne, fecha_beneficio), viscera:inventario_visceras(tipo)')
       .order('created_at', { ascending: false })
     if (data) {
       setDespachos(data as DespachoCon[])
@@ -298,15 +306,22 @@ export default function Despachos() {
                     {d.registros_beneficio.codigo_cliente}-{d.registros_beneficio.numero_animal}
                   </td>
                   <td className="px-4 py-3">
-                    <span
-                      className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${
-                        d.tipo_despacho === 'canal'
-                          ? 'bg-gray-200 text-gray-700'
-                          : 'bg-purple-100 text-purple-700'
-                      }`}
-                    >
-                      {d.tipo_despacho === 'canal' ? 'Canal' : 'Víscera'}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${
+                          d.tipo_despacho === 'canal'
+                            ? 'bg-gray-200 text-gray-700'
+                            : 'bg-purple-100 text-purple-700'
+                        }`}
+                      >
+                        {d.tipo_despacho === 'canal' ? 'Canal' : 'Víscera'}
+                      </span>
+                      {d.tipo_despacho === 'viscera' && (
+                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${tipoBadge(d.viscera?.tipo ?? null).cls}`}>
+                          {tipoBadge(d.viscera?.tipo ?? null).label}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-gray-700">{d.registros_beneficio.fecha_beneficio}</td>
                   <td className="px-4 py-3 text-gray-700">{d.fecha_despacho}</td>
