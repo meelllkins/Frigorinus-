@@ -68,22 +68,18 @@ function diasBadge(dias: number): string {
   return 'bg-red-100 text-red-700'
 }
 
-<<<<<<< HEAD
 function tipoBadge(tipo: 'roja' | 'blanca' | null): { label: string; cls: string } {
   if (tipo === 'roja') return { label: 'Roja', cls: 'bg-red-100 text-red-700' }
   if (tipo === 'blanca') return { label: 'Blanca', cls: 'bg-slate-50 text-slate-600 border border-slate-300' }
   return { label: 'Sin tipo', cls: 'bg-gray-100 text-gray-400' }
 }
 
-=======
 function getInitialRegForm() {
   return { codigo_cliente: '', numero_animal: '', fecha_beneficio: localTodayStr() }
 }
 
 const inputClass =
   'w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-700 focus:ring-1 focus:ring-green-700 transition-colors'
-
->>>>>>> d44c6746565017d9d4c5d7f1f1b80e7cc48886cf
 export default function Inventario() {
   const [visceras, setVisceras] = useState<VisceraCon[]>([])
   const [search, setSearch] = useState('')
@@ -216,10 +212,7 @@ export default function Inventario() {
       tipo_despacho: 'viscera',
       fecha_despacho: hoy,
     })
-<<<<<<< HEAD
     // El despacho de víscera es independiente: no se toca el estado del animal/canal.
-=======
->>>>>>> d44c6746565017d9d4c5d7f1f1b80e7cc48886cf
     setSelected(prev => { const next = new Set(prev); next.delete(v.id); return next })
     fetchVisceras()
   }
@@ -244,10 +237,7 @@ export default function Inventario() {
       }))
     )
 
-<<<<<<< HEAD
     // El despacho de víscera es independiente: no se toca el estado del animal/canal.
-=======
->>>>>>> d44c6746565017d9d4c5d7f1f1b80e7cc48886cf
     setSelected(new Set())
     setShowModal(false)
     setDispatching(false)
@@ -492,120 +482,6 @@ export default function Inventario() {
           </button>
         </div>
 
-<<<<<<< HEAD
-      <div className="w-full overflow-x-auto touch-pan-x rounded-2xl shadow-sm border border-gray-200 bg-white">
-        <table className="min-w-[650px] w-full text-sm">
-          <thead>
-            <tr className="bg-gray-800">
-              <th className="px-4 py-3 w-10">
-                <input
-                  ref={selectAllRef}
-                  type="checkbox"
-                  checked={allVisibleSelected}
-                  onChange={toggleAll}
-                  className="w-4 h-4 rounded accent-white cursor-pointer"
-                />
-              </th>
-              <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Código animal</th>
-              <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Tipo</th>
-              <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Estado</th>
-              <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Fecha de ingreso</th>
-              <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Días en cava</th>
-              <th className="px-4 py-3" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {visibleVisceras.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-gray-400 text-sm">
-                  {visceras.length === 0
-                    ? 'No hay vísceras en inventario'
-                    : 'Sin resultados para la búsqueda'}
-                </td>
-              </tr>
-            ) : (
-              visibleVisceras.map((v, i) => {
-                const isSelected = selected.has(v.id)
-                return (
-                  <tr
-                    key={v.id}
-                    className={`transition-colors hover:bg-blue-50 ${
-                      isSelected ? 'bg-blue-50' : i % 2 === 1 ? 'bg-gray-50' : 'bg-white'
-                    }`}
-                  >
-                    <td className="px-4 py-3">
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => toggleOne(v.id)}
-                        className="w-4 h-4 rounded accent-gray-900 cursor-pointer"
-                      />
-                    </td>
-                    <td className="px-4 py-3 font-mono font-semibold text-gray-900">
-                      {v.registros_beneficio.codigo_cliente}-{v.registros_beneficio.numero_animal}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${tipoBadge(v.tipo).cls}`}>
-                        {tipoBadge(v.tipo).label}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
-                        En inventario
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">{formatFecha(parsearFechaLocal(v.created_at))}</td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${diasBadge(diasEnCava(v.created_at))}`}>
-                        {diasEnCava(v.created_at)} {diasEnCava(v.created_at) === 1 ? 'día' : 'días'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-2">
-                        {deleteConfirm === v.id ? (
-                          <>
-                            <span className="text-xs text-gray-500">¿Eliminar?</span>
-                            <button
-                              onClick={() => handleEliminar(v.id)}
-                              className="text-xs font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg px-2.5 py-1.5 transition-colors"
-                            >
-                              Sí
-                            </button>
-                            <button
-                              onClick={() => setDeleteConfirm(null)}
-                              className="text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg px-2.5 py-1.5 transition-colors"
-                            >
-                              No
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <button
-                              onClick={() => { setDeleteConfirm(v.id); setDeleteConfirm(v.id) }}
-                              className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                              title="Eliminar"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                            <button
-                              onClick={() => handleDespachar(v)}
-                              className="flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-2 sm:px-3 py-1.5 transition-colors"
-                            >
-                              <Truck size={12} />
-                              <span className="hidden sm:inline">Despachar</span>
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
-=======
         {/* Barra de acciones múltiples */}
         {someSelected && (
           <div className="mb-4 flex items-center justify-between bg-gray-900 text-white rounded-xl px-4 py-3 gap-3 animate-slideDown">
@@ -646,6 +522,7 @@ export default function Inventario() {
                   />
                 </th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Código animal</th>
+                <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Tipo</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Estado</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Fecha de sacrificio</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Días en cava</th>
@@ -655,7 +532,7 @@ export default function Inventario() {
             <tbody className="divide-y divide-gray-100">
               {visibleVisceras.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-gray-400 text-sm">
+                  <td colSpan={7} className="px-4 py-10 text-center text-gray-400 text-sm">
                     {visceras.length === 0
                       ? 'No hay vísceras en inventario'
                       : 'Sin resultados para la búsqueda'}
@@ -681,6 +558,11 @@ export default function Inventario() {
                       </td>
                       <td className="px-4 py-3 font-mono font-semibold text-gray-900">
                         {v.registros_beneficio.codigo_cliente}-{v.registros_beneficio.numero_animal}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${tipoBadge(v.tipo).cls}`}>
+                          {tipoBadge(v.tipo).label}
+                        </span>
                       </td>
                       <td className="px-4 py-3">
                         <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 bg-blue-100 text-blue-700">
@@ -739,7 +621,6 @@ export default function Inventario() {
           </table>
         </div>
       </section>
->>>>>>> d44c6746565017d9d4c5d7f1f1b80e7cc48886cf
     </div>
   )
 }

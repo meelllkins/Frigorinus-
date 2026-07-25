@@ -284,7 +284,7 @@ export default function Beneficio() {
     setSaving(true)
     setError('')
 
-    const { error: err } = await supabase
+    const { data: registro, error: err } = await supabase
       .from('registros_beneficio')
       .insert({
         codigo_cliente: form.codigo_cliente.trim(),
@@ -294,37 +294,30 @@ export default function Beneficio() {
         fecha_cobro_frio: addDays(form.fecha_beneficio, 2),
         estado: 'activo',
       })
+      .select('id')
+      .single()
 
-    // Las vísceras (roja + blanca para res) las crea el trigger crear_viscera_automatica en la BD.
-    if (err) {
+    if (err || !registro) {
       showError(
-<<<<<<< HEAD
-        err.code === '23505'
-          ? 'Este animal ya está registrado en el inventario'
-=======
         err?.code === '23505'
           ? 'Este animal ya está registrado con esa fecha de sacrificio'
->>>>>>> d44c6746565017d9d4c5d7f1f1b80e7cc48886cf
           : 'Error al guardar. Intenta de nuevo'
       )
       setSaving(false)
       return
     }
 
-<<<<<<< HEAD
-=======
+    // Las vísceras (roja + blanca) las crea el trigger crear_viscera_automatica en la BD.
+    // Verificamos que se hayan creado las 2.
     if (activeTab === 'res') {
-      const { data: viscera } = await supabase
+      const { data: visceras } = await supabase
         .from('inventario_visceras')
         .select('id')
         .eq('registro_id', registro.id)
-        .maybeSingle()
-      if (!viscera) {
-        showError('El animal se registró, pero su víscera no se creó automáticamente. Contacta al administrador.')
+      if (!visceras || visceras.length < 2) {
+        showError('El animal se registró, pero sus vísceras no se crearon correctamente. Contacta al administrador.')
       }
     }
-
->>>>>>> d44c6746565017d9d4c5d7f1f1b80e7cc48886cf
     setForm(getInitialForm())
     setSearch('')
     fetchRegistros()
@@ -359,33 +352,22 @@ export default function Beneficio() {
       })
     }
 
-    const { error: err } = await supabase
+    const { data: inserted, error: err } = await supabase
       .from('registros_beneficio')
       .insert(rows)
-<<<<<<< HEAD
-=======
       .select('id, numero_animal')
->>>>>>> d44c6746565017d9d4c5d7f1f1b80e7cc48886cf
 
-    // Las vísceras (roja + blanca para cada res del lote) las crea el trigger crear_viscera_automatica en la BD.
-    if (err) {
+    // Las vísceras (roja + blanca por cada res) las crea el trigger crear_viscera_automatica en la BD.
+    if (err || !inserted) {
       showBatchError(
-<<<<<<< HEAD
-        err.code === '23505'
-          ? 'Uno o más animales del lote ya están registrados en el inventario'
-=======
         err?.code === '23505'
           ? 'Uno o más animales ya están registrados con esa fecha de sacrificio'
->>>>>>> d44c6746565017d9d4c5d7f1f1b80e7cc48886cf
           : 'Error al guardar. Intenta de nuevo'
       )
       setBatchSaving(false)
       return
     }
 
-<<<<<<< HEAD
-    setBatchSuccess(`Se registraron ${rows.length} animales correctamente.`)
-=======
     if (activeTab === 'res') {
       const insertedIds = inserted.map(r => r.id)
       const { data: viscerasCreadas } = await supabase
@@ -404,7 +386,6 @@ export default function Beneficio() {
     }
 
     setBatchSuccess(`Se registraron ${inserted.length} animales correctamente.`)
->>>>>>> d44c6746565017d9d4c5d7f1f1b80e7cc48886cf
     setBatchForm(getInitialBatchForm())
     setSearch('')
     setBatchSaving(false)
