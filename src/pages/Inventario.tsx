@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase'
 interface VisceraCon {
   id: string
   registro_id: string
+  tipo: 'roja' | 'blanca' | null
   estado: 'en_inventario' | 'despachada'
   fecha_despacho?: string
   created_at: string
@@ -55,6 +56,12 @@ function diasBadge(dias: number): string {
   return 'bg-red-100 text-red-700'
 }
 
+function tipoBadge(tipo: 'roja' | 'blanca' | null): { label: string; cls: string } {
+  if (tipo === 'roja') return { label: 'Roja', cls: 'bg-red-100 text-red-700' }
+  if (tipo === 'blanca') return { label: 'Blanca', cls: 'bg-slate-50 text-slate-600 border border-slate-300' }
+  return { label: 'Sin tipo', cls: 'bg-gray-100 text-gray-400' }
+}
+
 export default function Inventario() {
   const [visceras, setVisceras] = useState<VisceraCon[]>([])
   const [search, setSearch] = useState('')
@@ -93,13 +100,11 @@ export default function Inventario() {
       .eq('id', v.id)
     await supabase.from('despachos').insert({
       registro_id: v.registro_id,
+      viscera_id: v.id,
       tipo_despacho: 'viscera',
       fecha_despacho: hoy,
     })
-    await supabase
-      .from('registros_beneficio')
-      .update({ estado: 'despachado' })
-      .eq('id', v.registro_id)
+    // El despacho de víscera es independiente: no se toca el estado del animal/canal.
     setSelected(prev => { const next = new Set(prev); next.delete(v.id); return next })
     fetchVisceras()
   }
@@ -109,7 +114,6 @@ export default function Inventario() {
     const hoy = localToday()
     const ids = Array.from(selected)
     const candidates = visceras.filter(v => selected.has(v.id))
-    const registroIds = candidates.map(v => v.registro_id)
 
     await supabase
       .from('inventario_visceras')
@@ -119,16 +123,13 @@ export default function Inventario() {
     await supabase.from('despachos').insert(
       candidates.map(v => ({
         registro_id: v.registro_id,
+        viscera_id: v.id,
         tipo_despacho: 'viscera',
         fecha_despacho: hoy,
       }))
     )
 
-    await supabase
-      .from('registros_beneficio')
-      .update({ estado: 'despachado' })
-      .in('id', registroIds)
-
+    // El despacho de víscera es independiente: no se toca el estado del animal/canal.
     setSelected(new Set())
     setShowModal(false)
     setDispatching(false)
@@ -183,9 +184,10 @@ export default function Inventario() {
 
   function exportCSV() {
     const today = formatFechaFilename(localToday())
-    const header = ['Código animal', 'Estado', 'Fecha de ingreso', 'Días en cava']
+    const header = ['Código animal', 'Tipo', 'Estado', 'Fecha de ingreso', 'Días en cava']
     const data = visibleVisceras.map(v => [
       `${v.registros_beneficio.codigo_cliente}-${v.registros_beneficio.numero_animal}`,
+      tipoBadge(v.tipo).label,
       'En inventario',
       formatFecha(parsearFechaLocal(v.created_at)),
       String(diasEnCava(v.created_at)),
@@ -291,6 +293,7 @@ export default function Inventario() {
                 />
               </th>
               <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Código animal</th>
+              <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Tipo</th>
               <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Estado</th>
               <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Fecha de ingreso</th>
               <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Días en cava</th>
@@ -300,7 +303,7 @@ export default function Inventario() {
           <tbody className="divide-y divide-gray-100">
             {visibleVisceras.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-gray-400 text-sm">
+                <td colSpan={7} className="px-4 py-10 text-center text-gray-400 text-sm">
                   {visceras.length === 0
                     ? 'No hay vísceras en inventario'
                     : 'Sin resultados para la búsqueda'}
@@ -326,6 +329,11 @@ export default function Inventario() {
                     </td>
                     <td className="px-4 py-3 font-mono font-semibold text-gray-900">
                       {v.registros_beneficio.codigo_cliente}-{v.registros_beneficio.numero_animal}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${tipoBadge(v.tipo).cls}`}>
+                        {tipoBadge(v.tipo).label}
+                      </span>
                     </td>
                     <td className="px-4 py-3">
                       <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">

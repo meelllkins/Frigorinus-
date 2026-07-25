@@ -13,6 +13,7 @@ export interface RegistroBeneficio {
 export interface InventarioViscera {
   id: string
   registro_id: string
+  tipo: 'roja' | 'blanca' | null
   estado: 'en_inventario' | 'despachada'
   fecha_despacho?: string
   created_at: string
@@ -21,6 +22,7 @@ export interface InventarioViscera {
 export interface Despacho {
   id: string
   registro_id: string
+  viscera_id?: string | null
   tipo_despacho: 'canal' | 'viscera'
   fecha_despacho: string
   notas?: string

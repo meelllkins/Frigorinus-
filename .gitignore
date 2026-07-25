@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Base de datos de clientes (datos privados — no subir al repo)
+clientes.xlsx/
+/clientes.xlsx
+*.xlsx
+*.csv

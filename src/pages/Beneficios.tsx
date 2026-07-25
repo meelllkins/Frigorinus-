@@ -246,7 +246,7 @@ export default function Beneficio() {
     setSaving(true)
     setError('')
 
-    const { data: registro, error: err } = await supabase
+    const { error: err } = await supabase
       .from('registros_beneficio')
       .insert({
         codigo_cliente: form.codigo_cliente.trim(),
@@ -256,24 +256,16 @@ export default function Beneficio() {
         fecha_cobro_frio: addDays(form.fecha_beneficio, 2),
         estado: 'activo',
       })
-      .select()
-      .single()
 
-    if (err || !registro) {
+    // Las vísceras (roja + blanca para res) las crea el trigger crear_viscera_automatica en la BD.
+    if (err) {
       showError(
-        err?.code === '23505'
+        err.code === '23505'
           ? 'Este animal ya está registrado en el inventario'
           : 'Error al guardar. Intenta de nuevo'
       )
       setSaving(false)
       return
-    }
-
-    if (activeTab === 'res') {
-      await supabase.from('inventario_visceras').insert({
-        registro_id: registro.id,
-        estado: 'en_inventario',
-      })
     }
 
     setForm(getInitialForm())
@@ -309,14 +301,14 @@ export default function Beneficio() {
       })
     }
 
-    const { data: inserted, error: err } = await supabase
+    const { error: err } = await supabase
       .from('registros_beneficio')
       .insert(rows)
-      .select('id')
 
-    if (err || !inserted) {
+    // Las vísceras (roja + blanca para cada res del lote) las crea el trigger crear_viscera_automatica en la BD.
+    if (err) {
       showBatchError(
-        err?.code === '23505'
+        err.code === '23505'
           ? 'Uno o más animales del lote ya están registrados en el inventario'
           : 'Error al guardar. Intenta de nuevo'
       )
@@ -324,13 +316,7 @@ export default function Beneficio() {
       return
     }
 
-    if (activeTab === 'res') {
-      await supabase.from('inventario_visceras').insert(
-        inserted.map(r => ({ registro_id: r.id, estado: 'en_inventario' }))
-      )
-    }
-
-    setBatchSuccess(`Se registraron ${inserted.length} animales correctamente.`)
+    setBatchSuccess(`Se registraron ${rows.length} animales correctamente.`)
     setBatchForm(getInitialBatchForm())
     setBatchSaving(false)
     fetchRegistros()

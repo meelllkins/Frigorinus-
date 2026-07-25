@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase'
 interface DespachoCon {
   id: string
   registro_id: string
+  viscera_id?: string | null
   tipo_despacho: 'canal' | 'viscera'
   fecha_despacho: string
   notas?: string
@@ -71,11 +72,21 @@ export default function Despachos() {
           .eq('tipo_despacho', 'viscera')
       }
     } else {
-      await supabase
-        .from('inventario_visceras')
-        .update({ estado: 'en_inventario', fecha_despacho: null })
-        .eq('registro_id', d.registro_id)
-        .eq('estado', 'despachada')
+      // Revert de víscera independiente: devolver SOLO la víscera despachada en este despacho.
+      if (d.viscera_id) {
+        await supabase
+          .from('inventario_visceras')
+          .update({ estado: 'en_inventario', fecha_despacho: null })
+          .eq('id', d.viscera_id)
+      } else {
+        // Fallback legacy: despachos anteriores a la migración (sin viscera_id).
+        // Antes había 1 víscera por animal, así que revertir todas las despachada del registro es correcto.
+        await supabase
+          .from('inventario_visceras')
+          .update({ estado: 'en_inventario', fecha_despacho: null })
+          .eq('registro_id', d.registro_id)
+          .eq('estado', 'despachada')
+      }
     }
 
     await supabase.from('despachos').delete().eq('id', d.id)
