@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { ChevronDown, Pencil, Truck } from 'lucide-react'
+import { ChevronDown, Pencil, Trash2, Truck, X } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import type { RegistroBeneficio } from '../types'
@@ -48,6 +48,26 @@ function getInitialBatchForm() {
   return { codigo_cliente: '', numero_inicial: '', numero_final: '', fecha_beneficio: localToday() }
 }
 
+interface VisceraSingle {
+  id: string
+  registro_id: string
+  created_at: string
+  numero_animal: string
+  codigo_cliente: string
+}
+
+interface VisceraGroup {
+  codigo: string
+  registro_id: string
+  visceras: VisceraSingle[]
+}
+
+function formatVisceraDate(timestamp: string): string {
+  const d = new Date(timestamp)
+  const local = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  return `${String(local.getDate()).padStart(2, '0')}/${String(local.getMonth() + 1).padStart(2, '0')}/${local.getFullYear()}`
+}
+
 interface EditForm {
   codigo_cliente: string
   numero_animal: string
@@ -87,6 +107,24 @@ export default function Beneficio() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showModal, setShowModal] = useState(false)
   const [dispatching, setDispatching] = useState(false)
+  const [visceraModal, setVisceraModal] = useState<{
+    registro: RegistroBeneficio
+    visceras: VisceraSingle[]
+  } | null>(null)
+  const [visceraSelected, setVisceraSelected] = useState<Set<string>>(new Set())
+  const [visceraDispatching, setVisceraDispatching] = useState(false)
+  const [visceraMultiModal, setVisceraMultiModal] = useState<{
+    canalesCount: number
+    groups: VisceraGroup[]
+  } | null>(null)
+  const [visceraMultiSelected, setVisceraMultiSelected] = useState<Set<string>>(new Set())
+  const [visceraMultiDispatching, setVisceraMultiDispatching] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState('')
+  const deleteErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [showDeleteMultiModal, setShowDeleteMultiModal] = useState(false)
+  const [deletingMulti, setDeletingMulti] = useState(false)
+  const [deleteMultiError, setDeleteMultiError] = useState('')
   const selectAllRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -180,7 +218,7 @@ export default function Beneficio() {
     if (err) {
       showEditError(
         err.code === '23505'
-          ? 'Este animal ya está registrado en el inventario'
+          ? 'Ya existe un registro con ese animal y fecha de sacrificio'
           : 'Error al guardar. Intenta de nuevo'
       )
       setEditSaving(false)
@@ -260,15 +298,35 @@ export default function Beneficio() {
     // Las vísceras (roja + blanca para res) las crea el trigger crear_viscera_automatica en la BD.
     if (err) {
       showError(
+<<<<<<< HEAD
         err.code === '23505'
           ? 'Este animal ya está registrado en el inventario'
+=======
+        err?.code === '23505'
+          ? 'Este animal ya está registrado con esa fecha de sacrificio'
+>>>>>>> d44c6746565017d9d4c5d7f1f1b80e7cc48886cf
           : 'Error al guardar. Intenta de nuevo'
       )
       setSaving(false)
       return
     }
 
+<<<<<<< HEAD
+=======
+    if (activeTab === 'res') {
+      const { data: viscera } = await supabase
+        .from('inventario_visceras')
+        .select('id')
+        .eq('registro_id', registro.id)
+        .maybeSingle()
+      if (!viscera) {
+        showError('El animal se registró, pero su víscera no se creó automáticamente. Contacta al administrador.')
+      }
+    }
+
+>>>>>>> d44c6746565017d9d4c5d7f1f1b80e7cc48886cf
     setForm(getInitialForm())
+    setSearch('')
     fetchRegistros()
     setSaving(false)
     if (window.innerWidth > 768) setTimeout(() => codigoRef.current?.focus(), 0)
@@ -304,26 +362,99 @@ export default function Beneficio() {
     const { error: err } = await supabase
       .from('registros_beneficio')
       .insert(rows)
+<<<<<<< HEAD
+=======
+      .select('id, numero_animal')
+>>>>>>> d44c6746565017d9d4c5d7f1f1b80e7cc48886cf
 
     // Las vísceras (roja + blanca para cada res del lote) las crea el trigger crear_viscera_automatica en la BD.
     if (err) {
       showBatchError(
+<<<<<<< HEAD
         err.code === '23505'
           ? 'Uno o más animales del lote ya están registrados en el inventario'
+=======
+        err?.code === '23505'
+          ? 'Uno o más animales ya están registrados con esa fecha de sacrificio'
+>>>>>>> d44c6746565017d9d4c5d7f1f1b80e7cc48886cf
           : 'Error al guardar. Intenta de nuevo'
       )
       setBatchSaving(false)
       return
     }
 
+<<<<<<< HEAD
     setBatchSuccess(`Se registraron ${rows.length} animales correctamente.`)
+=======
+    if (activeTab === 'res') {
+      const insertedIds = inserted.map(r => r.id)
+      const { data: viscerasCreadas } = await supabase
+        .from('inventario_visceras')
+        .select('registro_id')
+        .in('registro_id', insertedIds)
+      const createdIds = new Set((viscerasCreadas ?? []).map(v => v.registro_id))
+      const failedAnimals = inserted
+        .filter(r => !createdIds.has(r.id))
+        .map(r => `${batchForm.codigo_cliente.trim()}-${r.numero_animal}`)
+      if (failedAnimals.length > 0) {
+        setBatchError(
+          `Las vísceras no se crearon para: ${failedAnimals.join(', ')}. Contacta al administrador.`
+        )
+      }
+    }
+
+    setBatchSuccess(`Se registraron ${inserted.length} animales correctamente.`)
+>>>>>>> d44c6746565017d9d4c5d7f1f1b80e7cc48886cf
     setBatchForm(getInitialBatchForm())
+    setSearch('')
     setBatchSaving(false)
     fetchRegistros()
   }
 
   async function handleDespachar(r: RegistroBeneficio) {
+    if (r.tipo_carne === 'cerdo') {
+      const hoy = localToday()
+      await supabase.from('registros_beneficio').update({ estado: 'despachado' }).eq('id', r.id)
+      await supabase.from('despachos').insert({
+        registro_id: r.id,
+        tipo_despacho: 'canal',
+        fecha_despacho: hoy,
+      })
+      setSelected(prev => { const next = new Set(prev); next.delete(r.id); return next })
+      fetchRegistros()
+      return
+    }
+
+    const { data: registrosCliente } = await supabase
+      .from('registros_beneficio')
+      .select('id, numero_animal')
+      .eq('codigo_cliente', r.codigo_cliente)
+      .eq('tipo_carne', 'res')
+
+    const ids = (registrosCliente ?? []).map(x => x.id)
+
+    const { data } = await supabase
+      .from('inventario_visceras')
+      .select('id, registro_id, created_at, registros_beneficio(numero_animal, codigo_cliente)')
+      .in('registro_id', ids)
+      .eq('estado', 'en_inventario')
+
+    const visceras = (data ?? []).map((v: any) => ({
+      id: v.id,
+      registro_id: v.registro_id,
+      created_at: v.created_at,
+      numero_animal: v.registros_beneficio?.numero_animal ?? '',
+      codigo_cliente: v.registros_beneficio?.codigo_cliente ?? '',
+    })) as VisceraSingle[]
+    setVisceraSelected(new Set())
+    setVisceraModal({ registro: r, visceras })
+  }
+
+  async function handleDespacharCanalSolo() {
+    if (!visceraModal) return
+    setVisceraDispatching(true)
     const hoy = localToday()
+    const r = visceraModal.registro
     await supabase.from('registros_beneficio').update({ estado: 'despachado' }).eq('id', r.id)
     await supabase.from('despachos').insert({
       registro_id: r.id,
@@ -331,7 +462,137 @@ export default function Beneficio() {
       fecha_despacho: hoy,
     })
     setSelected(prev => { const next = new Set(prev); next.delete(r.id); return next })
+    setVisceraModal(null)
+    setVisceraSelected(new Set())
+    setVisceraDispatching(false)
     fetchRegistros()
+  }
+
+  async function handleDespacharCanalYVisceras() {
+    if (!visceraModal) return
+    setVisceraDispatching(true)
+    const hoy = localToday()
+    const r = visceraModal.registro
+    await supabase.from('registros_beneficio').update({ estado: 'despachado' }).eq('id', r.id)
+    await supabase.from('despachos').insert({
+      registro_id: r.id,
+      tipo_despacho: 'canal',
+      fecha_despacho: hoy,
+    })
+    const selectedIds = Array.from(visceraSelected)
+    if (selectedIds.length > 0) {
+      await supabase
+        .from('inventario_visceras')
+        .update({ estado: 'despachada', fecha_despacho: hoy })
+        .in('id', selectedIds)
+      const selectedVisceras = visceraModal.visceras.filter(v => visceraSelected.has(v.id))
+      await supabase.from('despachos').insert(
+        selectedVisceras.map(v => ({
+          registro_id: v.registro_id,
+          tipo_despacho: 'viscera',
+          fecha_despacho: hoy,
+        }))
+      )
+    }
+    setSelected(prev => { const next = new Set(prev); next.delete(r.id); return next })
+    setVisceraModal(null)
+    setVisceraSelected(new Set())
+    setVisceraDispatching(false)
+    fetchRegistros()
+  }
+
+  async function handleEliminarRegistro(r: RegistroBeneficio) {
+    setDeleteError('')
+    if (r.tipo_carne === 'res') {
+      const { error: errViscera } = await supabase
+        .from('inventario_visceras')
+        .delete()
+        .eq('registro_id', r.id)
+      if (errViscera) {
+        setDeleteError('Error al eliminar la víscera. Intenta de nuevo.')
+        if (deleteErrorTimerRef.current) clearTimeout(deleteErrorTimerRef.current)
+        deleteErrorTimerRef.current = setTimeout(() => setDeleteError(''), 4000)
+        return
+      }
+    }
+    const { error: errRegistro } = await supabase
+      .from('registros_beneficio')
+      .delete()
+      .eq('id', r.id)
+    if (errRegistro) {
+      setDeleteError('Error al eliminar el animal. Intenta de nuevo.')
+      if (deleteErrorTimerRef.current) clearTimeout(deleteErrorTimerRef.current)
+      deleteErrorTimerRef.current = setTimeout(() => setDeleteError(''), 4000)
+      return
+    }
+    setDeleteConfirm(null)
+    setSelected(prev => { const next = new Set(prev); next.delete(r.id); return next })
+    fetchRegistros()
+  }
+
+  async function handleEliminarMultiple() {
+    setDeletingMulti(true)
+    setDeleteMultiError('')
+    const ids = Array.from(selected)
+    const toDelete = registros.filter(r => ids.includes(r.id))
+    const failed: string[] = []
+
+    for (const r of toDelete) {
+      if (r.tipo_carne === 'res') {
+        const { error: errV } = await supabase
+          .from('inventario_visceras')
+          .delete()
+          .eq('registro_id', r.id)
+        if (errV) {
+          failed.push(`${r.codigo_cliente}-${r.numero_animal}`)
+          continue
+        }
+      }
+      const { error: errR } = await supabase
+        .from('registros_beneficio')
+        .delete()
+        .eq('id', r.id)
+      if (errR) {
+        failed.push(`${r.codigo_cliente}-${r.numero_animal}`)
+      }
+    }
+
+    setDeletingMulti(false)
+    setSelected(new Set())
+    fetchRegistros()
+    if (failed.length > 0) {
+      setDeleteMultiError(`No se pudieron eliminar: ${failed.join(', ')}.`)
+    } else {
+      setShowDeleteMultiModal(false)
+    }
+  }
+
+  async function handleDespacharSeleccionMulti() {
+    if (!visceraMultiModal) return
+    const selectedIds = Array.from(visceraMultiSelected)
+    if (selectedIds.length === 0) {
+      setVisceraMultiModal(null)
+      setVisceraMultiSelected(new Set())
+      return
+    }
+    setVisceraMultiDispatching(true)
+    const hoy = localToday()
+    const allVisceras = visceraMultiModal.groups.flatMap(g => g.visceras)
+    const toDispatch = allVisceras.filter(v => visceraMultiSelected.has(v.id))
+    await supabase
+      .from('inventario_visceras')
+      .update({ estado: 'despachada', fecha_despacho: hoy })
+      .in('id', selectedIds)
+    await supabase.from('despachos').insert(
+      toDispatch.map(v => ({
+        registro_id: v.registro_id,
+        tipo_despacho: 'viscera',
+        fecha_despacho: hoy,
+      }))
+    )
+    setVisceraMultiModal(null)
+    setVisceraMultiSelected(new Set())
+    setVisceraMultiDispatching(false)
   }
 
   async function handleDespacharMultiple() {
@@ -352,10 +613,42 @@ export default function Beneficio() {
       }))
     )
 
+    const resIds = registros
+      .filter(r => ids.includes(r.id) && r.tipo_carne === 'res')
+      .map(r => r.id)
+
     setSelected(new Set())
     setShowModal(false)
     setDispatching(false)
     fetchRegistros()
+
+    if (resIds.length > 0) {
+      const { data } = await supabase
+        .from('inventario_visceras')
+        .select('id, registro_id, created_at')
+        .in('registro_id', resIds)
+        .eq('estado', 'en_inventario')
+
+      const visceras = (data ?? []) as VisceraSingle[]
+      if (visceras.length > 0) {
+        const groupMap = new Map<string, VisceraGroup>()
+        for (const v of visceras) {
+          const reg = registros.find(r => r.id === v.registro_id)
+          if (!reg) continue
+          const codigo = `${reg.codigo_cliente}-${reg.numero_animal}`
+          if (!groupMap.has(v.registro_id)) {
+            groupMap.set(v.registro_id, { codigo, registro_id: v.registro_id, visceras: [] })
+          }
+          groupMap.get(v.registro_id)!.visceras.push(v)
+        }
+        const allGroups = Array.from(groupMap.values())
+        setVisceraMultiSelected(new Set())
+        setVisceraMultiModal({
+          canalesCount: ids.length,
+          groups: allGroups,
+        })
+      }
+    }
   }
 
   const batchCount = (() => {
@@ -376,11 +669,11 @@ export default function Beneficio() {
     'border border-gray-300 rounded-md px-2 py-1 text-xs focus:outline-none focus:border-green-700 focus:ring-1 focus:ring-green-700 bg-white'
 
   return (
-    <div className="space-y-8 overflow-x-hidden">
+    <div className="space-y-8 overflow-x-hidden touch-pan-y">
       {/* Modal de confirmación de despacho múltiple */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 animate-scaleIn">
             <h3 className="text-base font-bold text-gray-900 mb-2">Confirmar despacho</h3>
             <p className="text-sm text-gray-600 mb-6">
               ¿Estás seguro de despachar{' '}
@@ -391,16 +684,221 @@ export default function Beneficio() {
             <div className="flex gap-3 justify-end">
               <button
                 onClick={() => setShowModal(false)}
-                className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-all duration-200"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleDespacharMultiple}
                 disabled={dispatching}
-                className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg transition-colors disabled:opacity-50"
+                className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg transition-all duration-200 active:scale-95 disabled:opacity-50"
               >
                 {dispatching ? 'Despachando...' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de confirmación de eliminación múltiple */}
+      {showDeleteMultiModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 animate-scaleIn">
+            <h3 className="text-base font-bold text-gray-900 mb-2">Confirmar eliminación</h3>
+            <p className="text-sm text-gray-600 mb-6">
+              ¿Estás seguro de eliminar{' '}
+              <span className="font-semibold text-gray-900">
+                {selected.size} {selected.size === 1 ? 'animal' : 'animales'}
+              </span>? Esta acción no se puede deshacer.
+            </p>
+            {deleteMultiError && (
+              <p className="text-sm text-red-600 font-medium mb-4">{deleteMultiError}</p>
+            )}
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => { setShowDeleteMultiModal(false); setDeleteMultiError('') }}
+                disabled={deletingMulti}
+                className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-all duration-200 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleEliminarMultiple}
+                disabled={deletingMulti}
+                className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg transition-all duration-200 active:scale-95 disabled:opacity-50"
+              >
+                {deletingMulti ? 'Eliminando...' : 'Eliminar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de despacho individual con vísceras (solo reses) */}
+      {visceraModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 animate-scaleIn">
+            <div className="flex items-start justify-between mb-2">
+              <h3 className="text-base font-bold text-gray-900">
+                Vísceras disponibles — Cliente {visceraModal.registro.codigo_cliente}
+              </h3>
+              <button
+                onClick={() => setVisceraModal(null)}
+                className="ml-3 p-1 text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              Canal{' '}
+              <span className="font-semibold text-gray-900">
+                {visceraModal.registro.codigo_cliente}-{visceraModal.registro.numero_animal}
+              </span>{' '}
+              lista para despacho.
+            </p>
+            {visceraModal.visceras.length > 0 ? (
+              <div className="mb-5">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Vísceras disponibles</p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setVisceraSelected(new Set(visceraModal.visceras.map(v => v.id)))}
+                      className="text-xs font-semibold text-green-700 hover:text-green-900 bg-green-50 hover:bg-green-100 border border-green-200 rounded px-2 py-0.5 transition-colors"
+                    >
+                      Seleccionar todos
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVisceraSelected(new Set())}
+                      className="text-xs font-semibold text-gray-600 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded px-2 py-0.5 transition-colors"
+                    >
+                      Desmarcar todos
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {visceraModal.visceras.map(v => (
+                    <label key={v.id} className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={visceraSelected.has(v.id)}
+                        onChange={() => {
+                          const next = new Set(visceraSelected)
+                          if (next.has(v.id)) next.delete(v.id)
+                          else next.add(v.id)
+                          setVisceraSelected(next)
+                        }}
+                        className="w-4 h-4 rounded accent-green-700 cursor-pointer"
+                      />
+                      <span className="text-sm text-gray-700">
+                        Animal {v.codigo_cliente}-{v.numero_animal} — Ingresó {formatVisceraDate(v.created_at)}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500 mb-5">Este cliente no tiene vísceras disponibles en cava.</p>
+            )}
+            <div className="flex gap-3 justify-end flex-wrap">
+              {visceraModal.visceras.length > 0 ? (
+                <>
+                  <button
+                    onClick={handleDespacharCanalSolo}
+                    disabled={visceraDispatching}
+                    className="px-4 py-2 text-sm font-semibold text-gray-700 border border-gray-300 rounded-lg transition-all duration-200 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Despachar canal solamente
+                  </button>
+                  <button
+                    onClick={handleDespacharCanalYVisceras}
+                    disabled={visceraDispatching}
+                    className="px-4 py-2 text-sm font-bold text-white bg-green-800 hover:bg-green-700 rounded-lg transition-all duration-200 active:scale-95 disabled:opacity-50"
+                  >
+                    {visceraDispatching ? 'Despachando...' : 'Despachar selección'}
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={handleDespacharCanalSolo}
+                  disabled={visceraDispatching}
+                  className="px-4 py-2 text-sm font-bold text-white bg-green-800 hover:bg-green-700 rounded-lg transition-all duration-200 active:scale-95 disabled:opacity-50"
+                >
+                  {visceraDispatching ? 'Despachando...' : 'Despachar canal'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal resumen de vísceras post despacho múltiple */}
+      {visceraMultiModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 animate-scaleIn max-h-[90vh] overflow-y-auto">
+            <h3 className="text-base font-bold text-gray-900 mb-2">¿Despachar vísceras también?</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Se despacharon{' '}
+              <span className="font-semibold text-gray-900">{visceraMultiModal.canalesCount} canales</span>. Selecciona las vísceras a despachar:
+            </p>
+            <div className="flex gap-2 mb-3">
+              <button
+                type="button"
+                onClick={() => setVisceraMultiSelected(new Set(visceraMultiModal.groups.flatMap(g => g.visceras.map(v => v.id))))}
+                className="text-xs font-semibold text-green-700 hover:text-green-900 bg-green-50 hover:bg-green-100 border border-green-200 rounded px-2 py-0.5 transition-colors"
+              >
+                Seleccionar todos
+              </button>
+              <button
+                type="button"
+                onClick={() => setVisceraMultiSelected(new Set())}
+                className="text-xs font-semibold text-gray-600 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded px-2 py-0.5 transition-colors"
+              >
+                Desmarcar todos
+              </button>
+            </div>
+            <div className="mb-5 space-y-4">
+              {visceraMultiModal.groups.map(g => (
+                <div key={g.registro_id}>
+                  <p className="text-xs font-semibold text-gray-500 mb-1.5 uppercase tracking-wide font-mono">{g.codigo}</p>
+                  <div className="space-y-2 pl-1">
+                    {g.visceras.map(v => (
+                      <label key={v.id} className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={visceraMultiSelected.has(v.id)}
+                          onChange={() => {
+                            const next = new Set(visceraMultiSelected)
+                            if (next.has(v.id)) next.delete(v.id)
+                            else next.add(v.id)
+                            setVisceraMultiSelected(next)
+                          }}
+                          className="w-4 h-4 rounded accent-green-700 cursor-pointer"
+                        />
+                        <span className="text-sm text-gray-700">
+                          Ingresada: {formatVisceraDate(v.created_at)}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-3 justify-end flex-wrap">
+              <button
+                onClick={() => { setVisceraMultiModal(null); setVisceraMultiSelected(new Set()) }}
+                disabled={visceraMultiDispatching}
+                className="px-4 py-2 text-sm font-semibold text-gray-700 border border-gray-300 rounded-lg transition-all duration-200 hover:bg-gray-50 disabled:opacity-50"
+              >
+                No despachar vísceras
+              </button>
+              <button
+                onClick={handleDespacharSeleccionMulti}
+                disabled={visceraMultiDispatching}
+                className="px-4 py-2 text-sm font-bold text-white bg-green-800 hover:bg-green-700 rounded-lg transition-all duration-200 active:scale-95 disabled:opacity-50"
+              >
+                {visceraMultiDispatching ? 'Despachando...' : 'Despachar selección'}
               </button>
             </div>
           </div>
@@ -417,7 +915,7 @@ export default function Beneficio() {
               key={tab}
               type="button"
               onClick={() => handleTabChange(tab)}
-              className={`px-8 py-2.5 text-sm font-semibold transition-colors ${
+              className={`px-8 py-2.5 text-sm font-semibold transition-all duration-200 ${
                 activeTab === tab
                   ? 'bg-gray-900 text-white'
                   : 'bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-800'
@@ -491,7 +989,7 @@ export default function Beneficio() {
             <button
               type="submit"
               disabled={saving}
-              className="bg-green-800 hover:bg-green-700 text-white rounded-lg px-7 py-2.5 text-sm font-bold tracking-wide transition-colors disabled:opacity-50 shadow-sm"
+              className="bg-green-800 hover:bg-green-700 text-white rounded-lg px-7 py-2.5 text-sm font-bold tracking-wide transition-all duration-200 active:scale-95 disabled:opacity-50 shadow-sm"
             >
               {saving ? 'Guardando...' : `Registrar ${activeTab === 'res' ? 'res' : 'cerdo'}`}
             </button>
@@ -503,7 +1001,7 @@ export default function Beneficio() {
           <button
             type="button"
             onClick={() => setShowBatch(b => !b)}
-            className="flex items-center gap-1.5 text-sm font-semibold text-gray-500 hover:text-gray-800 transition-colors"
+            className="flex items-center gap-1.5 text-sm font-semibold text-gray-500 hover:text-gray-800 transition-all duration-200"
           >
             <ChevronDown
               size={16}
@@ -579,7 +1077,7 @@ export default function Beneficio() {
                 <button
                   type="submit"
                   disabled={batchSaving || batchCount === null}
-                  className="bg-green-800 hover:bg-green-700 text-white rounded-lg px-7 py-2.5 text-sm font-bold tracking-wide transition-colors disabled:opacity-50 shadow-sm"
+                  className="bg-green-800 hover:bg-green-700 text-white rounded-lg px-7 py-2.5 text-sm font-bold tracking-wide transition-all duration-200 active:scale-95 disabled:opacity-50 shadow-sm"
                 >
                   {batchSaving ? 'Registrando...' : 'Registrar lote'}
                 </button>
@@ -603,7 +1101,7 @@ export default function Beneficio() {
           />
           <button
             onClick={exportCSV}
-            className="text-xs font-semibold text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 transition-colors whitespace-nowrap"
+            className="text-xs font-semibold text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 transition-all duration-200 whitespace-nowrap"
           >
             Exportar Excel
           </button>
@@ -611,22 +1109,39 @@ export default function Beneficio() {
 
         {/* Barra de despacho múltiple */}
         {someSelected && (
-          <div className="mb-4 flex items-center justify-between bg-gray-900 text-white rounded-xl px-4 py-3 gap-3">
+          <div className="mb-4 flex items-center justify-between bg-gray-900 text-white rounded-xl px-4 py-3 gap-3 animate-slideDown">
             <span className="text-sm font-semibold">
               <span className="hidden sm:inline">{selected.size} {selected.size === 1 ? 'animal seleccionado' : 'animales seleccionados'}</span>
               <span className="sm:hidden">{selected.size} sel.</span>
             </span>
-            <button
-              onClick={() => setShowModal(true)}
-              className="bg-red-600 hover:bg-red-500 text-white text-sm font-bold rounded-lg px-3 sm:px-4 py-2 transition-colors whitespace-nowrap"
-            >
-              <span className="hidden sm:inline">Despachar {selected.size} seleccionados</span>
-              <span className="sm:hidden">Despachar</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { setShowDeleteMultiModal(true); setDeleteMultiError('') }}
+                className="text-sm font-bold text-red-400 hover:text-red-300 transition-all duration-200 whitespace-nowrap"
+              >
+                <span className="hidden sm:inline">Eliminar {selected.size} seleccionados</span>
+                <span className="sm:hidden">Eliminar</span>
+              </button>
+              <button
+                onClick={() => {
+                  if (selected.size === 1) {
+                    const id = Array.from(selected)[0]
+                    const r = registros.find(reg => reg.id === id)
+                    if (r) handleDespachar(r)
+                  } else {
+                    setShowModal(true)
+                  }
+                }}
+                className="bg-red-600 hover:bg-red-500 text-white text-sm font-bold rounded-lg px-3 sm:px-4 py-2 transition-all duration-200 active:scale-95 whitespace-nowrap"
+              >
+                <span className="hidden sm:inline">Despachar {selected.size} seleccionados</span>
+                <span className="sm:hidden">Despachar</span>
+              </button>
+            </div>
           </div>
         )}
 
-        <div className="w-full overflow-x-auto touch-pan-x rounded-2xl shadow-sm border border-gray-200 bg-white">
+        <div className="w-full overflow-x-auto rounded-2xl shadow-sm border border-gray-200 bg-white">
           <table className="min-w-[650px] w-full text-sm">
             <thead>
               <tr className="bg-gray-800">
@@ -690,7 +1205,7 @@ export default function Beneficio() {
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                          <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${
                             r.tipo_carne === 'res' ? 'bg-amber-100 text-amber-700' : 'bg-pink-100 text-pink-700'
                           }`}>
                             {r.tipo_carne === 'res' ? 'Res' : 'Cerdo'}
@@ -705,9 +1220,9 @@ export default function Beneficio() {
                           />
                         </td>
                         <td className="px-4 py-3">
-                          <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                          <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${
                             diasEdit >= 3 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
-                          }`}>
+                          } ${diasEdit >= 5 ? 'animate-pulse' : ''}`}>
                             {diasEdit} {diasEdit === 1 ? 'día' : 'días'}
                           </span>
                         </td>
@@ -717,7 +1232,7 @@ export default function Beneficio() {
                               <button
                                 onClick={() => handleSaveEdit(r)}
                                 disabled={editSaving}
-                                className="text-xs font-semibold text-white bg-green-800 hover:bg-green-700 rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
+                                className="text-xs font-semibold text-white bg-green-800 hover:bg-green-700 rounded-lg px-3 py-1.5 transition-all duration-200 active:scale-95 disabled:opacity-50"
                               >
                                 {editSaving ? '...' : 'Guardar'}
                               </button>
@@ -741,7 +1256,7 @@ export default function Beneficio() {
                   return (
                     <tr
                       key={r.id}
-                      className={`transition-colors hover:bg-blue-50 ${
+                      className={`transition-colors duration-150 hover:bg-blue-50 ${
                         isSelected ? 'bg-blue-50' : i % 2 === 1 ? 'bg-gray-50' : 'bg-white'
                       }`}
                     >
@@ -765,28 +1280,60 @@ export default function Beneficio() {
                       </td>
                       <td className="px-4 py-3 text-gray-700">{r.fecha_beneficio}</td>
                       <td className="px-4 py-3">
-                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${
                           dias >= 3 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
-                        }`}>
+                        } ${dias >= 5 ? 'animate-pulse' : ''}`}>
                           {dias} {dias === 1 ? 'día' : 'días'}
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => startEdit(r)}
-                            className="p-1 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
-                            title="Editar"
-                          >
-                            <Pencil size={13} />
-                          </button>
-                          <button
-                            onClick={() => handleDespachar(r)}
-                            className="flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-2 sm:px-3 py-1.5 transition-colors"
-                          >
-                            <Truck size={12} />
-                            <span className="hidden sm:inline">Despachar</span>
-                          </button>
+                        <div className="flex flex-col items-end gap-1">
+                          <div className="flex items-center justify-end gap-2">
+                            {deleteConfirm === r.id ? (
+                              <>
+                                <span className="text-xs text-gray-500">¿Eliminar?</span>
+                                <button
+                                  onClick={() => handleEliminarRegistro(r)}
+                                  className="text-xs font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg px-2.5 py-1.5 transition-all duration-200 active:scale-95"
+                                >
+                                  Sí
+                                </button>
+                                <button
+                                  onClick={() => { setDeleteConfirm(null); setDeleteError('') }}
+                                  className="text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg px-2.5 py-1.5 transition-all duration-200"
+                                >
+                                  No
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => { setDeleteConfirm(r.id); setDeleteError('') }}
+                                  className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200 hover:scale-105 active:scale-95"
+                                  title="Eliminar"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                                <button
+                                  onClick={() => startEdit(r)}
+                                  className="p-1 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded transition-all duration-200 hover:scale-105 active:scale-95"
+                                  title="Editar"
+                                >
+                                  <Pencil size={13} />
+                                </button>
+                                <button
+                                  onClick={() => handleDespachar(r)}
+                                  className="flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-2 sm:px-3 py-1.5 transition-all duration-200 hover:scale-105 active:scale-95"
+                                >
+                                  <Truck size={12} />
+                                  <span className="hidden sm:inline">Despachar</span>
+                                </button>
+                              </>
+                            )}
+                          </div>
+                          {deleteConfirm === r.id && deleteError && (
+                            <span className="text-xs text-red-600 text-right">{deleteError}</span>
+                          )}
                         </div>
                       </td>
                     </tr>

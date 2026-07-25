@@ -2,11 +2,12 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { supabase } from './lib/supabase'
 import Login from './pages/Login'
-import Layout from './Components/Layout'
+import Layout from './components/Layout'
 import Beneficio from './pages/Beneficios'
 import CobrosFrio from './pages/CobrosFrio'
 import Inventario from './pages/Inventario'
 import Despachos from './pages/Despachos'
+import Notas from './pages/Notas'
 
 function App() {
   const [session, setSession] = useState<any>(null)
@@ -41,6 +42,7 @@ function App() {
         <Route path="cobros" element={<CobrosFrio />} />
         <Route path="inventario" element={<Inventario />} />
         <Route path="despachos" element={<Despachos />} />
+        <Route path="notas" element={<Notas />} />
       </Route>
     </Routes>
   )
