@@ -767,7 +767,7 @@ export default function Beneficio() {
                     </button>
                   </div>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
                   {visceraModal.visceras.map(v => (
                     <label key={v.id} className="flex items-center gap-3 cursor-pointer">
                       <input
@@ -830,7 +830,7 @@ export default function Beneficio() {
       {/* Modal resumen de vísceras post despacho múltiple */}
       {visceraMultiModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn">
-          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 animate-scaleIn max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 animate-scaleIn">
             <h3 className="text-base font-bold text-gray-900 mb-2">¿Despachar vísceras también?</h3>
             <p className="text-sm text-gray-600 mb-4">
               Se despacharon{' '}
@@ -852,7 +852,7 @@ export default function Beneficio() {
                 Desmarcar todos
               </button>
             </div>
-            <div className="mb-5 space-y-4">
+            <div className="mb-5 space-y-4 max-h-[50vh] overflow-y-auto pr-1">
               {visceraMultiModal.groups.map(g => (
                 <div key={g.registro_id}>
                   <p className="text-xs font-semibold text-gray-500 mb-1.5 uppercase tracking-wide font-mono">{g.codigo}</p>
