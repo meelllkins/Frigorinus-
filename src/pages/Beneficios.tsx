@@ -54,6 +54,7 @@ interface VisceraSingle {
   created_at: string
   numero_animal: string
   codigo_cliente: string
+  tipo: 'roja' | 'blanca' | null
 }
 
 interface VisceraGroup {
@@ -66,6 +67,13 @@ function formatVisceraDate(timestamp: string): string {
   const d = new Date(timestamp)
   const local = new Date(d.getFullYear(), d.getMonth(), d.getDate())
   return `${String(local.getDate()).padStart(2, '0')}/${String(local.getMonth() + 1).padStart(2, '0')}/${local.getFullYear()}`
+}
+
+// Mismos colores que tipoBadge() de Inventario.tsx y Despachos.tsx (consistencia visual)
+function tipoBadge(tipo: 'roja' | 'blanca' | null): { label: string; cls: string } {
+  if (tipo === 'roja') return { label: 'Roja', cls: 'bg-red-100 text-red-700' }
+  if (tipo === 'blanca') return { label: 'Blanca', cls: 'bg-slate-50 text-slate-600 border border-slate-300' }
+  return { label: 'Sin tipo', cls: 'bg-gray-100 text-gray-400' }
 }
 
 interface EditForm {
@@ -416,7 +424,7 @@ export default function Beneficio() {
 
     const { data } = await supabase
       .from('inventario_visceras')
-      .select('id, registro_id, created_at, registros_beneficio(numero_animal, codigo_cliente)')
+      .select('id, registro_id, tipo, created_at, registros_beneficio(numero_animal, codigo_cliente)')
       .in('registro_id', ids)
       .eq('estado', 'en_inventario')
 
@@ -426,6 +434,7 @@ export default function Beneficio() {
       created_at: v.created_at,
       numero_animal: v.registros_beneficio?.numero_animal ?? '',
       codigo_cliente: v.registros_beneficio?.codigo_cliente ?? '',
+      tipo: v.tipo ?? null,
     })) as VisceraSingle[]
     setVisceraSelected(new Set())
     setVisceraModal({ registro: r, visceras })
@@ -606,7 +615,7 @@ export default function Beneficio() {
     if (resIds.length > 0) {
       const { data } = await supabase
         .from('inventario_visceras')
-        .select('id, registro_id, created_at')
+        .select('id, registro_id, created_at, tipo')
         .in('registro_id', resIds)
         .eq('estado', 'en_inventario')
 
@@ -772,8 +781,12 @@ export default function Beneficio() {
                         }}
                         className="w-4 h-4 rounded accent-green-700 cursor-pointer"
                       />
-                      <span className="text-sm text-gray-700">
-                        Animal {v.codigo_cliente}-{v.numero_animal} — Ingresó {formatVisceraDate(v.created_at)}
+                      <span className="flex items-center gap-2 text-sm text-gray-700">
+                        <span>Animal {v.codigo_cliente}-{v.numero_animal}</span>
+                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${tipoBadge(v.tipo).cls}`}>
+                          {tipoBadge(v.tipo).label}
+                        </span>
+                        <span className="text-gray-500">— Ingresó {formatVisceraDate(v.created_at)}</span>
                       </span>
                     </label>
                   ))}
@@ -857,8 +870,11 @@ export default function Beneficio() {
                           }}
                           className="w-4 h-4 rounded accent-green-700 cursor-pointer"
                         />
-                        <span className="text-sm text-gray-700">
-                          Ingresada: {formatVisceraDate(v.created_at)}
+                        <span className="flex items-center gap-2 text-sm text-gray-700">
+                          <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${tipoBadge(v.tipo).cls}`}>
+                            {tipoBadge(v.tipo).label}
+                          </span>
+                          <span className="text-gray-500">Ingresada: {formatVisceraDate(v.created_at)}</span>
                         </span>
                       </label>
                     ))}
