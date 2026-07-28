@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { ChevronDown, Pencil, Trash2, Truck, X } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
+import { fetchClientesMap, type ClienteInfo } from '../lib/clientes'
+import CeldasCliente from '../components/CeldasCliente'
 import type { RegistroBeneficio } from '../types'
 
 function addDays(dateStr: string, days: number): string {
@@ -111,6 +113,7 @@ export default function Beneficio() {
 
   // Tabla
   const [registros, setRegistros] = useState<RegistroBeneficio[]>([])
+  const [clientesMap, setClientesMap] = useState<Record<string, ClienteInfo>>({})
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showModal, setShowModal] = useState(false)
@@ -157,7 +160,21 @@ export default function Beneficio() {
       .select('*')
       .eq('estado', 'activo')
       .order('created_at', { ascending: false })
-    if (data) setRegistros(data)
+    if (data) {
+      setRegistros(data)
+      setClientesMap(await fetchClientesMap(data.map(r => r.codigo_cliente)))
+    }
+  }
+
+  // Al editar una fila se puede cambiar el código a uno que no estaba en el lote
+  // inicial. Si no está en el mapa, lo buscamos puntualmente (onBlur del campo)
+  // y lo fusionamos, para que la celda Cliente/Ruta de esa fila muestre el real.
+  // Si no existe o no tiene fila ACTIVA, nuevo[c] queda undefined y cae al fallback.
+  async function lookupClienteEnEdicion(codigo: string) {
+    const c = codigo.trim()
+    if (!c || c in clientesMap) return
+    const nuevo = await fetchClientesMap([c])
+    if (nuevo[c]) setClientesMap(prev => ({ ...prev, ...nuevo }))
   }
 
   function showError(msg: string) {
@@ -1139,7 +1156,7 @@ export default function Beneficio() {
         )}
 
         <div className="w-full overflow-x-auto rounded-2xl shadow-sm border border-gray-200 bg-white">
-          <table className="min-w-[650px] w-full text-sm">
+          <table className="min-w-[880px] w-full text-sm">
             <thead>
               <tr className="bg-gray-800">
                 <th className="px-4 py-3 w-10">
@@ -1152,6 +1169,8 @@ export default function Beneficio() {
                   />
                 </th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Código</th>
+                <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Cliente</th>
+                <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Ruta</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Tipo de carne</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Fecha de sacrificio</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Días en cava</th>
@@ -1161,7 +1180,7 @@ export default function Beneficio() {
             <tbody className="divide-y divide-gray-100">
               {visibleRegistros.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-gray-400 text-sm">
+                  <td colSpan={8} className="px-4 py-10 text-center text-gray-400 text-sm">
                     {byTab.length === 0
                       ? `No hay ${activeTab === 'res' ? 'reses' : 'cerdos'} en cava`
                       : 'Sin resultados para la búsqueda'}
@@ -1190,6 +1209,7 @@ export default function Beneficio() {
                               type="text"
                               value={editForm.codigo_cliente}
                               onChange={e => setEditForm({ ...editForm, codigo_cliente: e.target.value })}
+                              onBlur={e => lookupClienteEnEdicion(e.target.value)}
                               className={`${editInputClass} w-20`}
                             />
                             <span className="text-gray-400 text-xs">-</span>
@@ -1201,6 +1221,7 @@ export default function Beneficio() {
                             />
                           </div>
                         </td>
+                        <CeldasCliente info={clientesMap[editForm.codigo_cliente]} />
                         <td className="px-4 py-3">
                           <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${
                             r.tipo_carne === 'res' ? 'bg-amber-100 text-amber-700' : 'bg-pink-100 text-pink-700'
@@ -1268,6 +1289,7 @@ export default function Beneficio() {
                       <td className="px-4 py-3 font-mono font-semibold text-gray-900">
                         {r.codigo_cliente}-{r.numero_animal}
                       </td>
+                      <CeldasCliente info={clientesMap[r.codigo_cliente]} />
                       <td className="px-4 py-3">
                         <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
                           r.tipo_carne === 'res' ? 'bg-amber-100 text-amber-700' : 'bg-pink-100 text-pink-700'

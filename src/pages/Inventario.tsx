@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { Truck, Trash2, PlusCircle } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
+import { fetchClientesMap, type ClienteInfo } from '../lib/clientes'
+import CeldasCliente from '../components/CeldasCliente'
 
 interface VisceraCon {
   id: string
@@ -89,6 +91,7 @@ export default function Inventario() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [clientesMap, setClientesMap] = useState<Record<string, ClienteInfo>>({})
   const selectAllRef = useRef<HTMLInputElement>(null)
 
   const [regForm, setRegForm] = useState(getInitialRegForm)
@@ -118,7 +121,10 @@ export default function Inventario() {
       .select('*, registros_beneficio(codigo_cliente, numero_animal, fecha_beneficio)')
       .eq('estado', 'en_inventario')
       .order('created_at', { ascending: false })
-    if (data) setVisceras(data as VisceraCon[])
+    if (data) {
+      setVisceras(data as VisceraCon[])
+      setClientesMap(await fetchClientesMap((data as VisceraCon[]).map(v => v.registros_beneficio.codigo_cliente)))
+    }
   }
 
   async function handleRegistrar(e: React.FormEvent) {
@@ -509,7 +515,7 @@ export default function Inventario() {
         )}
 
         <div className="w-full overflow-x-auto rounded-2xl shadow-sm border border-gray-200 bg-white">
-          <table className="min-w-[650px] w-full text-sm">
+          <table className="min-w-[880px] w-full text-sm">
             <thead>
               <tr className="bg-gray-800">
                 <th className="px-4 py-3 w-10">
@@ -522,6 +528,8 @@ export default function Inventario() {
                   />
                 </th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Código animal</th>
+                <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Cliente</th>
+                <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Ruta</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Tipo</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Estado</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Fecha de sacrificio</th>
@@ -532,7 +540,7 @@ export default function Inventario() {
             <tbody className="divide-y divide-gray-100">
               {visibleVisceras.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-gray-400 text-sm">
+                  <td colSpan={9} className="px-4 py-10 text-center text-gray-400 text-sm">
                     {visceras.length === 0
                       ? 'No hay vísceras en inventario'
                       : 'Sin resultados para la búsqueda'}
@@ -559,6 +567,7 @@ export default function Inventario() {
                       <td className="px-4 py-3 font-mono font-semibold text-gray-900">
                         {v.registros_beneficio.codigo_cliente}-{v.registros_beneficio.numero_animal}
                       </td>
+                      <CeldasCliente info={clientesMap[v.registros_beneficio.codigo_cliente]} />
                       <td className="px-4 py-3">
                         <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${tipoBadge(v.tipo).cls}`}>
                           {tipoBadge(v.tipo).label}

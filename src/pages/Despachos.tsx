@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { Undo2, Trash2, Archive, X, AlertTriangle } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
+import { fetchClientesMap, type ClienteInfo } from '../lib/clientes'
+import CeldasCliente from '../components/CeldasCliente'
 
 interface DespachoCon {
   id: string
@@ -68,6 +70,7 @@ export default function Despachos() {
   const [showArchivo, setShowArchivo] = useState(false)
   const [archivo, setArchivo] = useState<DespachoArchivado[]>([])
   const [loadingArchivo, setLoadingArchivo] = useState(false)
+  const [clientesMap, setClientesMap] = useState<Record<string, ClienteInfo>>({})
 
   useEffect(() => { fetchDespachos() }, [])
 
@@ -106,6 +109,7 @@ export default function Despachos() {
       .order('created_at', { ascending: false })
     if (data) {
       setDespachos(data as DespachoCon[])
+      setClientesMap(await fetchClientesMap((data as DespachoCon[]).map(d => d.registros_beneficio.codigo_cliente)))
       const warning = new Date()
       warning.setDate(warning.getDate() - 12)
       const warningStr = `${warning.getFullYear()}-${String(warning.getMonth() + 1).padStart(2, '0')}-${String(warning.getDate()).padStart(2, '0')}`
@@ -280,10 +284,12 @@ export default function Despachos() {
       )}
 
       <div className="w-full overflow-x-auto rounded-2xl shadow-sm border border-gray-200 bg-white">
-        <table className="min-w-[650px] w-full text-sm">
+        <table className="min-w-[880px] w-full text-sm">
           <thead>
             <tr className="bg-gray-800">
               <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Código</th>
+              <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Cliente</th>
+              <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Ruta</th>
               <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Tipo de despacho</th>
               <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Fecha de sacrificio</th>
               <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Fecha de despacho</th>
@@ -293,7 +299,7 @@ export default function Despachos() {
           <tbody className="divide-y divide-gray-100">
             {visibleDespachos.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-10 text-center text-gray-400 text-sm">
+                <td colSpan={7} className="px-4 py-10 text-center text-gray-400 text-sm">
                   {despachos.length === 0
                     ? 'No hay despachos registrados'
                     : 'Sin resultados para la búsqueda'}
@@ -305,6 +311,7 @@ export default function Despachos() {
                   <td className="px-4 py-3 font-mono font-semibold text-gray-900">
                     {d.registros_beneficio.codigo_cliente}-{d.registros_beneficio.numero_animal}
                   </td>
+                  <CeldasCliente info={clientesMap[d.registros_beneficio.codigo_cliente]} />
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1.5">
                       <span
