@@ -5,12 +5,21 @@ import { supabase } from '../lib/supabase'
 import { fetchClientesMap, type ClienteInfo } from '../lib/clientes'
 import CeldasCliente from '../components/CeldasCliente'
 import ClienteModal from '../components/ClienteModal'
+import RutaFields from '../components/RutaFields'
 import type { RegistroBeneficio } from '../types'
 
 function addDays(dateStr: string, days: number): string {
   const d = new Date(dateStr + 'T00:00:00')
   d.setDate(d.getDate() + days)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// Cabeza/Patas: entero opcional; '' -> NULL (no confundir con 0).
+function toIntOrNull(s: string): number | null {
+  const t = s.trim()
+  if (t === '') return null
+  const n = parseInt(t, 10)
+  return Number.isNaN(n) ? null : n
 }
 
 function diasEnCava(fechaBeneficio: string): number {
@@ -120,6 +129,17 @@ export default function Beneficio() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showModal, setShowModal] = useState(false)
   const [dispatching, setDispatching] = useState(false)
+  // Campos de despacho (ruta obligatoria, código destino, cabeza/patas solo res)
+  const [despRuta, setDespRuta] = useState('')
+  const [despOtroCodigo, setDespOtroCodigo] = useState(false)
+  const [despCodigoDestino, setDespCodigoDestino] = useState('')
+  const [despCabeza, setDespCabeza] = useState('')
+  const [despPatas, setDespPatas] = useState('')
+  // Ruta+código destino del lote múltiple, para reusarlos en el paso de vísceras
+  const [despMultiCtx, setDespMultiCtx] = useState<{ ruta: string; codigo_destino: string | null } | null>(null)
+  // Desposte es POR ANIMAL: booleano en individual, set de ids marcados en múltiple.
+  const [despDesposte, setDespDesposte] = useState(false)
+  const [despDesposteIds, setDespDesposteIds] = useState<Set<string>>(new Set())
   const [visceraModal, setVisceraModal] = useState<{
     registro: RegistroBeneficio
     visceras: VisceraSingle[]
@@ -419,17 +439,26 @@ export default function Beneficio() {
     fetchRegistros()
   }
 
+  function resetDespFields() {
+    setDespRuta('')
+    setDespOtroCodigo(false)
+    setDespCodigoDestino('')
+    setDespCabeza('')
+    setDespPatas('')
+    setDespDesposte(false)
+    setDespDesposteIds(new Set())
+  }
+
+  const despInputCls =
+    'w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-700 focus:ring-1 focus:ring-green-700 transition-colors'
+  const loteTieneRes = registros.some(r => selected.has(r.id) && r.tipo_carne === 'res')
+
   async function handleDespachar(r: RegistroBeneficio) {
+    resetDespFields()
     if (r.tipo_carne === 'cerdo') {
-      const hoy = localToday()
-      await supabase.from('registros_beneficio').update({ estado: 'despachado' }).eq('id', r.id)
-      await supabase.from('despachos').insert({
-        registro_id: r.id,
-        tipo_despacho: 'canal',
-        fecha_despacho: hoy,
-      })
-      setSelected(prev => { const next = new Set(prev); next.delete(r.id); return next })
-      fetchRegistros()
+      // Los cerdos no tienen vísceras, pero igual pasan por el modal para elegir ruta.
+      setVisceraSelected(new Set())
+      setVisceraModal({ registro: r, visceras: [] })
       return
     }
 
@@ -464,11 +493,18 @@ export default function Beneficio() {
     setVisceraDispatching(true)
     const hoy = localToday()
     const r = visceraModal.registro
+    const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
+    const esRes = r.tipo_carne === 'res'
     await supabase.from('registros_beneficio').update({ estado: 'despachado' }).eq('id', r.id)
     await supabase.from('despachos').insert({
       registro_id: r.id,
       tipo_despacho: 'canal',
       fecha_despacho: hoy,
+      ruta: despRuta,
+      codigo_destino: codigoDestinoFinal,
+      cabeza: esRes ? toIntOrNull(despCabeza) : null,
+      patas: esRes ? toIntOrNull(despPatas) : null,
+      es_desposte: despDesposte,
     })
     setSelected(prev => { const next = new Set(prev); next.delete(r.id); return next })
     setVisceraModal(null)
@@ -482,11 +518,18 @@ export default function Beneficio() {
     setVisceraDispatching(true)
     const hoy = localToday()
     const r = visceraModal.registro
+    const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
+    const esRes = r.tipo_carne === 'res'
     await supabase.from('registros_beneficio').update({ estado: 'despachado' }).eq('id', r.id)
     await supabase.from('despachos').insert({
       registro_id: r.id,
       tipo_despacho: 'canal',
       fecha_despacho: hoy,
+      ruta: despRuta,
+      codigo_destino: codigoDestinoFinal,
+      cabeza: esRes ? toIntOrNull(despCabeza) : null,
+      patas: esRes ? toIntOrNull(despPatas) : null,
+      es_desposte: despDesposte,
     })
     const selectedIds = Array.from(visceraSelected)
     if (selectedIds.length > 0) {
@@ -498,8 +541,12 @@ export default function Beneficio() {
       await supabase.from('despachos').insert(
         selectedVisceras.map(v => ({
           registro_id: v.registro_id,
+          viscera_id: v.id,
           tipo_despacho: 'viscera',
           fecha_despacho: hoy,
+          // Misma ruta y código destino que el canal (sin cabeza/patas).
+          ruta: despRuta,
+          codigo_destino: codigoDestinoFinal,
         }))
       )
     }
@@ -595,10 +642,15 @@ export default function Beneficio() {
     await supabase.from('despachos').insert(
       toDispatch.map(v => ({
         registro_id: v.registro_id,
+        viscera_id: v.id,
         tipo_despacho: 'viscera',
         fecha_despacho: hoy,
+        // Misma ruta y código destino que el canal del lote (sin cabeza/patas).
+        ruta: despMultiCtx?.ruta ?? null,
+        codigo_destino: despMultiCtx?.codigo_destino ?? null,
       }))
     )
+    setDespMultiCtx(null)
     setVisceraMultiModal(null)
     setVisceraMultiSelected(new Set())
     setVisceraMultiDispatching(false)
@@ -614,13 +666,22 @@ export default function Beneficio() {
       .update({ estado: 'despachado' })
       .in('id', ids)
 
+    const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
     await supabase.from('despachos').insert(
-      ids.map(id => ({
+      ids.map((id, i) => ({
         registro_id: id,
         tipo_despacho: 'canal',
         fecha_despacho: hoy,
+        ruta: despRuta,
+        codigo_destino: codigoDestinoFinal,
+        // Desposte es POR ANIMAL: cada fila guarda lo marcado para ese id puntual.
+        es_desposte: despDesposteIds.has(id),
+        // Cabeza/Patas son un TOTAL del lote: solo en la primera fila; el resto NULL.
+        cabeza: i === 0 ? toIntOrNull(despCabeza) : null,
+        patas: i === 0 ? toIntOrNull(despPatas) : null,
       }))
     )
+    setDespMultiCtx({ ruta: despRuta, codigo_destino: codigoDestinoFinal })
 
     const resIds = registros
       .filter(r => ids.includes(r.id) && r.tipo_carne === 'res')
@@ -684,12 +745,55 @@ export default function Beneficio() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn">
           <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 animate-scaleIn">
             <h3 className="text-base font-bold text-gray-900 mb-2">Confirmar despacho</h3>
-            <p className="text-sm text-gray-600 mb-6">
+            <p className="text-sm text-gray-600 mb-4">
               ¿Estás seguro de despachar{' '}
               <span className="font-semibold text-gray-900">
                 {selected.size} {selected.size === 1 ? 'animal' : 'animales'}
               </span>?
             </p>
+            <RutaFields
+              ruta={despRuta}
+              onRuta={setDespRuta}
+              otroCodigo={despOtroCodigo}
+              onOtroCodigo={setDespOtroCodigo}
+              codigoDestino={despCodigoDestino}
+              onCodigoDestino={setDespCodigoDestino}
+            />
+            {loteTieneRes && (
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">Cabeza (total lote)</label>
+                  <input type="number" min={0} value={despCabeza} onChange={e => setDespCabeza(e.target.value)} placeholder="0" className={despInputCls} />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">Patas (total lote)</label>
+                  <input type="number" min={0} value={despPatas} onChange={e => setDespPatas(e.target.value)} placeholder="0" className={despInputCls} />
+                </div>
+              </div>
+            )}
+            <div className="mb-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">¿Desposte? (por animal)</p>
+              <div className="max-h-[35vh] overflow-y-auto pr-1 space-y-1.5">
+                {registros.filter(r => selected.has(r.id)).map(r => (
+                  <label key={r.id} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={despDesposteIds.has(r.id)}
+                      onChange={() =>
+                        setDespDesposteIds(prev => {
+                          const next = new Set(prev)
+                          if (next.has(r.id)) next.delete(r.id)
+                          else next.add(r.id)
+                          return next
+                        })
+                      }
+                      className="w-4 h-4 rounded accent-green-700 cursor-pointer"
+                    />
+                    <span className="font-mono">{r.codigo_cliente}-{r.numero_animal}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
             <div className="flex gap-3 justify-end">
               <button
                 onClick={() => setShowModal(false)}
@@ -699,7 +803,7 @@ export default function Beneficio() {
               </button>
               <button
                 onClick={handleDespacharMultiple}
-                disabled={dispatching}
+                disabled={dispatching || !despRuta}
                 className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg transition-all duration-200 active:scale-95 disabled:opacity-50"
               >
                 {dispatching ? 'Despachando...' : 'Confirmar'}
@@ -765,6 +869,35 @@ export default function Beneficio() {
               </span>{' '}
               lista para despacho.
             </p>
+            <RutaFields
+              ruta={despRuta}
+              onRuta={setDespRuta}
+              otroCodigo={despOtroCodigo}
+              onOtroCodigo={setDespOtroCodigo}
+              codigoDestino={despCodigoDestino}
+              onCodigoDestino={setDespCodigoDestino}
+            />
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer mb-4">
+              <input
+                type="checkbox"
+                checked={despDesposte}
+                onChange={e => setDespDesposte(e.target.checked)}
+                className="w-4 h-4 rounded accent-green-700 cursor-pointer"
+              />
+              ¿Es desposte?
+            </label>
+            {visceraModal.registro.tipo_carne === 'res' && (
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">Cabeza</label>
+                  <input type="number" min={0} value={despCabeza} onChange={e => setDespCabeza(e.target.value)} placeholder="0" className={despInputCls} />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">Patas</label>
+                  <input type="number" min={0} value={despPatas} onChange={e => setDespPatas(e.target.value)} placeholder="0" className={despInputCls} />
+                </div>
+              </div>
+            )}
             {visceraModal.visceras.length > 0 ? (
               <div className="mb-5">
                 <div className="flex items-center justify-between mb-2">
@@ -819,14 +952,14 @@ export default function Beneficio() {
                 <>
                   <button
                     onClick={handleDespacharCanalSolo}
-                    disabled={visceraDispatching}
+                    disabled={visceraDispatching || !despRuta}
                     className="px-4 py-2 text-sm font-semibold text-gray-700 border border-gray-300 rounded-lg transition-all duration-200 hover:bg-gray-50 disabled:opacity-50"
                   >
                     Despachar canal solamente
                   </button>
                   <button
                     onClick={handleDespacharCanalYVisceras}
-                    disabled={visceraDispatching}
+                    disabled={visceraDispatching || !despRuta}
                     className="px-4 py-2 text-sm font-bold text-white bg-green-800 hover:bg-green-700 rounded-lg transition-all duration-200 active:scale-95 disabled:opacity-50"
                   >
                     {visceraDispatching ? 'Despachando...' : 'Despachar selección'}
@@ -835,7 +968,7 @@ export default function Beneficio() {
               ) : (
                 <button
                   onClick={handleDespacharCanalSolo}
-                  disabled={visceraDispatching}
+                  disabled={visceraDispatching || !despRuta}
                   className="px-4 py-2 text-sm font-bold text-white bg-green-800 hover:bg-green-700 rounded-lg transition-all duration-200 active:scale-95 disabled:opacity-50"
                 >
                   {visceraDispatching ? 'Despachando...' : 'Despachar canal'}
@@ -1145,6 +1278,7 @@ export default function Beneficio() {
                     const r = registros.find(reg => reg.id === id)
                     if (r) handleDespachar(r)
                   } else {
+                    resetDespFields()
                     setShowModal(true)
                   }
                 }}

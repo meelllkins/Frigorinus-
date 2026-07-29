@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 import { fetchClientesMap, type ClienteInfo } from '../lib/clientes'
 import CeldasCliente from '../components/CeldasCliente'
 import ClienteModal from '../components/ClienteModal'
+import RutaFields from '../components/RutaFields'
 
 interface VisceraCon {
   id: string
@@ -94,6 +95,11 @@ export default function Inventario() {
   const [deleting, setDeleting] = useState(false)
   const [clientesMap, setClientesMap] = useState<Record<string, ClienteInfo>>({})
   const [modalCodigo, setModalCodigo] = useState<string | null>(null)
+  // Campos de despacho de víscera (ruta obligatoria + código destino; sin cabeza/patas)
+  const [despRuta, setDespRuta] = useState('')
+  const [despOtroCodigo, setDespOtroCodigo] = useState(false)
+  const [despCodigoDestino, setDespCodigoDestino] = useState('')
+  const [despachoUnica, setDespachoUnica] = useState<VisceraCon | null>(null)
   const selectAllRef = useRef<HTMLInputElement>(null)
 
   const [regForm, setRegForm] = useState(getInitialRegForm)
@@ -208,8 +214,24 @@ export default function Inventario() {
     if (window.innerWidth > 768) setTimeout(() => regCodigoRef.current?.focus(), 0)
   }
 
-  async function handleDespachar(v: VisceraCon) {
+  function resetDespFields() {
+    setDespRuta('')
+    setDespOtroCodigo(false)
+    setDespCodigoDestino('')
+  }
+
+  // El botón "Despachar" de la fila ahora abre el modal de ruta (obligatoria).
+  function handleDespachar(v: VisceraCon) {
+    resetDespFields()
+    setDespachoUnica(v)
+  }
+
+  async function handleConfirmDespachoUnica() {
+    if (!despachoUnica || !despRuta) return
+    const v = despachoUnica
+    setDispatching(true)
     const hoy = localToday()
+    const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
     await supabase
       .from('inventario_visceras')
       .update({ estado: 'despachada', fecha_despacho: hoy })
@@ -219,9 +241,13 @@ export default function Inventario() {
       viscera_id: v.id,
       tipo_despacho: 'viscera',
       fecha_despacho: hoy,
+      ruta: despRuta,
+      codigo_destino: codigoDestinoFinal,
     })
     // El despacho de víscera es independiente: no se toca el estado del animal/canal.
     setSelected(prev => { const next = new Set(prev); next.delete(v.id); return next })
+    setDespachoUnica(null)
+    setDispatching(false)
     fetchVisceras()
   }
 
@@ -236,12 +262,15 @@ export default function Inventario() {
       .update({ estado: 'despachada', fecha_despacho: hoy })
       .in('id', ids)
 
+    const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
     await supabase.from('despachos').insert(
       candidates.map(v => ({
         registro_id: v.registro_id,
         viscera_id: v.id,
         tipo_despacho: 'viscera',
         fecha_despacho: hoy,
+        ruta: despRuta,
+        codigo_destino: codigoDestinoFinal,
       }))
     )
 
@@ -360,12 +389,20 @@ export default function Inventario() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn">
           <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 animate-scaleIn">
             <h3 className="text-base font-bold text-gray-900 mb-2">Confirmar despacho</h3>
-            <p className="text-sm text-gray-600 mb-6">
+            <p className="text-sm text-gray-600 mb-4">
               ¿Estás seguro de despachar{' '}
               <span className="font-semibold text-gray-900">
                 {selected.size} {selected.size === 1 ? 'víscera' : 'vísceras'}
               </span>?
             </p>
+            <RutaFields
+              ruta={despRuta}
+              onRuta={setDespRuta}
+              otroCodigo={despOtroCodigo}
+              onOtroCodigo={setDespOtroCodigo}
+              codigoDestino={despCodigoDestino}
+              onCodigoDestino={setDespCodigoDestino}
+            />
             <div className="flex gap-3 justify-end">
               <button
                 onClick={() => setShowModal(false)}
@@ -375,10 +412,47 @@ export default function Inventario() {
               </button>
               <button
                 onClick={handleDespacharMultiple}
-                disabled={dispatching}
+                disabled={dispatching || !despRuta}
                 className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg transition-all duration-200 active:scale-95 disabled:opacity-50"
               >
                 {dispatching ? 'Despachando...' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de ruta para despacho individual de víscera */}
+      {despachoUnica && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 animate-scaleIn">
+            <h3 className="text-base font-bold text-gray-900 mb-2">Despachar víscera</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              <span className="font-semibold text-gray-900">
+                {despachoUnica.registros_beneficio.codigo_cliente}-{despachoUnica.registros_beneficio.numero_animal}
+              </span>{' '}— {tipoBadge(despachoUnica.tipo).label}
+            </p>
+            <RutaFields
+              ruta={despRuta}
+              onRuta={setDespRuta}
+              otroCodigo={despOtroCodigo}
+              onOtroCodigo={setDespOtroCodigo}
+              codigoDestino={despCodigoDestino}
+              onCodigoDestino={setDespCodigoDestino}
+            />
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setDespachoUnica(null)}
+                className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-all duration-200"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmDespachoUnica}
+                disabled={dispatching || !despRuta}
+                className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg transition-all duration-200 active:scale-95 disabled:opacity-50"
+              >
+                {dispatching ? 'Despachando...' : 'Despachar'}
               </button>
             </div>
           </div>
@@ -506,7 +580,7 @@ export default function Inventario() {
                 <span className="sm:hidden">Eliminar</span>
               </button>
               <button
-                onClick={() => setShowModal(true)}
+                onClick={() => { resetDespFields(); setShowModal(true) }}
                 className="bg-red-600 hover:bg-red-500 text-white text-sm font-bold rounded-lg px-3 sm:px-4 py-2 transition-all duration-200 active:scale-95 whitespace-nowrap"
               >
                 <span className="hidden sm:inline">Despachar {selected.size} seleccionadas</span>
