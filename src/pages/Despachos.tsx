@@ -83,16 +83,24 @@ export default function Despachos() {
 
     const { data: viejos } = await supabase
       .from('despachos')
-      .select('id, registro_id, tipo_despacho, fecha_despacho, notas, created_at')
+      .select('id, registro_id, viscera_id, tipo_despacho, fecha_despacho, notas, created_at, ruta, cabeza, patas, codigo_destino, es_desposte')
       .lt('fecha_despacho', cutoffStr)
 
     if (viejos && viejos.length > 0) {
+      // Se copian TODAS las columnas de ruta para que el archivado no las pierda
+      // (despachos_archivo debe tener estas columnas — ver migración SQL).
       const toArchive = viejos.map(v => ({
         registro_id: v.registro_id,
+        viscera_id: v.viscera_id,
         tipo_despacho: v.tipo_despacho,
         fecha_despacho: v.fecha_despacho,
         notas: v.notas,
         created_at: v.created_at,
+        ruta: v.ruta,
+        cabeza: v.cabeza,
+        patas: v.patas,
+        codigo_destino: v.codigo_destino,
+        es_desposte: v.es_desposte,
         archivado_at: new Date().toISOString(),
       }))
       const { error: insertError } = await supabase

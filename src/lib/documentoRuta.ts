@@ -63,24 +63,31 @@ export function formatearCod(
   codigoDestino: string | null,
   esDesposte: boolean
 ): string {
-  let listaAnimales: string
-  if (animales.length === 0) {
-    listaAnimales = ''
-  } else if (
-    animales.length >= UMBRAL_RANGO &&
-    animales[animales.length - 1] - animales[0] === animales.length - 1 // consecutivos, sin huecos
-  ) {
-    listaAnimales = `${animales[0]} AL ${animales[animales.length - 1]}`
+  // Convención real de Rafa:
+  //  - DESPOSTE: se escribe el código SIN números de animal ("530 DESPOSTE").
+  //  - No desposte: código + lista/rango de animales.
+  //  - Destino: sufijo "PARA COD X" (sin el "EL").
+  let base: string
+  if (esDesposte) {
+    base = `${codigoCliente} DESPOSTE`
   } else {
-    listaAnimales = animales.join('-')
+    let listaAnimales: string
+    if (animales.length === 0) {
+      listaAnimales = ''
+    } else if (
+      animales.length >= UMBRAL_RANGO &&
+      animales[animales.length - 1] - animales[0] === animales.length - 1 // consecutivos, sin huecos
+    ) {
+      listaAnimales = `${animales[0]} AL ${animales[animales.length - 1]}`
+    } else {
+      listaAnimales = animales.join('-')
+    }
+    base = listaAnimales === '' ? codigoCliente : `${codigoCliente}-${listaAnimales}`
   }
 
-  let cod = listaAnimales === '' ? codigoCliente : `${codigoCliente}-${listaAnimales}`
-
   const destino = (codigoDestino ?? '').trim()
-  if (destino !== '') cod += ` PARA EL COD ${destino}`
-  if (esDesposte) cod += ' DESPOSTE'
-  return cod
+  if (destino !== '') base += ` PARA COD ${destino}`
+  return base
 }
 
 // ════════════════════════════════════════════════════════════════
