@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { fetchClientesMap, type ClienteInfo } from '../lib/clientes'
 import CeldasCliente from '../components/CeldasCliente'
+import ClienteModal from '../components/ClienteModal'
 import type { RegistroBeneficio } from '../types'
 
 function addDays(dateStr: string, days: number): string {
@@ -114,6 +115,7 @@ export default function Beneficio() {
   // Tabla
   const [registros, setRegistros] = useState<RegistroBeneficio[]>([])
   const [clientesMap, setClientesMap] = useState<Record<string, ClienteInfo>>({})
+  const [modalCodigo, setModalCodigo] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showModal, setShowModal] = useState(false)
@@ -1170,7 +1172,7 @@ export default function Beneficio() {
                 </th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Código</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Cliente</th>
-                <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Ruta</th>
+                <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Municipio</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Tipo de carne</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Fecha de sacrificio</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Días en cava</th>
@@ -1221,7 +1223,7 @@ export default function Beneficio() {
                             />
                           </div>
                         </td>
-                        <CeldasCliente info={clientesMap[editForm.codigo_cliente]} />
+                        <CeldasCliente codigo={editForm.codigo_cliente} info={clientesMap[editForm.codigo_cliente]} onEditar={setModalCodigo} />
                         <td className="px-4 py-3">
                           <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${
                             r.tipo_carne === 'res' ? 'bg-amber-100 text-amber-700' : 'bg-pink-100 text-pink-700'
@@ -1289,7 +1291,7 @@ export default function Beneficio() {
                       <td className="px-4 py-3 font-mono font-semibold text-gray-900">
                         {r.codigo_cliente}-{r.numero_animal}
                       </td>
-                      <CeldasCliente info={clientesMap[r.codigo_cliente]} />
+                      <CeldasCliente codigo={r.codigo_cliente} info={clientesMap[r.codigo_cliente]} onEditar={setModalCodigo} />
                       <td className="px-4 py-3">
                         <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
                           r.tipo_carne === 'res' ? 'bg-amber-100 text-amber-700' : 'bg-pink-100 text-pink-700'
@@ -1363,6 +1365,16 @@ export default function Beneficio() {
           </table>
         </div>
       </section>
+
+      {modalCodigo !== null && (
+        <ClienteModal
+          key={modalCodigo}
+          codigo={modalCodigo}
+          info={clientesMap[modalCodigo]}
+          onClose={() => setModalCodigo(null)}
+          onSaved={(cod, nuevo) => setClientesMap(prev => ({ ...prev, [cod]: nuevo }))}
+        />
+      )}
     </div>
   )
 }

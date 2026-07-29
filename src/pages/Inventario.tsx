@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { fetchClientesMap, type ClienteInfo } from '../lib/clientes'
 import CeldasCliente from '../components/CeldasCliente'
+import ClienteModal from '../components/ClienteModal'
 
 interface VisceraCon {
   id: string
@@ -92,6 +93,7 @@ export default function Inventario() {
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [clientesMap, setClientesMap] = useState<Record<string, ClienteInfo>>({})
+  const [modalCodigo, setModalCodigo] = useState<string | null>(null)
   const selectAllRef = useRef<HTMLInputElement>(null)
 
   const [regForm, setRegForm] = useState(getInitialRegForm)
@@ -529,7 +531,7 @@ export default function Inventario() {
                 </th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Código animal</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Cliente</th>
-                <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Ruta</th>
+                <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Municipio</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Tipo</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Estado</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Fecha de sacrificio</th>
@@ -567,7 +569,7 @@ export default function Inventario() {
                       <td className="px-4 py-3 font-mono font-semibold text-gray-900">
                         {v.registros_beneficio.codigo_cliente}-{v.registros_beneficio.numero_animal}
                       </td>
-                      <CeldasCliente info={clientesMap[v.registros_beneficio.codigo_cliente]} />
+                      <CeldasCliente codigo={v.registros_beneficio.codigo_cliente} info={clientesMap[v.registros_beneficio.codigo_cliente]} onEditar={setModalCodigo} />
                       <td className="px-4 py-3">
                         <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${tipoBadge(v.tipo).cls}`}>
                           {tipoBadge(v.tipo).label}
@@ -630,6 +632,16 @@ export default function Inventario() {
           </table>
         </div>
       </section>
+
+      {modalCodigo !== null && (
+        <ClienteModal
+          key={modalCodigo}
+          codigo={modalCodigo}
+          info={clientesMap[modalCodigo]}
+          onClose={() => setModalCodigo(null)}
+          onSaved={(cod, nuevo) => setClientesMap(prev => ({ ...prev, [cod]: nuevo }))}
+        />
+      )}
     </div>
   )
 }

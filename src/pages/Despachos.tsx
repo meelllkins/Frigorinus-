@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { fetchClientesMap, type ClienteInfo } from '../lib/clientes'
 import CeldasCliente from '../components/CeldasCliente'
+import ClienteModal from '../components/ClienteModal'
 
 interface DespachoCon {
   id: string
@@ -71,6 +72,7 @@ export default function Despachos() {
   const [archivo, setArchivo] = useState<DespachoArchivado[]>([])
   const [loadingArchivo, setLoadingArchivo] = useState(false)
   const [clientesMap, setClientesMap] = useState<Record<string, ClienteInfo>>({})
+  const [modalCodigo, setModalCodigo] = useState<string | null>(null)
 
   useEffect(() => { fetchDespachos() }, [])
 
@@ -289,7 +291,7 @@ export default function Despachos() {
             <tr className="bg-gray-800">
               <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Código</th>
               <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Cliente</th>
-              <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Ruta</th>
+              <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Municipio</th>
               <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Tipo de despacho</th>
               <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Fecha de sacrificio</th>
               <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Fecha de despacho</th>
@@ -311,7 +313,7 @@ export default function Despachos() {
                   <td className="px-4 py-3 font-mono font-semibold text-gray-900">
                     {d.registros_beneficio.codigo_cliente}-{d.registros_beneficio.numero_animal}
                   </td>
-                  <CeldasCliente info={clientesMap[d.registros_beneficio.codigo_cliente]} />
+                  <CeldasCliente codigo={d.registros_beneficio.codigo_cliente} info={clientesMap[d.registros_beneficio.codigo_cliente]} onEditar={setModalCodigo} />
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1.5">
                       <span
@@ -480,6 +482,16 @@ export default function Despachos() {
             </div>
           </div>
         </div>
+      )}
+
+      {modalCodigo !== null && (
+        <ClienteModal
+          key={modalCodigo}
+          codigo={modalCodigo}
+          info={clientesMap[modalCodigo]}
+          onClose={() => setModalCodigo(null)}
+          onSaved={(cod, nuevo) => setClientesMap(prev => ({ ...prev, [cod]: nuevo }))}
+        />
       )}
     </div>
   )
