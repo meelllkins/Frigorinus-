@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { X } from 'lucide-react'
-import { fetchMunicipios, updateClienteMunicipio, crearCliente, type ClienteInfo } from '../lib/clientes'
+import { updateClienteMunicipio, updateClienteNombre, updateClienteCampos, crearCliente, type ClienteInfo } from '../lib/clientes'
+import { RUTAS } from '../lib/rutas'
 
 const OTRO = '__OTRO__'
 
@@ -14,29 +15,24 @@ interface Props {
 
 export default function ClienteModal({ codigo, info, onClose, onSaved }: Props) {
   const esEdicion = !!info
-  const [municipios, setMunicipios] = useState<string[]>([])
   const [nombre, setNombre] = useState(info?.cliente ?? '')
   const [rutaSel, setRutaSel] = useState(info?.municipio ?? '')
   const [rutaOtro, setRutaOtro] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  useEffect(() => {
-    fetchMunicipios().then(setMunicipios)
-  }, [])
-
-  // Aseguramos que la ruta actual (en edición) sea siempre una opción, aunque la
-  // lista distinct aún no haya cargado o difiera por espacios/casing.
-  const opciones =
-    info?.municipio && !municipios.includes(info.municipio)
-      ? [info.municipio, ...municipios]
-      : municipios
+  // Opciones fijas desde la constante RUTAS. Incluimos el municipio actual si no
+  // estuviera en la lista, para que quede preseleccionado en modo editar.
+  const opciones: string[] =
+    info?.municipio && !(RUTAS as readonly string[]).includes(info.municipio)
+      ? [info.municipio, ...RUTAS]
+      : [...RUTAS]
 
   const rutaFinal = (rutaSel === OTRO ? rutaOtro : rutaSel).trim()
 
   async function handleGuardar() {
     setError('')
-    if (!esEdicion && !nombre.trim()) {
+    if (!nombre.trim()) {
       setError('Ingresa el nombre del cliente.')
       return
     }
@@ -47,13 +43,24 @@ export default function ClienteModal({ codigo, info, onClose, onSaved }: Props) 
 
     setSaving(true)
     if (esEdicion && info) {
-      const res = await updateClienteMunicipio(info.id, rutaFinal)
+      const nuevoNombre = nombre.trim()
+      const nombreCambio = nuevoNombre !== info.cliente
+      const municipioCambio = rutaFinal !== info.municipio
+      let res: { error: string | null } = { error: null }
+      if (nombreCambio && municipioCambio) {
+        // Ambos cambiaron: un solo UPDATE con { municipio, cliente }.
+        res = await updateClienteCampos(info.id, { municipio: rutaFinal, cliente: nuevoNombre })
+      } else if (municipioCambio) {
+        res = await updateClienteMunicipio(info.id, rutaFinal)
+      } else if (nombreCambio) {
+        res = await updateClienteNombre(info.id, nuevoNombre)
+      }
       if (res.error) {
         setError('No se pudo guardar. Intenta de nuevo.')
         setSaving(false)
         return
       }
-      onSaved(codigo, { ...info, municipio: rutaFinal })
+      onSaved(codigo, { ...info, cliente: nuevoNombre, municipio: rutaFinal })
     } else {
       const res = await crearCliente(codigo, nombre.trim(), rutaFinal)
       if (res.error || !res.id) {
@@ -89,22 +96,15 @@ export default function ClienteModal({ codigo, info, onClose, onSaved }: Props) 
           </button>
         </div>
 
-        {/* Nombre: editable solo al crear; en edición va de solo lectura (pendiente con Rafa) */}
+        {/* Nombre: editable tanto al crear como al editar. */}
         <label className="block text-sm font-semibold text-gray-700 mb-1.5">Nombre del cliente</label>
-        {esEdicion ? (
-          <p className="text-sm text-gray-900 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 mb-4">
-            {info?.cliente || '—'}
-          </p>
-        ) : (
-          <input
-            type="text"
-            value={nombre}
-            onChange={e => setNombre(e.target.value)}
-            placeholder="Nombre del cliente..."
-            className={`${inputCls} mb-4`}
-            autoFocus
-          />
-        )}
+        <input
+          type="text"
+          value={nombre}
+          onChange={e => setNombre(e.target.value)}
+          placeholder="Nombre del cliente..."
+          className={`${inputCls} mb-4`}
+        />
 
         <label className="block text-sm font-semibold text-gray-700 mb-1.5">Municipio</label>
         <select

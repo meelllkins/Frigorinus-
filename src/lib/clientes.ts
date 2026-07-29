@@ -43,46 +43,31 @@ export async function fetchClientesMap(
 }
 
 /**
- * Municipios existentes en `clientes` (distinct, sin nulos/vacíos, alfabético).
- * Alimenta el desplegable de Ruta del modal.
- */
-export async function fetchMunicipios(): Promise<string[]> {
-  const { data, error } = await supabase
-    .from('clientes')
-    .select('municipio')
-    .not('municipio', 'is', null)
-
-  if (error) {
-    console.error('[fetchMunicipios] Error consultando municipios:', error)
-    return []
-  }
-
-  const set = new Set<string>()
-  for (const row of data ?? []) {
-    const m = (row.municipio ?? '').trim()
-    if (m) set.add(m)
-  }
-  return [...set].sort((a, b) => a.localeCompare(b, 'es'))
-}
-
-/**
- * Corrige la ruta (municipio) de UNA fila específica por su id.
+ * UPDATE de uno o varios campos de una fila de `clientes`, por su id.
  * Nunca por codigo: puede haber (raramente) 2 filas activas del mismo código.
  */
-export async function updateClienteMunicipio(
+export async function updateClienteCampos(
   id: string,
-  municipio: string
+  campos: { cliente?: string; municipio?: string }
 ): Promise<{ error: string | null }> {
   const { error } = await supabase
     .from('clientes')
-    .update({ municipio })
+    .update(campos)
     .eq('id', id)
 
   if (error) {
-    console.error('[updateClienteMunicipio] Error actualizando cliente:', error)
+    console.error('[updateClienteCampos] Error actualizando cliente:', error)
     return { error: error.message }
   }
   return { error: null }
+}
+
+export function updateClienteMunicipio(id: string, municipio: string) {
+  return updateClienteCampos(id, { municipio })
+}
+
+export function updateClienteNombre(id: string, cliente: string) {
+  return updateClienteCampos(id, { cliente })
 }
 
 /**

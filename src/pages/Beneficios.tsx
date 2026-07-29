@@ -135,6 +135,8 @@ export default function Beneficio() {
   const [despCodigoDestino, setDespCodigoDestino] = useState('')
   const [despCabeza, setDespCabeza] = useState('')
   const [despPatas, setDespPatas] = useState('')
+  // Múltiple: cabeza/patas POR CÓDIGO de cliente (un lote puede mezclar clientes).
+  const [despCabezaPatasPorCodigo, setDespCabezaPatasPorCodigo] = useState<Record<string, { cabeza: string; patas: string }>>({})
   // Ruta+código destino del lote múltiple, para reusarlos en el paso de vísceras
   const [despMultiCtx, setDespMultiCtx] = useState<{ ruta: string; codigo_destino: string | null } | null>(null)
   // Desposte es POR ANIMAL: booleano en individual, set de ids marcados en múltiple.
@@ -447,11 +449,14 @@ export default function Beneficio() {
     setDespPatas('')
     setDespDesposte(false)
     setDespDesposteIds(new Set())
+    setDespCabezaPatasPorCodigo({})
   }
 
   const despInputCls =
     'w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-700 focus:ring-1 focus:ring-green-700 transition-colors'
-  const loteTieneRes = registros.some(r => selected.has(r.id) && r.tipo_carne === 'res')
+  const codigosResEnLote = sortCodigos([...new Set(
+    registros.filter(r => selected.has(r.id) && r.tipo_carne === 'res').map(r => r.codigo_cliente)
+  )])
 
   async function handleDespachar(r: RegistroBeneficio) {
     resetDespFields()
@@ -667,19 +672,36 @@ export default function Beneficio() {
       .in('id', ids)
 
     const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
+
+    // Cabeza/Patas: un total POR CÓDIGO de cliente, escrito solo en la PRIMERA fila
+    // (res) de ese código dentro del lote; las demás filas de ese código quedan null.
+    const regById = new Map(registros.map(r => [r.id, r] as const))
+    const primeraFilaPorCodigo = new Map<string, string>()
+    for (const id of ids) {
+      const r = regById.get(id)
+      if (r && r.tipo_carne === 'res' && !primeraFilaPorCodigo.has(r.codigo_cliente)) {
+        primeraFilaPorCodigo.set(r.codigo_cliente, id)
+      }
+    }
+
     await supabase.from('despachos').insert(
-      ids.map((id, i) => ({
-        registro_id: id,
-        tipo_despacho: 'canal',
-        fecha_despacho: hoy,
-        ruta: despRuta,
-        codigo_destino: codigoDestinoFinal,
-        // Desposte es POR ANIMAL: cada fila guarda lo marcado para ese id puntual.
-        es_desposte: despDesposteIds.has(id),
-        // Cabeza/Patas son un TOTAL del lote: solo en la primera fila; el resto NULL.
-        cabeza: i === 0 ? toIntOrNull(despCabeza) : null,
-        patas: i === 0 ? toIntOrNull(despPatas) : null,
-      }))
+      ids.map(id => {
+        const r = regById.get(id)
+        const esPrimeraDeSuCodigo = !!r && r.tipo_carne === 'res' && primeraFilaPorCodigo.get(r.codigo_cliente) === id
+        const cp = r ? despCabezaPatasPorCodigo[r.codigo_cliente] : undefined
+        return {
+          registro_id: id,
+          tipo_despacho: 'canal',
+          fecha_despacho: hoy,
+          ruta: despRuta,
+          codigo_destino: codigoDestinoFinal,
+          // Desposte es POR ANIMAL: cada fila guarda lo marcado para ese id puntual.
+          es_desposte: despDesposteIds.has(id),
+          // Cabeza/Patas: total del código, solo en su primera fila del lote.
+          cabeza: esPrimeraDeSuCodigo ? toIntOrNull(cp?.cabeza ?? '') : null,
+          patas: esPrimeraDeSuCodigo ? toIntOrNull(cp?.patas ?? '') : null,
+        }
+      })
     )
     setDespMultiCtx({ ruta: despRuta, codigo_destino: codigoDestinoFinal })
 
@@ -759,16 +781,23 @@ export default function Beneficio() {
               codigoDestino={despCodigoDestino}
               onCodigoDestino={setDespCodigoDestino}
             />
-            {loteTieneRes && (
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">Cabeza (total lote)</label>
-                  <input type="number" min={0} value={despCabeza} onChange={e => setDespCabeza(e.target.value)} placeholder="0" className={despInputCls} />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">Patas (total lote)</label>
-                  <input type="number" min={0} value={despPatas} onChange={e => setDespPatas(e.target.value)} placeholder="0" className={despInputCls} />
-                </div>
+            {codigosResEnLote.length > 0 && (
+              <div className="mb-4 space-y-3">
+                {codigosResEnLote.map(cod => (
+                  <div key={cod}>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 font-mono">{cod} — Cabeza / Patas</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-1.5">Cabeza</label>
+                        <input type="number" min={0} value={despCabezaPatasPorCodigo[cod]?.cabeza ?? ''} onChange={e => setDespCabezaPatasPorCodigo(prev => ({ ...prev, [cod]: { cabeza: e.target.value, patas: prev[cod]?.patas ?? '' } }))} placeholder="0" className={despInputCls} />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-1.5">Patas</label>
+                        <input type="number" min={0} value={despCabezaPatasPorCodigo[cod]?.patas ?? ''} onChange={e => setDespCabezaPatasPorCodigo(prev => ({ ...prev, [cod]: { cabeza: prev[cod]?.cabeza ?? '', patas: e.target.value } }))} placeholder="0" className={despInputCls} />
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
             <div className="mb-4">
