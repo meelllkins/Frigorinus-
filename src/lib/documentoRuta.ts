@@ -174,7 +174,11 @@ type Grupo = {
   codigoCliente: string
   esDesposte: boolean
   codigoDestino: string | null
-  animales: Set<number>
+  // Separados a propósito (ver comentario en el loop de armarDocumento): el texto COD
+  // debe reflejar los CANALES realmente despachados, no cualquier animal que haya
+  // aportado una víscera al mismo grupo.
+  animalesCanal: Set<number>
+  animalesViscera: Set<number>
   cant: number
   vb: number
   vr: number
@@ -200,7 +204,12 @@ function claveGrupo(
 }
 
 function grupoAFila(g: Grupo): FilaDocumento {
-  const animales = [...g.animales].sort((a, b) => a - b)
+  // El COD (y el desempate de orden) usan los animales de CANAL cuando el grupo tiene
+  // al menos uno; si el grupo es 100% víscera (ningún canal), se usan los de víscera
+  // (caso normal: víscera adelantada sin su canal, una sola fila por animal).
+  // Ver el comentario en el loop de arriba: por qué esta distinción existe.
+  const fuenteAnimales = g.animalesCanal.size > 0 ? g.animalesCanal : g.animalesViscera
+  const animales = [...fuenteAnimales].sort((a, b) => a - b)
   const esBovino = g.tipoCarne === 'res'
   return {
     key: claveGrupo(g.ruta, g.tipoCarne, g.codigoCliente, g.esDesposte, g.codigoDestino),
@@ -274,19 +283,29 @@ export function armarDocumento(fecha: string, despachos: DespachoRow[], manuales
     if (!g) {
       g = {
         ruta, tipoCarne, codigoCliente, esDesposte, codigoDestino,
-        animales: new Set(), cant: 0, vb: 0, vr: 0, cabeza: null, patas: null, despachoIds: [], despachoIdsCanal: [],
+        animalesCanal: new Set(), animalesViscera: new Set(),
+        cant: 0, vb: 0, vr: 0, cabeza: null, patas: null, despachoIds: [], despachoIdsCanal: [],
       }
       grupos.set(key, g)
     }
 
     g.despachoIds.push(d.id)
 
-    // El animal se cuenta UNA vez por grupo, aunque aporte varias filas (canal + vísceras).
     const rawAnimal = rb.numero_animal
     const numAnimal = rawAnimal == null || rawAnimal === '' ? NaN : Number(rawAnimal)
-    if (Number.isFinite(numAnimal)) g.animales.add(numAnimal)
 
     if (d.tipo_despacho === 'canal') {
+      // BUG real (reportado por Rafa): antes, el número de animal se agregaba a un único
+      // Set sin importar si venía de un canal o de una víscera. Cuando el modal "Vísceras
+      // disponibles" de Beneficios trae vísceras de OTROS animales del mismo código
+      // (consulta por codigo_cliente, no por registro_id — comportamiento intencional para
+      // poder embarcar vísceras sueltas junto con un canal), esas vísceras "prestadas" caían
+      // en el MISMO grupo (misma ruta/código/desposte/destino) y su numero_animal se colaba
+      // en la secuencia del COD: "32-1-2" aunque solo el canal del animal 1 se despachó.
+      // Fix: el COD usa SOLO animalesCanal (ver grupoAFila). Si Rafa despacha únicamente
+      // vísceras sin canal, se usan animalesViscera (así "800-15" sigue mostrando el animal
+      // correcto cuando el grupo no tiene ningún canal).
+      if (Number.isFinite(numAnimal)) g.animalesCanal.add(numAnimal)
       g.cant++
       g.despachoIdsCanal.push(d.id)
       if (tipoCarne === 'res') {
@@ -296,6 +315,7 @@ export function armarDocumento(fecha: string, despachos: DespachoRow[], manuales
       }
     } else {
       // víscera
+      if (Number.isFinite(numAnimal)) g.animalesViscera.add(numAnimal)
       if (d.viscera_id == null) {
         avisos.push(`Despacho ${d.id} (${etiquetaAnimal}): víscera sin viscera_id (dato viejo); no se cuenta en VB/VR.`)
       } else {
