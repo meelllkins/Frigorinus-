@@ -342,24 +342,49 @@ export function armarDocumento(fecha: string, despachos: DespachoRow[], manuales
     })
   }
 
-  // Un bloque por ruta con filas. 'Externo' se agrega aparte al final: SIEMPRE y de
-  // último, sin depender de su posición en RUTAS (no se rompe si reordenan rutas.ts).
-  const armarBloque = (ruta: string): BloqueRuta => ({
+  // Un bloque por ruta con filas, a partir de un subconjunto de `items` ya elegido
+  // por el llamador (todos los de esa ruta, o solo los de UN carro de Externo).
+  const armarBloque = (ruta: string, itemsDelBloque: typeof items): BloqueRuta => ({
     ruta,
-    bovinos: seccionDe(items.filter(it => it.ruta === ruta && it.tipoCarne === 'res').map(it => it.fila)),
-    porcinos: seccionDe(items.filter(it => it.ruta === ruta && it.tipoCarne === 'cerdo').map(it => it.fila)),
+    bovinos: seccionDe(itemsDelBloque.filter(it => it.tipoCarne === 'res').map(it => it.fila)),
+    porcinos: seccionDe(itemsDelBloque.filter(it => it.tipoCarne === 'cerdo').map(it => it.fila)),
     manual: manualPorRuta.get(ruta) ?? null,
   })
 
   const bloques: BloqueRuta[] = []
   for (const ruta of RUTAS) {
     if (ruta === 'Externo') continue
-    const bloque = armarBloque(ruta)
+    const bloque = armarBloque(ruta, items.filter(it => it.ruta === ruta))
     if (bloque.bovinos.filas.length > 0 || bloque.porcinos.filas.length > 0) {
       bloques.push(bloque)
     }
   }
-  bloques.push(armarBloque('Externo'))
+
+  // 'Externo' NO es una ruta más (aviso de Rafa): cada vez que se despacha a Externo con
+  // un código es un carro distinto, independiente de los demás externos y de cualquier
+  // ruta con nombre. Antes se juntaban TODOS los despachos a Externo del día en un único
+  // bloque compartido (con varias filas adentro) — eso es lo que Rafa reportó como
+  // "códigos mezclados". Ahora se arma UN BLOQUE POR CARRO, agrupando por
+  // codigoCliente+codigoDestino (mismo criterio que ya separa las filas hoy). Todos los
+  // bloques de Externo van al final, en orden determinista (por código, luego destino).
+  //
+  // LÍMITE CONOCIDO: si el MISMO código se despacha dos veces a Externo el mismo día con
+  // el MISMO código destino (o ambos sin destino), hoy no hay ningún campo que distinga
+  // esos dos carros entre sí -> caen en el mismo bloque. Distinguirlos requeriría una
+  // columna nueva (p.ej. un identificador de carro/lote en `despachos`); no se agregó
+  // porque no se pidió tocar el schema para esto.
+  const itemsExterno = items.filter(it => it.ruta === 'Externo')
+  const carrosExterno = new Map<string, typeof items>()
+  for (const it of itemsExterno) {
+    const carroKey = `${it.fila.codigoCliente}|${it.fila.codigoDestino ?? ''}`
+    const lista = carrosExterno.get(carroKey)
+    if (lista) lista.push(it)
+    else carrosExterno.set(carroKey, [it])
+  }
+  const carrosOrdenados = [...carrosExterno.entries()].sort(([a], [b]) => compararCodigo(a, b))
+  for (const [, itemsDelCarro] of carrosOrdenados) {
+    bloques.push(armarBloque('Externo', itemsDelCarro))
+  }
 
   // Despachos con ruta NULL: no se descartan, van en sinRuta (lista plana).
   const sinRuta = items

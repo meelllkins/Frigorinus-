@@ -230,6 +230,13 @@ export default function DocumentoRuta() {
       }
     : null
 
+  // Externo puede traer varios bloques el mismo día (uno por carro). Los campos manuales
+  // (conductor/auxiliar/placa/hora/observación) se guardan en documentos_ruta con
+  // UNIQUE(fecha, ruta) -> hoy no hay forma de distinguir un carro de Externo de otro en esa
+  // tabla, así que esos campos quedan COMPARTIDOS entre todos los carros del día. Avisamos
+  // en pantalla para que no parezca un dato independiente por carro cuando no lo es.
+  const externosDelDia = doc?.bloques.filter(b => b.ruta === 'Externo').length ?? 0
+
   return (
     <div className="space-y-6 overflow-x-hidden">
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -289,11 +296,19 @@ export default function DocumentoRuta() {
         <p className="text-sm text-gray-400">Cargando documento...</p>
       ) : (
         <>
-          {doc.bloques.map(b => (
-            <section key={b.ruta} className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5 space-y-4">
+          {doc.bloques.map((b, i) => (
+            // Externo ahora puede aportar VARIOS bloques el mismo día (uno por carro), todos
+            // con ruta==='Externo' -> la key no puede ser solo b.ruta (colisionaría). El orden
+            // de doc.bloques es determinista, así que sumarle el índice es seguro.
+            <section key={`${b.ruta}-${i}`} className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5 space-y-4">
               <div>
                 <h3 className="text-lg font-bold text-gray-900">{b.ruta}</h3>
                 <p className="text-sm text-gray-500 capitalize">{fechaLarga(doc.fecha)}</p>
+                {b.ruta === 'Externo' && externosDelDia > 1 && (
+                  <p className="text-xs text-amber-700 mt-1">
+                    Conductor/auxiliar/placa/hora se comparten entre los {externosDelDia} carros de Externo de hoy (limitación de la base de datos, no de este carro en particular).
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
