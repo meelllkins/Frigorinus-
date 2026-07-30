@@ -6,6 +6,7 @@ import { RUTAS } from './rutas'
 // ════════════════════════════════════════════════════════════════
 
 export type FilaDocumento = {
+  key: string              // identidad ESTABLE de la fila (no depende del orden de la BD)
   cod: string              // celda COD ya formateada (ver formatearCod)
   codigoCliente: string
   animales: number[]       // ordenados de menor a mayor, sin repetidos
@@ -148,10 +149,23 @@ function compararFila(a: FilaDocumento, b: FilaDocumento): number {
   const despB = b.esDesposte ? 1 : 0
   if (despA !== despB) return despA - despB
 
-  if (a.codigoDestino === b.codigoDestino) return 0
-  if (a.codigoDestino == null) return -1
-  if (b.codigoDestino == null) return 1
-  return compararCodigo(a.codigoDestino, b.codigoDestino)
+  if (a.codigoDestino !== b.codigoDestino) {
+    if (a.codigoDestino == null) return -1
+    if (b.codigoDestino == null) return 1
+    const porDestino = compararCodigo(a.codigoDestino, b.codigoDestino)
+    if (porDestino !== 0) return porDestino
+  }
+
+  // Desempate FINAL, exacto y byte a byte. Sin esto el comparador puede devolver 0
+  // para filas DISTINTAS —compararCodigo() usa numeric+sensitivity:'base', así que
+  // '32', '032' y '32 ' le empatan— y ahí el sort estable conserva el orden de
+  // llegada de la BD, que no es determinista. Con esto, dos filas distintas nunca empatan.
+  if (a.codigoCliente !== b.codigoCliente) return a.codigoCliente < b.codigoCliente ? -1 : 1
+  const destA = a.codigoDestino ?? ''
+  const destB = b.codigoDestino ?? ''
+  if (destA !== destB) return destA < destB ? -1 : 1
+  if (a.key !== b.key) return a.key < b.key ? -1 : 1
+  return 0
 }
 
 type Grupo = {
@@ -170,10 +184,26 @@ type Grupo = {
   despachoIdsCanal: string[]
 }
 
+/**
+ * Clave de agrupación = identidad de la fila. Es la MISMA que usa el Map de grupos,
+ * así que identifica una fila sin depender del orden en que lleguen los despachos.
+ * Sirve de key de React y de clave del estado de edición de cabeza/patas.
+ */
+function claveGrupo(
+  ruta: string | null,
+  tipoCarne: 'res' | 'cerdo',
+  codigoCliente: string,
+  esDesposte: boolean,
+  codigoDestino: string | null
+): string {
+  return [ruta ?? ' SIN_RUTA', tipoCarne, codigoCliente, esDesposte ? '1' : '0', codigoDestino ?? ''].join('|')
+}
+
 function grupoAFila(g: Grupo): FilaDocumento {
   const animales = [...g.animales].sort((a, b) => a - b)
   const esBovino = g.tipoCarne === 'res'
   return {
+    key: claveGrupo(g.ruta, g.tipoCarne, g.codigoCliente, g.esDesposte, g.codigoDestino),
     cod: formatearCod(g.codigoCliente, animales, g.codigoDestino, g.esDesposte),
     codigoCliente: g.codigoCliente,
     animales,
@@ -239,7 +269,7 @@ export function armarDocumento(fecha: string, despachos: DespachoRow[], manuales
     const codigoDestino = destinoTrim === '' ? null : destinoTrim // null y '' se tratan igual
     const etiquetaAnimal = `${codigoCliente}-${rb.numero_animal ?? '?'}`
 
-    const key = [ruta ?? ' SIN_RUTA', tipoCarne, codigoCliente, esDesposte ? '1' : '0', codigoDestino ?? ''].join('|')
+    const key = claveGrupo(ruta, tipoCarne, codigoCliente, esDesposte, codigoDestino)
     let g = grupos.get(key)
     if (!g) {
       g = {
@@ -337,10 +367,17 @@ export async function construirDocumentoDia(fecha: string): Promise<DocumentoDia
   const avisosConsulta: string[] = []
 
   // Consulta 1: despachos del día con los joins anidados.
+  // El ORDER BY es OBLIGATORIO: sin él Postgres devuelve las filas en orden físico,
+  // que cambia cada vez que se hace UPDATE sobre una fila (editar cabeza/patas mueve
+  // el registro al final del heap). Ese orden se filtraba al documento y las filas
+  // "se revolvían" entre refrescos. Orden por created_at + id = el orden en que Rafa
+  // fue despachando, siempre igual.
   const { data: despData, error: errDesp } = await supabase
     .from('despachos')
     .select(SELECT_DESPACHOS)
     .eq('fecha_despacho', fecha)
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true })
 
   if (errDesp) {
     console.error('[documentoRuta] Error consultando despachos:', errDesp)

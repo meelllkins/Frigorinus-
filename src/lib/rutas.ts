@@ -16,6 +16,7 @@ export const RUTAS = [
   'Barbosa',
   'Puerto Berrío',
   'Caracolí/Cristales',
+  'Cisneros/San Roque',
   'Externo',
 ] as const
 

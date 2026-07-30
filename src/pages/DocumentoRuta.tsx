@@ -116,7 +116,10 @@ export default function DocumentoRuta() {
   }
 
   // ── Cabeza/Patas ───────────────────────────────────────────────
-  const filaKey = (f: FilaDocumento) => f.despachoIdsCanal.join(',')
+  // Identidad estable de la fila (viene de documentoRuta). Antes se usaba
+  // despachoIdsCanal.join(','), que para las filas SIN canal (solo vísceras) daba ''
+  // en todas: compartían estado de edición entre sí.
+  const filaKey = (f: FilaDocumento) => f.key
   const cpDe = (f: FilaDocumento) => ({
     cabeza: f.cabeza != null ? String(f.cabeza) : '',
     patas: f.patas != null ? String(f.patas) : '',
@@ -170,7 +173,7 @@ export default function DocumentoRuta() {
                   const cp = cpLocal[filaKey(f)] ?? cpDe(f)
                   const sinCanal = f.despachoIdsCanal.length === 0
                   return (
-                    <tr key={`${f.cod}-${i}`} className={i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}>
+                    <tr key={f.key} className={i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}>
                       <td className="px-4 py-2.5 font-mono font-semibold text-gray-900">{f.cod}</td>
                       <td className={tdNum}>{f.cant}</td>
                       <td className={tdNum}>{f.vb}</td>

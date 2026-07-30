@@ -17,25 +17,24 @@ function sinTildes(s: string): string {
 }
 
 // La fecha que se MUESTRA/nombra en el documento es la de ENTREGA: lo despachado un día
-// se entrega al siguiente (despacho + 1). El filtro por fecha de despacho y el nombre del
-// archivo descargado NO cambian; solo cambia lo que se imprime dentro del Excel.
+// se entrega al siguiente (despacho + 1). Se calcula UNA sola vez en exportarDocumentoRuta y
+// se pasa igual a todos los bloques (incluido Externo). El filtro por fecha de despacho y el
+// nombre del archivo descargado NO cambian; solo cambia lo que se imprime dentro del Excel.
 function fechaEntrega(fecha: string): Date {
   const d = new Date(fecha + 'T00:00:00')
   d.setDate(d.getDate() + 1)
   return d
 }
 
-// "MIERCOLES 22 JULIO": día de semana en MAYÚSCULA sin tildes, día, mes en mayúscula.
-function lineaFecha(fecha: string): string {
-  const d = fechaEntrega(fecha)
+// "JUEVES 30 JULIO": día de semana + día + mes, MAYÚSCULA sin tildes, desde una fecha ya resuelta.
+function textoLineaFecha(d: Date): string {
   const dia = sinTildes(d.toLocaleDateString('es', { weekday: 'long' })).toUpperCase()
   const mes = sinTildes(d.toLocaleDateString('es', { month: 'long' })).toUpperCase()
   return `${dia} ${d.getDate()} ${mes}`
 }
 
-// "22 JULIO": nombre de hoja como lo nombra Rafa (día y mes en mayúscula) — fecha de ENTREGA.
-function nombreHoja(fecha: string): string {
-  const d = fechaEntrega(fecha)
+// "30 JULIO": nombre de hoja como lo nombra Rafa (día y mes), desde una fecha ya resuelta.
+function textoNombreHoja(d: Date): string {
   const mes = sinTildes(d.toLocaleDateString('es', { month: 'long' })).toUpperCase()
   return `${d.getDate()} ${mes}`
 }
@@ -71,17 +70,9 @@ const S = {
 }
 type SetEstilos = typeof S
 
-// Variante para el bloque 'Externo': mismo todo (fuente/tamaño/negrita/borde y colores de
-// letra, incluido el 9C0006 del total), pero el relleno de TODA celda pasa a rojo puro.
-const ROJO_EXTERNO = 'FF0000'
-function tintarRojo(base: Record<string, unknown>): Record<string, unknown> {
-  return { ...base, fill: { patternType: 'solid', fgColor: { rgb: ROJO_EXTERNO } } }
-}
-const S_ROJO = Object.fromEntries(
-  Object.entries(S).map(([k, v]) => [k, tintarRojo(v)]),
-) as SetEstilos
-// Las líneas de observación normalmente van sin estilo; en Externo solo llevan el relleno rojo.
-const RELLENO_OBS_ROJO = { fill: { patternType: 'solid', fgColor: { rgb: ROJO_EXTERNO } } }
+// TODOS los bloques usan el mismo juego de estilos `S`, Externo incluido: no hay
+// excepción de color por ruta. Lo único propio de Externo es que sus secciones no
+// llevan fila de total (cada código es un cargue distinto y no se puede sumar entre carros).
 
 // ── Anchos de columna ───────────────────────────────────────────────
 // SheetJS le suma ~0.83 (medio carácter de gutter) al convertir wch -> width del XML.
@@ -139,7 +130,9 @@ function celdaTotal(col: number, first: number, last: number, cache: number, nFi
 }
 
 // Bovinos: encabezados de 1 columna, CABEZA/PATAS incluidas.
-function escribirBovinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: number, rIni: number, ss: SetEstilos): number {
+// `conTotal` false (solo Externo): no se escribe la fila de total (cada código es un cargue
+// distinto, no se puede sumar entre camiones). Las filas de abajo suben; no queda fila vacía.
+function escribirBovinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: number, rIni: number, ss: SetEstilos, conTotal: boolean): number {
   let r = rIni
   const hayDesp = sec.filas.some(f => f.esDesposte)
   h.combinada(r++, c, cEnd, { v: hayDesp ? 'BOVINOS/DESPOSTE' : 'BOVINOS', t: 's', s: ss.tituloBovinos })
@@ -160,6 +153,8 @@ function escribirBovinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: number
   }
   const last = r - 1
 
+  if (!conTotal) return r // Externo: sin fila de total
+
   h.celda(r, c, { v: 'total', t: 's', s: ss.total })
   const totales = [sec.totales.cant, sec.totales.vb, sec.totales.vr, sec.totales.cabeza, sec.totales.patas]
   totales.forEach((cache, i) => h.celda(r, c + 1 + i, celdaTotal(c + 1 + i, first, last, cache, sec.filas.length, ss)))
@@ -167,7 +162,8 @@ function escribirBovinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: number
 }
 
 // Porcinos: COD combinado en 3 columnas (c..c+2) y solo CANT/V/B/V/R.
-function escribirPorcinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: number, rIni: number, ss: SetEstilos): number {
+// `conTotal` false (solo Externo): no se escribe la fila de total.
+function escribirPorcinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: number, rIni: number, ss: SetEstilos, conTotal: boolean): number {
   let r = rIni
   const hayDesp = sec.filas.some(f => f.esDesposte)
   h.combinada(r++, c, cEnd, { v: hayDesp ? 'PORCINOS/ DESPOSTE' : 'PORCINOS ', t: 's', s: ss.tituloPorcinos })
@@ -188,6 +184,8 @@ function escribirPorcinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: numbe
   }
   const last = r - 1
 
+  if (!conTotal) return r // Externo: sin fila de total
+
   h.combinada(r, c, c + 2, { v: 'total', t: 's', s: ss.total })
   const totales = [sec.totales.cant, sec.totales.vb, sec.totales.vr]
   totales.forEach((cache, i) => h.celda(r, c + 3 + i, celdaTotal(c + 3 + i, first, last, cache, sec.filas.length, ss)))
@@ -195,13 +193,15 @@ function escribirPorcinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: numbe
 }
 
 // Un bloque completo, arrancando en la columna `c` (6 columnas de ancho).
-// `rojo` = bloque 'Externo': toda celda se pinta de rojo (variante de estilo, misma función).
-function escribirBloque(h: Hoja, b: BloqueRuta, c: number, fecha: string, manual: DatosManuales | null, rojo: boolean): void {
+// `textoFecha` = línea de fecha de ENTREGA ya formateada (la misma para todos los bloques).
+// `esExterno`: mismos colores que cualquier otra ruta; lo único distinto es que sus
+// secciones NO llevan fila de total (cada código es un cargue aparte, no se suma entre carros).
+function escribirBloque(h: Hoja, b: BloqueRuta, c: number, textoFecha: string, manual: DatosManuales | null, esExterno: boolean): void {
   const cEnd = c + 5
-  const ss = rojo ? S_ROJO : S
+  const ss = S
   let r = 0
 
-  h.combinada(r++, c, cEnd, { v: lineaFecha(fecha), t: 's', s: ss.fecha })
+  h.combinada(r++, c, cEnd, { v: textoFecha, t: 's', s: ss.fecha })
   h.combinada(r++, c, cEnd, { v: sinTildes(b.ruta).toUpperCase(), t: 's', s: ss.ruta })
 
   const filaLabel = (label: string, valor: string | null) => {
@@ -214,15 +214,15 @@ function escribirBloque(h: Hoja, b: BloqueRuta, c: number, fecha: string, manual
   filaLabel('HORA PROGRAMADA: ', manual?.horaProgramada ?? null)
   filaLabel('PLACA', manual?.placa ?? null)
 
-  r = escribirBovinos(h, b.bovinos, c, cEnd, r, ss)
-  r = escribirPorcinos(h, b.porcinos, c, cEnd, r, ss)
+  const conTotal = !esExterno // Externo no lleva fila de total en ninguna sección.
+  r = escribirBovinos(h, b.bovinos, c, cEnd, r, ss, conTotal)
+  r = escribirPorcinos(h, b.porcinos, c, cEnd, r, ss, conTotal)
 
   h.combinada(r++, c, cEnd, { v: 'OBSERVACIÓN ', t: 's', s: ss.tituloObs })
   const obs = manual?.observacion ?? ''
   if (obs.trim() !== '') {
     for (const linea of obs.split('\n')) {
-      // Normal: sin estilo y sin borde. Externo: solo relleno rojo (para no dejar franja blanca).
-      h.combinada(r++, c, cEnd, { v: linea, t: 's', s: rojo ? RELLENO_OBS_ROJO : undefined })
+      h.combinada(r++, c, cEnd, { v: linea, t: 's' }) // sin estilo y sin borde
     }
   }
 }
@@ -260,10 +260,15 @@ export function exportarDocumentoRuta(doc: DocumentoDia, manualEnPantalla: Map<s
   const wb = XLSX.utils.book_new()
   const h = new Hoja()
 
+  // Fecha de ENTREGA (despacho + 1) calculada UNA sola vez; el mismo texto va a todos los
+  // bloques y al nombre de hoja. Ningún bloque la recalcula ni usa la fecha de despacho.
+  const entrega = fechaEntrega(doc.fecha)
+  const textoFecha = textoLineaFecha(entrega)
+
   // Bloques lado a lado: bloque i arranca en la columna 1 + i*7 (A queda de margen).
   doc.bloques.forEach((b, i) => {
     const c = 1 + i * 7
-    escribirBloque(h, b, c, doc.fecha, manualEnPantalla.get(b.ruta) ?? b.manual ?? null, b.ruta === 'Externo')
+    escribirBloque(h, b, c, textoFecha, manualEnPantalla.get(b.ruta) ?? b.manual ?? null, b.ruta === 'Externo')
   })
 
   // Anchos: A margen; por bloque las 6 columnas + 1 columna de separación.
@@ -273,7 +278,7 @@ export function exportarDocumentoRuta(doc: DocumentoDia, manualEnPantalla: Map<s
     cols.push({ wch: ANCHO_SEP })
   }
 
-  XLSX.utils.book_append_sheet(wb, h.toSheet(cols), nombreHoja(doc.fecha))
+  XLSX.utils.book_append_sheet(wb, h.toSheet(cols), textoNombreHoja(entrega))
 
   if (doc.sinRuta.length > 0) {
     const matSin = hojaSinRuta(doc.sinRuta)
