@@ -15,11 +15,14 @@ function addDays(dateStr: string, days: number): string {
 }
 
 // Cabeza/Patas: entero opcional; '' -> NULL (no confundir con 0).
-function toIntOrNull(s: string): number | null {
+// Cabeza/Patas de canal de res: si el campo va vacío al despachar, se guarda 0 (no null),
+// para que en el documento de rutas salga "0" y no una celda en blanco. Solo cambia al
+// editar a propósito en el documento (ahí sí puede quedar en blanco o con el número que ponga).
+function toIntOrZero(s: string): number {
   const t = s.trim()
-  if (t === '') return null
+  if (t === '') return 0
   const n = parseInt(t, 10)
-  return Number.isNaN(n) ? null : n
+  return Number.isNaN(n) ? 0 : n
 }
 
 function diasEnCava(fechaBeneficio: string): number {
@@ -507,8 +510,8 @@ export default function Beneficio() {
       fecha_despacho: hoy,
       ruta: despRuta,
       codigo_destino: codigoDestinoFinal,
-      cabeza: esRes ? toIntOrNull(despCabeza) : null,
-      patas: esRes ? toIntOrNull(despPatas) : null,
+      cabeza: esRes ? toIntOrZero(despCabeza) : null,
+      patas: esRes ? toIntOrZero(despPatas) : null,
       es_desposte: despDesposte,
     })
     setSelected(prev => { const next = new Set(prev); next.delete(r.id); return next })
@@ -532,8 +535,8 @@ export default function Beneficio() {
       fecha_despacho: hoy,
       ruta: despRuta,
       codigo_destino: codigoDestinoFinal,
-      cabeza: esRes ? toIntOrNull(despCabeza) : null,
-      patas: esRes ? toIntOrNull(despPatas) : null,
+      cabeza: esRes ? toIntOrZero(despCabeza) : null,
+      patas: esRes ? toIntOrZero(despPatas) : null,
       es_desposte: despDesposte,
     })
     const selectedIds = Array.from(visceraSelected)
@@ -698,8 +701,8 @@ export default function Beneficio() {
           // Desposte es POR ANIMAL: cada fila guarda lo marcado para ese id puntual.
           es_desposte: despDesposteIds.has(id),
           // Cabeza/Patas: total del código, solo en su primera fila del lote.
-          cabeza: esPrimeraDeSuCodigo ? toIntOrNull(cp?.cabeza ?? '') : null,
-          patas: esPrimeraDeSuCodigo ? toIntOrNull(cp?.patas ?? '') : null,
+          cabeza: esPrimeraDeSuCodigo ? toIntOrZero(cp?.cabeza ?? '') : null,
+          patas: esPrimeraDeSuCodigo ? toIntOrZero(cp?.patas ?? '') : null,
         }
       })
     )
@@ -765,7 +768,7 @@ export default function Beneficio() {
       {/* Modal de confirmación de despacho múltiple */}
       {showModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn">
-          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 animate-scaleIn">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 max-h-[90vh] overflow-y-auto animate-scaleIn">
             <h3 className="text-base font-bold text-gray-900 mb-2">Confirmar despacho</h3>
             <p className="text-sm text-gray-600 mb-4">
               ¿Estás seguro de despachar{' '}
@@ -845,7 +848,7 @@ export default function Beneficio() {
       {/* Modal de confirmación de eliminación múltiple */}
       {showDeleteMultiModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn">
-          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 animate-scaleIn">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 max-h-[90vh] overflow-y-auto animate-scaleIn">
             <h3 className="text-base font-bold text-gray-900 mb-2">Confirmar eliminación</h3>
             <p className="text-sm text-gray-600 mb-6">
               ¿Estás seguro de eliminar{' '}
@@ -879,7 +882,7 @@ export default function Beneficio() {
       {/* Modal de despacho individual con vísceras (solo reses) */}
       {visceraModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn">
-          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 animate-scaleIn">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 max-h-[90vh] overflow-y-auto animate-scaleIn">
             <div className="flex items-start justify-between mb-2">
               <h3 className="text-base font-bold text-gray-900">
                 Vísceras disponibles — Cliente {visceraModal.registro.codigo_cliente}
@@ -1011,7 +1014,7 @@ export default function Beneficio() {
       {/* Modal resumen de vísceras post despacho múltiple */}
       {visceraMultiModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn">
-          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 animate-scaleIn">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 max-h-[90vh] overflow-y-auto animate-scaleIn">
             <h3 className="text-base font-bold text-gray-900 mb-2">¿Despachar vísceras también?</h3>
             <p className="text-sm text-gray-600 mb-4">
               Se despacharon{' '}

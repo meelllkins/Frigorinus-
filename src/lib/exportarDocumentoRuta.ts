@@ -16,17 +16,26 @@ function sinTildes(s: string): string {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
 }
 
+// La fecha que se MUESTRA/nombra en el documento es la de ENTREGA: lo despachado un día
+// se entrega al siguiente (despacho + 1). El filtro por fecha de despacho y el nombre del
+// archivo descargado NO cambian; solo cambia lo que se imprime dentro del Excel.
+function fechaEntrega(fecha: string): Date {
+  const d = new Date(fecha + 'T00:00:00')
+  d.setDate(d.getDate() + 1)
+  return d
+}
+
 // "MIERCOLES 22 JULIO": día de semana en MAYÚSCULA sin tildes, día, mes en mayúscula.
 function lineaFecha(fecha: string): string {
-  const d = new Date(fecha + 'T00:00:00')
+  const d = fechaEntrega(fecha)
   const dia = sinTildes(d.toLocaleDateString('es', { weekday: 'long' })).toUpperCase()
   const mes = sinTildes(d.toLocaleDateString('es', { month: 'long' })).toUpperCase()
   return `${dia} ${d.getDate()} ${mes}`
 }
 
-// "22 JULIO": nombre de hoja como lo nombra Rafa (día y mes en mayúscula).
+// "22 JULIO": nombre de hoja como lo nombra Rafa (día y mes en mayúscula) — fecha de ENTREGA.
 function nombreHoja(fecha: string): string {
-  const d = new Date(fecha + 'T00:00:00')
+  const d = fechaEntrega(fecha)
   const mes = sinTildes(d.toLocaleDateString('es', { month: 'long' })).toUpperCase()
   return `${d.getDate()} ${mes}`
 }

@@ -18,8 +18,11 @@ function hoyLocal(): string {
 }
 
 // Fecha con día de la semana en español, desde una fecha DATE.
+// La fecha MOSTRADA es la de ENTREGA: lo despachado un día se entrega al siguiente (despacho + 1).
+// La consulta y el selector siguen usando la fecha de DESPACHO exacta; esto es solo presentación.
 function fechaLarga(fecha: string): string {
   const d = new Date(fecha + 'T00:00:00')
+  d.setDate(d.getDate() + 1)
   return d.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
 }
 
