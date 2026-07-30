@@ -1,55 +1,51 @@
 -- ============================================================================
--- Migración PROPUESTA (opcional, NO ejecutada): distinguir carros de Externo
--- en `documentos_ruta` para que CONDUCTOR/AUXILIAR/PLACA/HORA/OBSERVACIÓN
--- puedan guardarse por carro, no compartidos.
+-- Migración PROPUESTA (opcional, NO ejecutada): identificador explícito de CARRO
+-- para los despachos a ruta 'Externo'.
 -- ----------------------------------------------------------------------------
--- CONTEXTO: el Documento de ruta ahora arma UN BLOQUE "Externo" POR CARRO
--- (agrupando por codigo_cliente + codigo_destino, que ya viven en `despachos`).
--- Pero `documentos_ruta` (donde se guardan los campos manuales) solo tiene
--- UNIQUE(fecha, ruta): con ruta='Externo' compartido por todos los carros del
--- día, no hay forma de guardar un conductor/placa distinto por carro — todos
--- los bloques "Externo" del día leen y escriben la MISMA fila.
+-- CONTEXTO: 'Externo' no es una ruta — cada acto de despachar a Externo es un
+-- carro propio, independiente de los demás aunque coincidan cliente y destino.
 --
--- Esta migración es un PROPUESTA, no bloquea el fix ya aplicado (que separa
--- las TABLAS de BOVINOS/PORCINOS por carro, que es lo que Rafa reportó como
--- "códigos mezclados"). Solo hace falta si además querés conductor/placa
--- independientes por carro de Externo. Si la corrés, hay que actualizar
--- también guardarDatosManuales()/construirDocumentoDia() en documentoRuta.ts
--- para que pasen codigo_cliente/codigo_destino en el upsert cuando ruta
--- sea 'Externo' — ESO NO ESTÁ HECHO TODAVÍA, es trabajo aparte.
+-- El Documento de ruta YA separa un bloque por carro, pero lo hace infiriendo el
+-- carro desde `created_at` (todas las filas insertadas en la misma sentencia
+-- comparten esa marca). Funciona, y no requiere tocar el schema, PERO es una
+-- inferencia con dos límites:
+--
+--   1. Si dos despachos distintos a Externo cayeran exactamente en la misma
+--      marca de tiempo, se verían como un solo carro.
+--   2. Las vísceras se insertan en una sentencia aparte del canal, así que hoy
+--      se re-atan a su canal por registro_id. Si Rafa mandara el canal de un
+--      animal en un carro y, más tarde ese mismo día, la víscera de ESE MISMO
+--      animal en otro carro a Externo, ambas quedarían en el primer carro.
+--
+-- Esta columna elimina la inferencia: el carro pasa a ser un dato explícito.
+-- NO es urgente ni bloquea nada; el comportamiento actual ya es correcto para
+-- la operación normal.
 --
 -- Ejecutar MANUALMENTE en el SQL Editor de Supabase. No la corre la app.
 -- ============================================================================
 
--- ── PASO 0: mirá primero el nombre real del UNIQUE actual ────────────────────
---   SELECT conname, pg_get_constraintdef(oid)
---   FROM pg_constraint
---   WHERE conrelid = 'documentos_ruta'::regclass AND contype = 'u';
+-- ── PASO 1: la columna ───────────────────────────────────────────────────────
+-- Nullable a propósito: las rutas con nombre no la usan y los despachos
+-- históricos se quedan en NULL (el código sigue cayendo a created_at).
+ALTER TABLE despachos
+  ADD COLUMN IF NOT EXISTS carro_id UUID;
 
--- ── PASO 1: agregar las columnas (nullable; rutas con nombre las dejan NULL) ──
-ALTER TABLE documentos_ruta
-  ADD COLUMN IF NOT EXISTS codigo_cliente TEXT,
-  ADD COLUMN IF NOT EXISTS codigo_destino TEXT;
+-- Índice para agrupar rápido por carro dentro de un día.
+CREATE INDEX IF NOT EXISTS despachos_carro_id_idx
+  ON despachos (fecha_despacho, carro_id)
+  WHERE carro_id IS NOT NULL;
 
--- ── PASO 2: reemplazar el UNIQUE(fecha,ruta) por dos índices únicos parciales ─
--- Reemplazá NOMBRE_DEL_CONSTRAINT_VIEJO por lo que devuelva el PASO 0.
--- ALTER TABLE documentos_ruta DROP CONSTRAINT NOMBRE_DEL_CONSTRAINT_VIEJO;
+-- ── PASO 2 (código, NO incluido acá) ─────────────────────────────────────────
+-- Al despachar a 'Externo', el frontend genera UN crypto.randomUUID() por acto
+-- de despacho y lo escribe en TODAS las filas de ese despacho (canal + vísceras,
+-- aunque vayan en inserts separados). Después, en documentoRuta.ts:
+--     evento = d.carro_id ?? <inferencia actual por created_at>
+-- Así los despachos nuevos son exactos y los viejos siguen funcionando.
+-- ESE CAMBIO DE CÓDIGO NO ESTÁ HECHO: es trabajo aparte, para cuando decidas
+-- correr esta migración.
 
--- Rutas con nombre: se mantiene 1 fila por (fecha,ruta), igual que hoy.
-CREATE UNIQUE INDEX IF NOT EXISTS documentos_ruta_rutas_nombradas_uk
-  ON documentos_ruta (fecha, ruta)
-  WHERE ruta <> 'Externo';
-
--- Externo: 1 fila por (fecha, codigo_cliente, destino). COALESCE normaliza
--- destino NULL a '' para que Postgres SÍ trate "sin destino" como un valor
--- comparable (por defecto NULL nunca es igual a NULL en un UNIQUE).
-CREATE UNIQUE INDEX IF NOT EXISTS documentos_ruta_externo_uk
-  ON documentos_ruta (fecha, codigo_cliente, COALESCE(codigo_destino, ''))
-  WHERE ruta = 'Externo';
-
--- ── LÍMITE QUE ESTO NO RESUELVE ────────────────────────────────────────────
--- Si el MISMO código se despacha a Externo DOS VECES el mismo día con el
--- MISMO destino (o ambas veces sin destino), seguirían siendo "un carro" para
--- el sistema — no hay ningún dato hoy que distinga 2 despachos así entre sí.
--- Eso requeriría un identificador de carro/lote explícito (columna nueva en
--- `despachos`, fuera del alcance de esta migración).
+-- ── NOTA: campos manuales por carro (conductor/placa/hora) ───────────────────
+-- Aparte de esto, `documentos_ruta` tiene UNIQUE(fecha, ruta), así que TODOS los
+-- carros de Externo de un día comparten conductor/auxiliar/placa/hora/observación
+-- (la pantalla ya lo avisa). Independizarlos requeriría además llevar carro_id a
+-- `documentos_ruta` y cambiar su UNIQUE por (fecha, ruta, carro_id).

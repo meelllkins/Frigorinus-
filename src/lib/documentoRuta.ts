@@ -105,6 +105,10 @@ export type DespachoRow = {
   cabeza: number | null
   patas: number | null
   es_desposte: boolean | null
+  // Marca del acto de despacho. Todas las filas insertadas en la MISMA sentencia comparten
+  // este valor (Postgres usa la hora de la transacción), así que sirve para identificar
+  // "este carro" en Externo. Ver eventoExternoDe().
+  created_at: string | null
   // FK directa (registro_id) -> registros_beneficio. Se usa también para vísceras.
   registros_beneficio: { codigo_cliente: string | null; numero_animal: number | string | null; tipo_carne: 'res' | 'cerdo' } | null
   // FK (viscera_id) -> inventario_visceras. Solo para saber roja/blanca.
@@ -174,6 +178,8 @@ type Grupo = {
   codigoCliente: string
   esDesposte: boolean
   codigoDestino: string | null
+  // Identifica el CARRO en Externo (un acto de despacho). Vacío en rutas con nombre.
+  evento: string
   // Separados a propósito (ver comentario en el loop de armarDocumento): el texto COD
   // debe reflejar los CANALES realmente despachados, no cualquier animal que haya
   // aportado una víscera al mismo grupo.
@@ -198,9 +204,10 @@ function claveGrupo(
   tipoCarne: 'res' | 'cerdo',
   codigoCliente: string,
   esDesposte: boolean,
-  codigoDestino: string | null
+  codigoDestino: string | null,
+  evento: string
 ): string {
-  return [ruta ?? ' SIN_RUTA', tipoCarne, codigoCliente, esDesposte ? '1' : '0', codigoDestino ?? ''].join('|')
+  return [ruta ?? ' SIN_RUTA', tipoCarne, codigoCliente, esDesposte ? '1' : '0', codigoDestino ?? '', evento].join('|')
 }
 
 function grupoAFila(g: Grupo): FilaDocumento {
@@ -212,7 +219,7 @@ function grupoAFila(g: Grupo): FilaDocumento {
   const animales = [...fuenteAnimales].sort((a, b) => a - b)
   const esBovino = g.tipoCarne === 'res'
   return {
-    key: claveGrupo(g.ruta, g.tipoCarne, g.codigoCliente, g.esDesposte, g.codigoDestino),
+    key: claveGrupo(g.ruta, g.tipoCarne, g.codigoCliente, g.esDesposte, g.codigoDestino, g.evento),
     cod: formatearCod(g.codigoCliente, animales, g.codigoDestino, g.esDesposte),
     codigoCliente: g.codigoCliente,
     animales,
@@ -256,6 +263,35 @@ export function armarDocumento(fecha: string, despachos: DespachoRow[], manuales
     }
   }
 
+  // ── CARRO de Externo ────────────────────────────────────────────────────────
+  // 'Externo' no es una ruta: cada ACTO de despachar a Externo es un carro propio,
+  // independiente de los demás aunque coincidan cliente y destino. No existe hoy una
+  // columna que identifique el carro, así que se usa `created_at`: todas las filas
+  // insertadas en la misma sentencia comparten esa marca (Postgres usa la hora de la
+  // transacción), o sea que un despacho múltiple de 50 cerdos = un solo carro, y dos
+  // despachos separados del mismo código = dos carros.
+  //
+  // Las vísceras se insertan en una sentencia aparte del canal (otro created_at), así que
+  // heredan el carro del canal del mismo animal; si no hay canal (víscera adelantada sola),
+  // valen por su propia marca.
+  // Sin created_at (dato viejo/raro) se cae al id de la fila: así cada despacho queda como
+  // su PROPIO carro. Es el lado seguro del error — mejor separar de más que fusionar carros
+  // que no tienen nada que ver.
+  const carroDelCanalExterno = new Map<string, string>()
+  for (const d of despachos) {
+    if (d.ruta === 'Externo' && d.tipo_despacho === 'canal' && d.registro_id != null) {
+      carroDelCanalExterno.set(d.registro_id, d.created_at ?? d.id)
+    }
+  }
+  const eventoExternoDe = (d: DespachoRow): string => {
+    if (d.ruta !== 'Externo') return '' // rutas con nombre: sin evento, se agrupan como siempre
+    if (d.tipo_despacho !== 'canal' && d.registro_id != null) {
+      const carroCanal = carroDelCanalExterno.get(d.registro_id)
+      if (carroCanal != null) return carroCanal
+    }
+    return d.created_at ?? d.id
+  }
+
   for (const d of despachos) {
     const rb = d.registros_beneficio
     if (!rb || rb.codigo_cliente == null) {
@@ -278,11 +314,12 @@ export function armarDocumento(fecha: string, despachos: DespachoRow[], manuales
     const codigoDestino = destinoTrim === '' ? null : destinoTrim // null y '' se tratan igual
     const etiquetaAnimal = `${codigoCliente}-${rb.numero_animal ?? '?'}`
 
-    const key = claveGrupo(ruta, tipoCarne, codigoCliente, esDesposte, codigoDestino)
+    const evento = eventoExternoDe(d)
+    const key = claveGrupo(ruta, tipoCarne, codigoCliente, esDesposte, codigoDestino, evento)
     let g = grupos.get(key)
     if (!g) {
       g = {
-        ruta, tipoCarne, codigoCliente, esDesposte, codigoDestino,
+        ruta, tipoCarne, codigoCliente, esDesposte, codigoDestino, evento,
         animalesCanal: new Set(), animalesViscera: new Set(),
         cant: 0, vb: 0, vr: 0, cabeza: null, patas: null, despachoIds: [], despachoIdsCanal: [],
       }
@@ -328,7 +365,7 @@ export function armarDocumento(fecha: string, despachos: DespachoRow[], manuales
   }
 
   // Ítems con su ruta/tipoCarne para poder distribuirlos en bloques/secciones.
-  const items = [...grupos.values()].map(g => ({ ruta: g.ruta, tipoCarne: g.tipoCarne, fila: grupoAFila(g) }))
+  const items = [...grupos.values()].map(g => ({ ruta: g.ruta, tipoCarne: g.tipoCarne, evento: g.evento, fila: grupoAFila(g) }))
 
   // Datos manuales por ruta (UNIQUE fecha+ruta -> a lo sumo uno por ruta).
   const manualPorRuta = new Map<string, DatosManuales>()
@@ -360,28 +397,19 @@ export function armarDocumento(fecha: string, despachos: DespachoRow[], manuales
     }
   }
 
-  // 'Externo' NO es una ruta más (aviso de Rafa): cada vez que se despacha a Externo con
-  // un código es un carro distinto, independiente de los demás externos y de cualquier
-  // ruta con nombre. Antes se juntaban TODOS los despachos a Externo del día en un único
-  // bloque compartido (con varias filas adentro) — eso es lo que Rafa reportó como
-  // "códigos mezclados". Ahora se arma UN BLOQUE POR CARRO, agrupando por
-  // codigoCliente+codigoDestino (mismo criterio que ya separa las filas hoy). Todos los
-  // bloques de Externo van al final, en orden determinista (por código, luego destino).
-  //
-  // LÍMITE CONOCIDO: si el MISMO código se despacha dos veces a Externo el mismo día con
-  // el MISMO código destino (o ambos sin destino), hoy no hay ningún campo que distinga
-  // esos dos carros entre sí -> caen en el mismo bloque. Distinguirlos requeriría una
-  // columna nueva (p.ej. un identificador de carro/lote en `despachos`); no se agregó
-  // porque no se pidió tocar el schema para esto.
-  const itemsExterno = items.filter(it => it.ruta === 'Externo')
+  // 'Externo' NO es una ruta más: cada ACTO de despachar a Externo es un carro propio, y
+  // dos externos NUNCA se juntan aunque compartan cliente y destino (confirmado por Rafa).
+  // Por eso el carro se identifica por el acto de despacho (`evento`, ver eventoExternoDe)
+  // y NO por combinación de campos de negocio: agrupar por cliente/destino fue justamente
+  // el error del intento anterior. Los carros van al final, en orden cronológico.
   const carrosExterno = new Map<string, typeof items>()
-  for (const it of itemsExterno) {
-    const carroKey = `${it.fila.codigoCliente}|${it.fila.codigoDestino ?? ''}`
-    const lista = carrosExterno.get(carroKey)
+  for (const it of items) {
+    if (it.ruta !== 'Externo') continue
+    const lista = carrosExterno.get(it.evento)
     if (lista) lista.push(it)
-    else carrosExterno.set(carroKey, [it])
+    else carrosExterno.set(it.evento, [it])
   }
-  const carrosOrdenados = [...carrosExterno.entries()].sort(([a], [b]) => compararCodigo(a, b))
+  const carrosOrdenados = [...carrosExterno.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
   for (const [, itemsDelCarro] of carrosOrdenados) {
     bloques.push(armarBloque('Externo', itemsDelCarro))
   }
@@ -400,7 +428,7 @@ export function armarDocumento(fecha: string, despachos: DespachoRow[], manuales
 // ════════════════════════════════════════════════════════════════
 
 const SELECT_DESPACHOS =
-  'id, registro_id, viscera_id, tipo_despacho, ruta, codigo_destino, cabeza, patas, es_desposte, ' +
+  'id, registro_id, viscera_id, tipo_despacho, ruta, codigo_destino, cabeza, patas, es_desposte, created_at, ' +
   'registros_beneficio(codigo_cliente, numero_animal, tipo_carne), viscera:inventario_visceras(tipo)'
 
 /**
