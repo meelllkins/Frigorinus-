@@ -14,11 +14,13 @@ interface DespachoCon {
   fecha_despacho: string
   notas?: string
   created_at: string
+  fraccion?: number | string | null
   registros_beneficio: {
     codigo_cliente: string
     numero_animal: string
     tipo_carne: 'res' | 'cerdo'
     fecha_beneficio: string
+    fraccion_despachada?: number | string | null
   }
   viscera: { tipo: 'roja' | 'blanca' | null } | null
 }
@@ -83,7 +85,7 @@ export default function Despachos() {
 
     const { data: viejos } = await supabase
       .from('despachos')
-      .select('id, registro_id, viscera_id, tipo_despacho, fecha_despacho, notas, created_at, ruta, cabeza, patas, codigo_destino, es_desposte')
+      .select('id, registro_id, viscera_id, tipo_despacho, fecha_despacho, notas, created_at, ruta, cabeza, patas, codigo_destino, es_desposte, fraccion')
       .lt('fecha_despacho', cutoffStr)
 
     if (viejos && viejos.length > 0) {
@@ -101,6 +103,7 @@ export default function Despachos() {
         patas: v.patas,
         codigo_destino: v.codigo_destino,
         es_desposte: v.es_desposte,
+        fraccion: v.fraccion,
         archivado_at: new Date().toISOString(),
       }))
       const { error: insertError } = await supabase
@@ -115,7 +118,7 @@ export default function Despachos() {
 
     const { data } = await supabase
       .from('despachos')
-      .select('*, registros_beneficio(codigo_cliente, numero_animal, tipo_carne, fecha_beneficio), viscera:inventario_visceras(tipo)')
+      .select('*, registros_beneficio(codigo_cliente, numero_animal, tipo_carne, fecha_beneficio, fraccion_despachada), viscera:inventario_visceras(tipo)')
       .order('created_at', { ascending: false })
     if (data) {
       setDespachos(data as DespachoCon[])
@@ -160,9 +163,17 @@ export default function Despachos() {
     setReverting(true)
 
     if (d.tipo_despacho === 'canal') {
+      // Se devuelve SOLO la fracción de este despacho: si el animal salió en dos mitades y
+      // se revierte una, la otra sigue despachada (fraccion_despachada baja de 1 a 0.5).
+      const numOr = (v: number | string | null | undefined, porDefecto: number) => {
+        const n = Number(v ?? porDefecto)
+        return Number.isFinite(n) ? n : porDefecto
+      }
+      const yaDespachado = numOr(d.registros_beneficio.fraccion_despachada, 1)
+      const restituida = Math.max(0, yaDespachado - numOr(d.fraccion, 1))
       await supabase
         .from('registros_beneficio')
-        .update({ estado: 'activo' })
+        .update({ estado: 'activo', fraccion_despachada: restituida })
         .eq('id', d.registro_id)
 
       if (d.registros_beneficio.tipo_carne === 'res') {

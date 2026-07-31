@@ -25,6 +25,19 @@ function toIntOrZero(s: string): number {
   return Number.isNaN(n) ? 0 : n
 }
 
+// ── Media canal ──────────────────────────────────────────────────────────────
+// `fraccion_despachada` puede llegar como string (PostgREST serializa NUMERIC así a veces)
+// o faltar del todo si la migración todavía no se corrió: en ambos casos vale 0.
+function fraccionDespachada(r: { fraccion_despachada?: number | string | null }): number {
+  const n = Number(r.fraccion_despachada ?? 0)
+  return Number.isFinite(n) ? n : 0
+}
+
+/** Cuánto queda por despachar de un animal: 1 (entero) o 0.5 (le sacaron una mitad). */
+function fraccionRestante(r: { fraccion_despachada?: number | string | null }): number {
+  return Math.max(0, 1 - fraccionDespachada(r))
+}
+
 function diasEnCava(fechaBeneficio: string): number {
   const inicio = new Date(fechaBeneficio + 'T00:00:00')
   const hoy = new Date()
@@ -145,6 +158,8 @@ export default function Beneficio() {
   // Desposte es POR ANIMAL: booleano en individual, set de ids marcados en múltiple.
   const [despDesposte, setDespDesposte] = useState(false)
   const [despDesposteIds, setDespDesposteIds] = useState<Set<string>>(new Set())
+  // Media canal: solo en el despacho INDIVIDUAL (es una decisión por animal).
+  const [despMediaCanal, setDespMediaCanal] = useState(false)
   const [visceraModal, setVisceraModal] = useState<{
     registro: RegistroBeneficio
     visceras: VisceraSingle[]
@@ -453,6 +468,7 @@ export default function Beneficio() {
     setDespDesposte(false)
     setDespDesposteIds(new Set())
     setDespCabezaPatasPorCodigo({})
+    setDespMediaCanal(false)
   }
 
   const despInputCls =
@@ -496,6 +512,26 @@ export default function Beneficio() {
     setVisceraModal({ registro: r, visceras })
   }
 
+  /**
+   * Cuánto sale en este despacho de canal y cómo queda el animal después.
+   * Si ya le sacaron una mitad, lo que sale es forzosamente la mitad que queda
+   * (no se puede despachar "entero" un animal al que ya le falta la mitad).
+   * El animal solo pasa a 'despachado' cuando completó 1: mientras tenga media
+   * pendiente sigue 'activo' y visible en la lista.
+   */
+  function despachoDeCanal(r: RegistroBeneficio) {
+    const restante = fraccionRestante(r)
+    const fraccion = restante <= 0.5 ? restante : despMediaCanal ? 0.5 : 1
+    const total = fraccionDespachada(r) + fraccion
+    return {
+      fraccion,
+      registroUpdate: {
+        estado: total >= 1 ? 'despachado' : 'activo',
+        fraccion_despachada: total,
+      },
+    }
+  }
+
   async function handleDespacharCanalSolo() {
     if (!visceraModal) return
     setVisceraDispatching(true)
@@ -503,7 +539,8 @@ export default function Beneficio() {
     const r = visceraModal.registro
     const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
     const esRes = r.tipo_carne === 'res'
-    await supabase.from('registros_beneficio').update({ estado: 'despachado' }).eq('id', r.id)
+    const { fraccion, registroUpdate } = despachoDeCanal(r)
+    await supabase.from('registros_beneficio').update(registroUpdate).eq('id', r.id)
     await supabase.from('despachos').insert({
       registro_id: r.id,
       tipo_despacho: 'canal',
@@ -513,6 +550,7 @@ export default function Beneficio() {
       cabeza: esRes ? toIntOrZero(despCabeza) : null,
       patas: esRes ? toIntOrZero(despPatas) : null,
       es_desposte: despDesposte,
+      fraccion,
     })
     setSelected(prev => { const next = new Set(prev); next.delete(r.id); return next })
     setVisceraModal(null)
@@ -528,7 +566,8 @@ export default function Beneficio() {
     const r = visceraModal.registro
     const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
     const esRes = r.tipo_carne === 'res'
-    await supabase.from('registros_beneficio').update({ estado: 'despachado' }).eq('id', r.id)
+    const { fraccion, registroUpdate } = despachoDeCanal(r)
+    await supabase.from('registros_beneficio').update(registroUpdate).eq('id', r.id)
     await supabase.from('despachos').insert({
       registro_id: r.id,
       tipo_despacho: 'canal',
@@ -538,6 +577,7 @@ export default function Beneficio() {
       cabeza: esRes ? toIntOrZero(despCabeza) : null,
       patas: esRes ? toIntOrZero(despPatas) : null,
       es_desposte: despDesposte,
+      fraccion,
     })
     const selectedIds = Array.from(visceraSelected)
     if (selectedIds.length > 0) {
@@ -918,6 +958,23 @@ export default function Beneficio() {
               />
               ¿Es desposte?
             </label>
+            {/* Media canal: si al animal ya le sacaron una mitad, no hay nada que elegir —
+                sale la mitad que queda y se avisa en vez de mostrar la casilla. */}
+            {fraccionRestante(visceraModal.registro) <= 0.5 ? (
+              <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
+                A este animal ya le despacharon una mitad: sale la <span className="font-semibold">media canal restante (0.5)</span>.
+              </p>
+            ) : (
+              <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer mb-4">
+                <input
+                  type="checkbox"
+                  checked={despMediaCanal}
+                  onChange={e => setDespMediaCanal(e.target.checked)}
+                  className="w-4 h-4 rounded accent-green-700 cursor-pointer"
+                />
+                ¿Media canal? <span className="text-gray-500">(sale 0.5; la otra mitad queda en cava)</span>
+              </label>
+            )}
             {visceraModal.registro.tipo_carne === 'res' && (
               <div className="grid grid-cols-2 gap-3 mb-4">
                 <div>
@@ -1459,11 +1516,19 @@ export default function Beneficio() {
                       </td>
                       <CeldasCliente codigo={r.codigo_cliente} info={clientesMap[r.codigo_cliente]} onEditar={setModalCodigo} />
                       <td className="px-4 py-3">
-                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                          r.tipo_carne === 'res' ? 'bg-amber-100 text-amber-700' : 'bg-pink-100 text-pink-700'
-                        }`}>
-                          {r.tipo_carne === 'res' ? 'Res' : 'Cerdo'}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                            r.tipo_carne === 'res' ? 'bg-amber-100 text-amber-700' : 'bg-pink-100 text-pink-700'
+                          }`}>
+                            {r.tipo_carne === 'res' ? 'Res' : 'Cerdo'}
+                          </span>
+                          {/* Al animal le sacaron una mitad: queda 0.5 en cava para despachar aparte. */}
+                          {fraccionRestante(r) <= 0.5 && (
+                            <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-orange-100 text-orange-700 whitespace-nowrap">
+                              Media canal (0.5)
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-gray-700">{r.fecha_beneficio}</td>
                       <td className="px-4 py-3">

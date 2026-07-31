@@ -10,12 +10,13 @@ export type FilaDocumento = {
   cod: string              // celda COD ya formateada (ver formatearCod)
   codigoCliente: string
   animales: number[]       // ordenados de menor a mayor, sin repetidos
-  cant: number             // canales despachados (puede ser 0)
+  cant: number             // suma de fracciones de canal: 0, 0.5 (media canal), 1, 2...
   vb: number               // vísceras blancas
   vr: number               // vísceras rojas
   cabeza: number | null    // solo bovinos
   patas: number | null     // solo bovinos
   esDesposte: boolean
+  esMediaCanal: boolean    // el canal salió partido en mitades (0.5)
   codigoDestino: string | null
   despachoIds: string[]      // ids de TODAS las filas de `despachos` del grupo
   despachoIdsCanal: string[] // ids de las filas de CANAL del grupo, ordenados (para corregir cabeza/patas)
@@ -62,11 +63,15 @@ export function formatearCod(
   codigoCliente: string,
   animales: number[],
   codigoDestino: string | null,
-  esDesposte: boolean
+  esDesposte: boolean,
+  esMediaCanal = false,
+  tipoCarne: 'res' | 'cerdo' = 'res'
 ): string {
   // Convención real de Rafa:
   //  - DESPOSTE: se escribe el código SIN números de animal ("530 DESPOSTE").
   //  - No desposte: código + lista/rango de animales.
+  //  - MEDIA CANAL: conserva el número de animal y agrega la leyenda, ANTES del
+  //    destino -> "155-2 MEDIA CANAL DE RES PARA COD 154".
   //  - Destino: sufijo "PARA COD X" (sin el "EL").
   let base: string
   if (esDesposte) {
@@ -85,6 +90,8 @@ export function formatearCod(
     }
     base = listaAnimales === '' ? codigoCliente : `${codigoCliente}-${listaAnimales}`
   }
+
+  if (esMediaCanal) base += ` MEDIA CANAL DE ${tipoCarne === 'res' ? 'RES' : 'CERDO'}`
 
   const destino = (codigoDestino ?? '').trim()
   if (destino !== '') base += ` PARA COD ${destino}`
@@ -105,6 +112,9 @@ export type DespachoRow = {
   cabeza: number | null
   patas: number | null
   es_desposte: boolean | null
+  // Cuánto del canal salió en ESTE despacho: 1 = entero, 0.5 = media canal.
+  // Las filas de víscera siempre traen 1 (la fracción describe el canal, no la víscera).
+  fraccion: number | string | null
   // Marca del acto de despacho. Todas las filas insertadas en la MISMA sentencia comparten
   // este valor (Postgres usa la hora de la transacción), así que sirve para identificar
   // "este carro" en Externo. Ver eventoExternoDe().
@@ -180,6 +190,7 @@ type Grupo = {
   codigoDestino: string | null
   // Identifica el CARRO en Externo (un acto de despacho). Vacío en rutas con nombre.
   evento: string
+  esMediaCanal: boolean
   // SOLO animales con canal despachada: es la fuente del texto COD (ver grupoAFila).
   // Los animales que solo aportaron víscera adelantada NO entran acá a propósito.
   animalesCanal: Set<number>
@@ -203,9 +214,14 @@ function claveGrupo(
   codigoCliente: string,
   esDesposte: boolean,
   codigoDestino: string | null,
-  evento: string
+  evento: string,
+  esMediaCanal: boolean
 ): string {
-  return [ruta ?? ' SIN_RUTA', tipoCarne, codigoCliente, esDesposte ? '1' : '0', codigoDestino ?? '', evento].join('|')
+  return [
+    ruta ?? ' SIN_RUTA', tipoCarne, codigoCliente,
+    esDesposte ? '1' : '0', codigoDestino ?? '', evento,
+    esMediaCanal ? 'M' : 'E', // media canal nunca se mezcla con canal entero del mismo código
+  ].join('|')
 }
 
 function grupoAFila(g: Grupo): FilaDocumento {
@@ -219,8 +235,8 @@ function grupoAFila(g: Grupo): FilaDocumento {
   const animales = [...g.animalesCanal].sort((a, b) => a - b)
   const esBovino = g.tipoCarne === 'res'
   return {
-    key: claveGrupo(g.ruta, g.tipoCarne, g.codigoCliente, g.esDesposte, g.codigoDestino, g.evento),
-    cod: formatearCod(g.codigoCliente, animales, g.codigoDestino, g.esDesposte),
+    key: claveGrupo(g.ruta, g.tipoCarne, g.codigoCliente, g.esDesposte, g.codigoDestino, g.evento, g.esMediaCanal),
+    cod: formatearCod(g.codigoCliente, animales, g.codigoDestino, g.esDesposte, g.esMediaCanal, g.tipoCarne),
     codigoCliente: g.codigoCliente,
     animales,
     cant: g.cant,
@@ -229,6 +245,7 @@ function grupoAFila(g: Grupo): FilaDocumento {
     cabeza: esBovino ? g.cabeza : null, // porcinos: siempre null
     patas: esBovino ? g.patas : null,
     esDesposte: g.esDesposte,
+    esMediaCanal: g.esMediaCanal,
     codigoDestino: g.codigoDestino,
     despachoIds: g.despachoIds,
     despachoIdsCanal: [...g.despachoIdsCanal].sort(), // ordenado por id -> estable entre refrescos
@@ -260,6 +277,26 @@ export function armarDocumento(fecha: string, despachos: DespachoRow[], manuales
   for (const d of despachos) {
     if (d.tipo_despacho === 'canal' && d.registro_id != null) {
       despostePorRegistro.set(d.registro_id, !!d.es_desposte)
+    }
+  }
+
+  // Fracción del despacho: 1 = canal entero, 0.5 = media canal. Sin columna (dato viejo o
+  // migración sin correr) se asume 1. Number() porque PostgREST puede entregar NUMERIC
+  // como string.
+  const fraccionDe = (d: DespachoRow): number => {
+    if (d.fraccion == null) return 1
+    const n = Number(d.fraccion)
+    return Number.isFinite(n) && n > 0 ? n : 1
+  }
+
+  // Las vísceras NO se parten: viajan completas con UNA de las dos mitades. Para que caigan
+  // en la MISMA fila que esa mitad, heredan la marca de media canal del animal (igual que
+  // heredan el desposte). Cuál de las dos mitades les toca lo decide su propio
+  // codigo_destino, que ya las separa por grupo.
+  const mediaCanalPorRegistro = new Map<string, boolean>()
+  for (const d of despachos) {
+    if (d.tipo_despacho === 'canal' && d.registro_id != null && fraccionDe(d) < 1) {
+      mediaCanalPorRegistro.set(d.registro_id, true)
     }
   }
 
@@ -314,12 +351,20 @@ export function armarDocumento(fecha: string, despachos: DespachoRow[], manuales
     const codigoDestino = destinoTrim === '' ? null : destinoTrim // null y '' se tratan igual
     const etiquetaAnimal = `${codigoCliente}-${rb.numero_animal ?? '?'}`
 
+    const fraccion = fraccionDe(d)
+    const esMediaCanal =
+      d.tipo_despacho === 'canal'
+        ? fraccion < 1
+        : d.registro_id != null
+          ? mediaCanalPorRegistro.get(d.registro_id) ?? false
+          : false
+
     const evento = eventoExternoDe(d)
-    const key = claveGrupo(ruta, tipoCarne, codigoCliente, esDesposte, codigoDestino, evento)
+    const key = claveGrupo(ruta, tipoCarne, codigoCliente, esDesposte, codigoDestino, evento, esMediaCanal)
     let g = grupos.get(key)
     if (!g) {
       g = {
-        ruta, tipoCarne, codigoCliente, esDesposte, codigoDestino, evento,
+        ruta, tipoCarne, codigoCliente, esDesposte, codigoDestino, evento, esMediaCanal,
         animalesCanal: new Set(),
         cant: 0, vb: 0, vr: 0, cabeza: null, patas: null, despachoIds: [], despachoIdsCanal: [],
       }
@@ -348,7 +393,9 @@ export function armarDocumento(fecha: string, despachos: DespachoRow[], manuales
       //  2. El "adelanto de vísceras": se mandan antes las vísceras de animales cuya canal
       //     todavía no salió. Esos animales NO deben aparecer en el COD ni sumar a CANT.
       if (Number.isFinite(numAnimal)) g.animalesCanal.add(numAnimal)
-      g.cant++
+      // Suma la FRACCIÓN, no las filas: media canal aporta 0.5. 0.5+0.5 da 1 exacto
+      // (es una fracción binaria), así que no hay deriva de coma flotante.
+      g.cant += fraccion
       g.despachoIdsCanal.push(d.id)
     } else {
       // víscera: suma a V/B o V/R, pero nunca al COD ni a CANT.
@@ -427,7 +474,7 @@ export function armarDocumento(fecha: string, despachos: DespachoRow[], manuales
 // ════════════════════════════════════════════════════════════════
 
 const SELECT_DESPACHOS =
-  'id, registro_id, viscera_id, tipo_despacho, ruta, codigo_destino, cabeza, patas, es_desposte, created_at, ' +
+  'id, registro_id, viscera_id, tipo_despacho, ruta, codigo_destino, cabeza, patas, es_desposte, fraccion, created_at, ' +
   'registros_beneficio(codigo_cliente, numero_animal, tipo_carne), viscera:inventario_visceras(tipo)'
 
 /**
