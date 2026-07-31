@@ -287,10 +287,11 @@ INSERT INTO secuencia_entrega (ruta, ciudad, dia, codigo, secuencia) VALUES
 
 -- OMITIDA hoja "GOMEZ PLATA" (5 filas): no existe esa ruta en src/lib/rutas.ts
 -- ── PENDIENTES A CONFIRMAR CON RAFA (esta pieza queda ABIERTA) ───────────────
--- 1. GOMEZ PLATA está en el Excel (5 códigos) pero NO existe como ruta en
---    src/lib/rutas.ts, así que sus filas quedaron FUERA. Si es una ruta real,
---    hay que agregarla a rutas.ts + al CHECK de despachos.ruta y volver a
---    correr sus INSERT.
+-- 1. RESUELTO: GOMEZ PLATA sí es una ruta real (confirmado por Rafa). Ya está en
+--    src/lib/rutas.ts, y sus 5 códigos + el CHECK actualizado de despachos.ruta
+--    van en migracion_gomez_plata.sql — ese archivo es aparte y se puede correr
+--    en cualquier momento, haya corrido este o no. Por eso los INSERT de GOMEZ
+--    PLATA NO están acá abajo.
 -- 2. El Excel tiene maestro poblado en BERRIO, CISNEROS SAN ROQUE, DON MATIAS
 --    y GOMEZ PLATA, aunque se dijo que esas rutas NO usan secuencia. Se
 --    cargaron igual (el dato existe); qué rutas REORDENAN se decide en

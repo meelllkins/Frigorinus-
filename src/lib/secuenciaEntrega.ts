@@ -18,12 +18,14 @@ import type { DocumentoDia, FilaDocumento } from './documentoRuta'
 
 /**
  * Rutas que se REORDENAN por secuencia. Las demás (Puerto Berrío, Cisneros/San
- * Roque, Don Matías, Nacional, Barbosa) las ordena el cliente, así que salen en
- * el orden en que vienen.
+ * Roque, Don Matías, Gómez Plata, Nacional, Barbosa) las ordena el cliente, así
+ * que salen en el orden en que vienen.
  *
  * ⚠️ A CONFIRMAR CON RAFA: el Excel tiene maestro poblado también en BERRIO,
- * CISNEROS SAN ROQUE y DON MATIAS. Se cargaron a la tabla, pero acá NO se
- * reordenan. Para activarlas, basta agregarlas a esta lista.
+ * CISNEROS SAN ROQUE, DON MATIAS y GOMEZ PLATA. Los cuatro se cargaron a la
+ * tabla, pero acá NO se reordenan, porque en esas rutas el orden lo define el
+ * cliente. Para activar cualquiera, basta agregarla a esta lista (no hay que
+ * tocar la base: el maestro ya está cargado).
  */
 export const RUTAS_CON_SECUENCIA: readonly string[] = [
   'Remedios/Segovia',
