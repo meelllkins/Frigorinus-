@@ -514,14 +514,21 @@ export default function Beneficio() {
 
   /**
    * Cuánto sale en este despacho de canal y cómo queda el animal después.
+   * ÚNICA fuente de esta regla: la usan el despacho individual y el múltiple, para
+   * que no vuelvan a divergir (el múltiple ignoraba media canal y sobre-despachaba).
+   *
    * Si ya le sacaron una mitad, lo que sale es forzosamente la mitad que queda
    * (no se puede despachar "entero" un animal al que ya le falta la mitad).
    * El animal solo pasa a 'despachado' cuando completó 1: mientras tenga media
    * pendiente sigue 'activo' y visible en la lista.
+   *
+   * `mediaCanal` = lo que pidió el usuario. En el múltiple es siempre false (media
+   * canal es una decisión por animal y solo se ofrece en el individual), pero aun
+   * así respeta el 0.5 restante de un animal ya partido.
    */
-  function despachoDeCanal(r: RegistroBeneficio) {
+  function despachoDeCanal(r: RegistroBeneficio, mediaCanal: boolean) {
     const restante = fraccionRestante(r)
-    const fraccion = restante <= 0.5 ? restante : despMediaCanal ? 0.5 : 1
+    const fraccion = restante <= 0.5 ? restante : mediaCanal ? 0.5 : 1
     const total = fraccionDespachada(r) + fraccion
     return {
       fraccion,
@@ -539,7 +546,7 @@ export default function Beneficio() {
     const r = visceraModal.registro
     const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
     const esRes = r.tipo_carne === 'res'
-    const { fraccion, registroUpdate } = despachoDeCanal(r)
+    const { fraccion, registroUpdate } = despachoDeCanal(r, despMediaCanal)
     await supabase.from('registros_beneficio').update(registroUpdate).eq('id', r.id)
     await supabase.from('despachos').insert({
       registro_id: r.id,
@@ -566,7 +573,7 @@ export default function Beneficio() {
     const r = visceraModal.registro
     const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
     const esRes = r.tipo_carne === 'res'
-    const { fraccion, registroUpdate } = despachoDeCanal(r)
+    const { fraccion, registroUpdate } = despachoDeCanal(r, despMediaCanal)
     await supabase.from('registros_beneficio').update(registroUpdate).eq('id', r.id)
     await supabase.from('despachos').insert({
       registro_id: r.id,
@@ -709,26 +716,59 @@ export default function Beneficio() {
     const hoy = localToday()
     const ids = Array.from(selected)
 
-    await supabase
-      .from('registros_beneficio')
-      .update({ estado: 'despachado' })
-      .in('id', ids)
+    const regById = new Map(registros.map(r => [r.id, r] as const))
+
+    // Media canal en el lote: se resuelve POR ANIMAL con la misma regla del individual
+    // (despachoDeCanal). Sin esto, un animal con media pendiente recibía un despacho de 1
+    // encima del 0.5 previo y el documento le sumaba 1.5.
+    // El múltiple no ofrece media canal, pero si al animal ya le sacaron una mitad, sale
+    // SOLO la mitad restante.
+    const fraccionPorId = new Map<string, number>()
+    // Los animales que terminan igual se actualizan juntos: en el múltiple todos quedan
+    // completos (fraccion_despachada = 1), así que en la práctica es UNA sola consulta.
+    // Se agrupa igual —en vez de asumirlo— para que no se rompa si algún día el múltiple
+    // permite despachar medias.
+    const lotesUpdate = new Map<string, { update: Record<string, unknown>; ids: string[] }>()
+    // Animales que REALMENTE salen en este lote (ver el guard de abajo). Todo lo que
+    // viene después —cabeza/patas, el insert y las vísceras— se arma con esta lista y
+    // no con `ids`, para que un animal salteado no reciba fila igual.
+    const idsADespachar: string[] = []
+    for (const id of ids) {
+      const r = regById.get(id)
+      if (!r) continue
+      const { fraccion, registroUpdate } = despachoDeCanal(r, false)
+      // GUARD: si no queda nada por despachar, `fraccion` sería 0 y violaría el CHECK
+      // fraccion IN (0.5, 1), tumbando el INSERT del LOTE ENTERO. Y como el update de
+      // registros_beneficio ya corrió, los animales quedarían marcados 'despachado' sin
+      // ninguna fila de despacho: se pierde el rastro del lote. Por los flujos normales
+      // no se llega acá (al completar 1 el animal pasa a 'despachado' y sale de la lista);
+      // esto cubre datos editados a mano en Supabase o una migración corrida a medias.
+      if (fraccion <= 0) continue
+      idsADespachar.push(id)
+      fraccionPorId.set(id, fraccion)
+      const clave = `${registroUpdate.estado}|${registroUpdate.fraccion_despachada}`
+      const lote = lotesUpdate.get(clave)
+      if (lote) lote.ids.push(id)
+      else lotesUpdate.set(clave, { update: registroUpdate, ids: [id] })
+    }
+    for (const lote of lotesUpdate.values()) {
+      await supabase.from('registros_beneficio').update(lote.update).in('id', lote.ids)
+    }
 
     const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
 
     // Cabeza/Patas: un total POR CÓDIGO de cliente, escrito solo en la PRIMERA fila
     // (res) de ese código dentro del lote; las demás filas de ese código quedan null.
-    const regById = new Map(registros.map(r => [r.id, r] as const))
     const primeraFilaPorCodigo = new Map<string, string>()
-    for (const id of ids) {
+    for (const id of idsADespachar) {
       const r = regById.get(id)
       if (r && r.tipo_carne === 'res' && !primeraFilaPorCodigo.has(r.codigo_cliente)) {
         primeraFilaPorCodigo.set(r.codigo_cliente, id)
       }
     }
 
-    await supabase.from('despachos').insert(
-      ids.map(id => {
+    if (idsADespachar.length > 0) await supabase.from('despachos').insert(
+      idsADespachar.map(id => {
         const r = regById.get(id)
         const esPrimeraDeSuCodigo = !!r && r.tipo_carne === 'res' && primeraFilaPorCodigo.get(r.codigo_cliente) === id
         const cp = r ? despCabezaPatasPorCodigo[r.codigo_cliente] : undefined
@@ -743,13 +783,16 @@ export default function Beneficio() {
           // Cabeza/Patas: total del código, solo en su primera fila del lote.
           cabeza: esPrimeraDeSuCodigo ? toIntOrZero(cp?.cabeza ?? '') : null,
           patas: esPrimeraDeSuCodigo ? toIntOrZero(cp?.patas ?? '') : null,
+          // Fracción REAL que sale (0.5 si al animal ya le habían sacado una mitad).
+          fraccion: fraccionPorId.get(id) ?? 1,
         }
       })
     )
     setDespMultiCtx({ ruta: despRuta, codigo_destino: codigoDestinoFinal })
 
+    // Solo se ofrecen vísceras de los animales que efectivamente salieron.
     const resIds = registros
-      .filter(r => ids.includes(r.id) && r.tipo_carne === 'res')
+      .filter(r => idsADespachar.includes(r.id) && r.tipo_carne === 'res')
       .map(r => r.id)
 
     setSelected(new Set())
