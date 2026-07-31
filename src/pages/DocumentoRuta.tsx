@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, AlertTriangle, ChevronDown, FileSpreadsheet } from 'lucide-react'
+import { RefreshCw, AlertTriangle, ChevronDown, FileSpreadsheet, ListOrdered } from 'lucide-react'
 import {
   construirDocumentoDia,
   guardarDatosManuales,
@@ -10,6 +10,12 @@ import {
   type DatosManuales,
 } from '../lib/documentoRuta'
 import { exportarDocumentoRuta } from '../lib/exportarDocumentoRuta'
+import {
+  armarSecuencia,
+  fetchMaestroSecuencia,
+  exportarSecuenciaEntrega,
+  diaEntregaDe,
+} from '../lib/secuenciaEntrega'
 
 // Fecha local de hoy (mismo patrón que el resto del proyecto: YYYY-MM-DD local, sin new Date() suelto).
 function hoyLocal(): string {
@@ -144,6 +150,27 @@ export default function DocumentoRuta() {
     exportarDocumentoRuta(doc, new Map(Object.entries(manualLocal)))
   }
 
+  // ── Exportar secuencia de entrega (Pieza G) ────────────────────────────────
+  // Reordena los códigos por el orden de entrega de cada ruta. El maestro vive en
+  // Supabase (tabla secuencia_entrega); las filas salen del MISMO documento ya
+  // cargado, así que secuencia y documento no pueden discrepar.
+  const [exportandoSec, setExportandoSec] = useState(false)
+  const [avisosSec, setAvisosSec] = useState<string[]>([])
+
+  async function exportarSecuencia() {
+    if (!doc) return
+    setExportandoSec(true)
+    const maestro = await fetchMaestroSecuencia()
+    const sec = armarSecuencia(doc, maestro, diaEntregaDe(doc.fecha))
+    setAvisosSec(
+      maestro.length === 0
+        ? ['No se pudo leer el maestro de secuencia (¿falta correr migracion_secuencia_entrega.sql?).']
+        : sec.avisos
+    )
+    exportarSecuenciaEntrega(sec)
+    setExportandoSec(false)
+  }
+
   // ── Render de una tabla de sección ─────────────────────────────
   function tabla(titulo: string, seccion: SeccionDocumento, conCP: boolean, editable: boolean) {
     const thCls = 'text-left px-4 py-2.5 font-semibold text-white text-xs uppercase tracking-wider'
@@ -263,8 +290,25 @@ export default function DocumentoRuta() {
             <FileSpreadsheet size={14} />
             Exportar a Excel
           </button>
+          <button
+            onClick={exportarSecuencia}
+            disabled={!doc || exportandoSec}
+            className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 transition-all duration-200 whitespace-nowrap disabled:opacity-40"
+          >
+            <ListOrdered size={14} />
+            {exportandoSec ? 'Generando...' : 'Exportar secuencia'}
+          </button>
         </div>
       </div>
+
+      {avisosSec.length > 0 && (
+        <div className="border border-amber-300 bg-amber-50 rounded-xl px-4 py-3">
+          <p className="text-sm font-semibold text-amber-800 mb-1">Avisos de la secuencia de entrega</p>
+          <ul className="text-sm text-amber-800 list-disc list-inside space-y-0.5">
+            {avisosSec.map((a, i) => <li key={i}>{a}</li>)}
+          </ul>
+        </div>
+      )}
 
       {doc && doc.sinRuta.length > 0 && (
         <p className="text-xs text-amber-700 -mt-3">
