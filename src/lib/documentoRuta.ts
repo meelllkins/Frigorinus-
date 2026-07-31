@@ -20,6 +20,7 @@ export type FilaDocumento = {
   codigoDestino: string | null
   despachoIds: string[]      // ids de TODAS las filas de `despachos` del grupo
   despachoIdsCanal: string[] // ids de las filas de CANAL del grupo, ordenados (para corregir cabeza/patas)
+  direccion: string | null   // solo ruta Nacional: punto de entrega elegido al despachar
 }
 
 export type SeccionDocumento = {
@@ -115,6 +116,8 @@ export type DespachoRow = {
   // Cuánto del canal salió en ESTE despacho: 1 = entero, 0.5 = media canal.
   // Las filas de víscera siempre traen 1 (la fracción describe el canal, no la víscera).
   fraccion: number | string | null
+  // Dirección de entrega. Solo la llevan los despachos a 'Nacional'.
+  direccion: string | null
   // Marca del acto de despacho. Todas las filas insertadas en la MISMA sentencia comparten
   // este valor (Postgres usa la hora de la transacción), así que sirve para identificar
   // "este carro" en Externo. Ver eventoExternoDe().
@@ -191,6 +194,9 @@ type Grupo = {
   // Identifica el CARRO en Externo (un acto de despacho). Vacío en rutas con nombre.
   evento: string
   esMediaCanal: boolean
+  // Dirección de las rayas de este grupo (solo Nacional). Entra en la clave, así que
+  // todas las filas del grupo comparten exactamente esta dirección.
+  direccion: string | null
   // SOLO animales con canal despachada: es la fuente del texto COD (ver grupoAFila).
   // Los animales que solo aportaron víscera adelantada NO entran acá a propósito.
   animalesCanal: Set<number>
@@ -215,12 +221,19 @@ function claveGrupo(
   esDesposte: boolean,
   codigoDestino: string | null,
   evento: string,
-  esMediaCanal: boolean
+  esMediaCanal: boolean,
+  direccion: string | null
 ): string {
   return [
     ruta ?? ' SIN_RUTA', tipoCarne, codigoCliente,
     esDesposte ? '1' : '0', codigoDestino ?? '', evento,
     esMediaCanal ? 'M' : 'E', // media canal nunca se mezcla con canal entero del mismo código
+    // DIRECCION POR RAYA (solo Nacional): el codigo 355 reparte sus rayas entre varias
+    // direcciones, y cada una tiene que salir en su propia linea del documento. Como
+    // `despachos` YA es una fila por raya, basta con que la direccion entre en la clave:
+    // rayas del mismo codigo con direcciones distintas dejan de agruparse.
+    // Sin direccion (todo lo que no es Nacional) la clave no cambia -> igual que antes.
+    direccion ?? '',
   ].join('|')
 }
 
@@ -235,7 +248,7 @@ function grupoAFila(g: Grupo): FilaDocumento {
   const animales = [...g.animalesCanal].sort((a, b) => a - b)
   const esBovino = g.tipoCarne === 'res'
   return {
-    key: claveGrupo(g.ruta, g.tipoCarne, g.codigoCliente, g.esDesposte, g.codigoDestino, g.evento, g.esMediaCanal),
+    key: claveGrupo(g.ruta, g.tipoCarne, g.codigoCliente, g.esDesposte, g.codigoDestino, g.evento, g.esMediaCanal, g.direccion),
     cod: formatearCod(g.codigoCliente, animales, g.codigoDestino, g.esDesposte, g.esMediaCanal, g.tipoCarne),
     codigoCliente: g.codigoCliente,
     animales,
@@ -249,11 +262,30 @@ function grupoAFila(g: Grupo): FilaDocumento {
     codigoDestino: g.codigoDestino,
     despachoIds: g.despachoIds,
     despachoIdsCanal: [...g.despachoIdsCanal].sort(), // ordenado por id -> estable entre refrescos
+    direccion: g.direccion,
   }
 }
 
-function seccionDe(filas: FilaDocumento[]): SeccionDocumento {
-  const ordenadas = [...filas].sort(compararFila)
+/**
+ * Devuelve la secuencia de entrega de una fila (o null si esa ruta no se ordena por
+ * secuencia, o el código no está en el maestro). La arma el llamador —ver
+ * crearResolverSecuencia() en secuenciaEntrega.ts— para que este módulo no dependa
+ * del maestro ni de Supabase.
+ */
+export type ResolverSecuencia = (ruta: string, fila: FilaDocumento) => number | null
+
+function seccionDe(filas: FilaDocumento[], ruta: string | null, secuenciaDe?: ResolverSecuencia): SeccionDocumento {
+  // Orden de ENTREGA: las rutas regionales con maestro se ordenan por secuencia de
+  // menor a mayor (el 1 se entrega primero). Si no hay resolver, o la ruta no lleva
+  // secuencia, o el código no está en el maestro, la secuencia es null -> todas quedan
+  // "empatadas" y manda compararFila, o sea el orden de siempre.
+  const secDe = (f: FilaDocumento): number =>
+    (ruta != null && secuenciaDe ? secuenciaDe(ruta, f) : null) ?? Number.POSITIVE_INFINITY
+  const ordenadas = [...filas].sort((a, b) => {
+    const sa = secDe(a), sb = secDe(b)
+    if (sa !== sb) return sa - sb
+    return compararFila(a, b) // desempate determinista (incluye códigos sin secuencia)
+  })
   const totales = { cant: 0, vb: 0, vr: 0, cabeza: 0, patas: 0 }
   for (const f of ordenadas) {
     totales.cant += f.cant
@@ -266,7 +298,12 @@ function seccionDe(filas: FilaDocumento[]): SeccionDocumento {
 }
 
 /** Núcleo puro: recibe las filas ya consultadas y arma el documento completo. */
-export function armarDocumento(fecha: string, despachos: DespachoRow[], manuales: ManualRow[]): DocumentoDia {
+export function armarDocumento(
+  fecha: string,
+  despachos: DespachoRow[],
+  manuales: ManualRow[],
+  secuenciaDe?: ResolverSecuencia
+): DocumentoDia {
   const avisos: string[] = []
   const grupos = new Map<string, Grupo>()
 
@@ -297,6 +334,17 @@ export function armarDocumento(fecha: string, despachos: DespachoRow[], manuales
   for (const d of despachos) {
     if (d.tipo_despacho === 'canal' && d.registro_id != null && fraccionDe(d) < 1) {
       mediaCanalPorRegistro.set(d.registro_id, true)
+    }
+  }
+
+  // La dirección se captura en el CANAL (las vísceras se insertan aparte y van con null).
+  // Como la dirección entra en la clave de grupo, sin esto una víscera se separaría de su
+  // canal y el código saldría en dos líneas. Igual que el desposte y la media canal: la
+  // víscera hereda la dirección del canal de SU animal.
+  const direccionPorRegistro = new Map<string, string>()
+  for (const d of despachos) {
+    if (d.tipo_despacho === 'canal' && d.registro_id != null && d.direccion != null && d.direccion.trim() !== '') {
+      direccionPorRegistro.set(d.registro_id, d.direccion.trim())
     }
   }
 
@@ -360,11 +408,19 @@ export function armarDocumento(fecha: string, despachos: DespachoRow[], manuales
           : false
 
     const evento = eventoExternoDe(d)
-    const key = claveGrupo(ruta, tipoCarne, codigoCliente, esDesposte, codigoDestino, evento, esMediaCanal)
+    // Dirección de ESTA raya. La del canal manda; la víscera hereda la de su animal.
+    const direccionPropia = d.direccion != null && d.direccion.trim() !== '' ? d.direccion.trim() : null
+    const direccionFila =
+      direccionPropia ??
+      (d.tipo_despacho !== 'canal' && d.registro_id != null
+        ? direccionPorRegistro.get(d.registro_id) ?? null
+        : null)
+    const key = claveGrupo(ruta, tipoCarne, codigoCliente, esDesposte, codigoDestino, evento, esMediaCanal, direccionFila)
     let g = grupos.get(key)
     if (!g) {
       g = {
         ruta, tipoCarne, codigoCliente, esDesposte, codigoDestino, evento, esMediaCanal,
+        direccion: direccionFila,
         animalesCanal: new Set(),
         cant: 0, vb: 0, vr: 0, cabeza: null, patas: null, despachoIds: [], despachoIdsCanal: [],
       }
@@ -429,8 +485,8 @@ export function armarDocumento(fecha: string, despachos: DespachoRow[], manuales
   // por el llamador (todos los de esa ruta, o solo los de UN carro de Externo).
   const armarBloque = (ruta: string, itemsDelBloque: typeof items): BloqueRuta => ({
     ruta,
-    bovinos: seccionDe(itemsDelBloque.filter(it => it.tipoCarne === 'res').map(it => it.fila)),
-    porcinos: seccionDe(itemsDelBloque.filter(it => it.tipoCarne === 'cerdo').map(it => it.fila)),
+    bovinos: seccionDe(itemsDelBloque.filter(it => it.tipoCarne === 'res').map(it => it.fila), ruta, secuenciaDe),
+    porcinos: seccionDe(itemsDelBloque.filter(it => it.tipoCarne === 'cerdo').map(it => it.fila), ruta, secuenciaDe),
     manual: manualPorRuta.get(ruta) ?? null,
   })
 
@@ -474,7 +530,7 @@ export function armarDocumento(fecha: string, despachos: DespachoRow[], manuales
 // ════════════════════════════════════════════════════════════════
 
 const SELECT_DESPACHOS =
-  'id, registro_id, viscera_id, tipo_despacho, ruta, codigo_destino, cabeza, patas, es_desposte, fraccion, created_at, ' +
+  'id, registro_id, viscera_id, tipo_despacho, ruta, codigo_destino, cabeza, patas, es_desposte, fraccion, direccion, created_at, ' +
   'registros_beneficio(codigo_cliente, numero_animal, tipo_carne), viscera:inventario_visceras(tipo)'
 
 /**
@@ -482,7 +538,10 @@ const SELECT_DESPACHOS =
  * es DATE, se compara directo). Si una consulta falla: console.error con prefijo
  * [documentoRuta] y devuelve un documento vacío pero válido (nunca lanza).
  */
-export async function construirDocumentoDia(fecha: string): Promise<DocumentoDia> {
+export async function construirDocumentoDia(
+  fecha: string,
+  secuenciaDe?: ResolverSecuencia
+): Promise<DocumentoDia> {
   const avisosConsulta: string[] = []
 
   // Consulta 1: despachos del día con los joins anidados.
@@ -517,7 +576,8 @@ export async function construirDocumentoDia(fecha: string): Promise<DocumentoDia
   const doc = armarDocumento(
     fecha,
     (despData ?? []) as unknown as DespachoRow[],
-    (manData ?? []) as unknown as ManualRow[]
+    (manData ?? []) as unknown as ManualRow[],
+    secuenciaDe
   )
   doc.avisos.unshift(...avisosConsulta)
   return doc

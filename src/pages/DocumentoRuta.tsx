@@ -1,19 +1,19 @@
 import { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, AlertTriangle, ChevronDown, FileSpreadsheet, ListOrdered } from 'lucide-react'
+import { RefreshCw, AlertTriangle, ChevronDown, FileSpreadsheet } from 'lucide-react'
 import {
   construirDocumentoDia,
   guardarDatosManuales,
   actualizarCabezaPatas,
   type DocumentoDia,
+  type BloqueRuta,
   type SeccionDocumento,
   type FilaDocumento,
   type DatosManuales,
 } from '../lib/documentoRuta'
 import { exportarDocumentoRuta } from '../lib/exportarDocumentoRuta'
 import {
-  armarSecuencia,
   fetchMaestroSecuencia,
-  exportarSecuenciaEntrega,
+  crearResolverSecuencia,
   diaEntregaDe,
 } from '../lib/secuenciaEntrega'
 
@@ -48,6 +48,18 @@ const inputCls =
 const cellInputCls =
   'w-20 border border-gray-200 rounded-md px-2 py-1 text-sm text-right focus:outline-none focus:border-green-700 focus:ring-1 focus:ring-green-700 disabled:bg-gray-50 disabled:text-gray-400'
 
+/**
+ * Trae el maestro de secuencia y arma el resolver que ordena las filas del documento
+ * por orden de ENTREGA. Va fuera del componente porque no depende de ningún estado.
+ * Si el maestro no se puede leer (tabla sin crear, sin permisos), devuelve undefined y
+ * el documento sale con su orden de siempre — nunca rompe la pantalla.
+ */
+async function resolverDeSecuencia(fecha: string) {
+  const maestro = await fetchMaestroSecuencia()
+  if (maestro.length === 0) return undefined
+  return crearResolverSecuencia(maestro, diaEntregaDe(fecha))
+}
+
 export default function DocumentoRuta() {
   const [fecha, setFecha] = useState(hoyLocal())
   const [doc, setDoc] = useState<DocumentoDia | null>(null)
@@ -60,7 +72,7 @@ export default function DocumentoRuta() {
   // Refresco (botón "Actualizar" / pestaña visible): recarga SIN reiniciar los campos
   // manuales — conserva lo que Rafa esté escribiendo y solo agrega rutas nuevas.
   const cargar = useCallback(async () => {
-    const d = await construirDocumentoDia(fecha)
+    const d = await construirDocumentoDia(fecha, await resolverDeSecuencia(fecha))
     setDoc(d)
     setCpLocal({}) // cabeza/patas se re-derivan del doc recién cargado
     setManualLocal(prev => {
@@ -77,7 +89,7 @@ export default function DocumentoRuta() {
   useEffect(() => {
     let vigente = true
     void (async () => {
-      const d = await construirDocumentoDia(fecha)
+      const d = await construirDocumentoDia(fecha, await resolverDeSecuencia(fecha))
       if (!vigente) return
       setDoc(d)
       setCpLocal({})
@@ -148,27 +160,6 @@ export default function DocumentoRuta() {
   function exportar() {
     if (!doc) return
     exportarDocumentoRuta(doc, new Map(Object.entries(manualLocal)))
-  }
-
-  // ── Exportar secuencia de entrega (Pieza G) ────────────────────────────────
-  // Reordena los códigos por el orden de entrega de cada ruta. El maestro vive en
-  // Supabase (tabla secuencia_entrega); las filas salen del MISMO documento ya
-  // cargado, así que secuencia y documento no pueden discrepar.
-  const [exportandoSec, setExportandoSec] = useState(false)
-  const [avisosSec, setAvisosSec] = useState<string[]>([])
-
-  async function exportarSecuencia() {
-    if (!doc) return
-    setExportandoSec(true)
-    const maestro = await fetchMaestroSecuencia()
-    const sec = armarSecuencia(doc, maestro, diaEntregaDe(doc.fecha))
-    setAvisosSec(
-      maestro.length === 0
-        ? ['No se pudo leer el maestro de secuencia (¿falta correr migracion_secuencia_entrega.sql?).']
-        : sec.avisos
-    )
-    exportarSecuenciaEntrega(sec)
-    setExportandoSec(false)
   }
 
   // ── Render de una tabla de sección ─────────────────────────────
@@ -264,6 +255,17 @@ export default function DocumentoRuta() {
   // en pantalla para que no parezca un dato independiente por carro cuando no lo es.
   const externosDelDia = doc?.bloques.filter(b => b.ruta === 'Externo').length ?? 0
 
+  // Direcciones de entrega: SOLO la ruta Nacional las lleva. Se listan por código
+  // (un mismo bloque puede llevar varios clientes, cada uno a su punto de entrega).
+  // Es POR LÍNEA, no por código: un código repartido entre 3 direcciones (caso 355) ya
+  // viene como 3 filas distintas del documento, y cada una lleva la suya.
+  function direccionesDelBloque(b: BloqueRuta): { key: string; cod: string; direccion: string; cant: number }[] {
+    if (b.ruta !== 'Nacional') return []
+    return [...b.bovinos.filas, ...b.porcinos.filas]
+      .filter(f => f.direccion)
+      .map(f => ({ key: f.key, cod: f.cod, direccion: f.direccion as string, cant: f.cant }))
+  }
+
   return (
     <div className="space-y-6 overflow-x-hidden">
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -290,25 +292,8 @@ export default function DocumentoRuta() {
             <FileSpreadsheet size={14} />
             Exportar a Excel
           </button>
-          <button
-            onClick={exportarSecuencia}
-            disabled={!doc || exportandoSec}
-            className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 transition-all duration-200 whitespace-nowrap disabled:opacity-40"
-          >
-            <ListOrdered size={14} />
-            {exportandoSec ? 'Generando...' : 'Exportar secuencia'}
-          </button>
         </div>
       </div>
-
-      {avisosSec.length > 0 && (
-        <div className="border border-amber-300 bg-amber-50 rounded-xl px-4 py-3">
-          <p className="text-sm font-semibold text-amber-800 mb-1">Avisos de la secuencia de entrega</p>
-          <ul className="text-sm text-amber-800 list-disc list-inside space-y-0.5">
-            {avisosSec.map((a, i) => <li key={i}>{a}</li>)}
-          </ul>
-        </div>
-      )}
 
       {doc && doc.sinRuta.length > 0 && (
         <p className="text-xs text-amber-700 -mt-3">
@@ -364,6 +349,22 @@ export default function DocumentoRuta() {
 
               {tabla('Bovinos', b.bovinos, true, true)}
               {tabla('Porcinos', b.porcinos, false, true)}
+
+              {direccionesDelBloque(b).length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Direcciones de entrega</p>
+                  <ul className="text-sm text-gray-700 space-y-1">
+                    {direccionesDelBloque(b).map(d => (
+                      <li key={d.key}>
+                        <span className="font-mono font-semibold text-gray-900">{d.cod}</span>
+                        <span className="text-gray-500"> — </span>
+                        {d.direccion}
+                        <span className="text-gray-500"> — {d.cant}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Observación</label>

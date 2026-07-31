@@ -218,6 +218,18 @@ function escribirBloque(h: Hoja, b: BloqueRuta, c: number, textoFecha: string, m
   r = escribirBovinos(h, b.bovinos, c, cEnd, r, ss, conTotal)
   r = escribirPorcinos(h, b.porcinos, c, cEnd, r, ss, conTotal)
 
+  // Direcciones de entrega: SOLO Nacional. Van como filas combinadas (mismo ancho de
+  // 6 columnas del bloque) para no romper la geometría lado a lado de las hojas.
+  // Es POR LÍNEA, no por código: un código repartido entre varias direcciones (caso 355)
+  // ya viene como varias filas del documento, cada una con la suya y su cantidad.
+  const conDireccion = [...b.bovinos.filas, ...b.porcinos.filas].filter(f => f.direccion)
+  if (conDireccion.length > 0) {
+    h.combinada(r++, c, cEnd, { v: 'DIRECCIONES', t: 's', s: ss.tituloObs })
+    for (const f of conDireccion) {
+      h.combinada(r++, c, cEnd, { v: `${f.cod} — ${f.direccion} — ${f.cant}`, t: 's', s: ss.datos })
+    }
+  }
+
   h.combinada(r++, c, cEnd, { v: 'OBSERVACIÓN ', t: 's', s: ss.tituloObs })
   const obs = manual?.observacion ?? ''
   if (obs.trim() !== '') {

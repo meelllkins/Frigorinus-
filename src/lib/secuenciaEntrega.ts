@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx-js-style'
 import { supabase } from './supabase'
-import type { DocumentoDia, FilaDocumento } from './documentoRuta'
+import type { DocumentoDia, FilaDocumento, ResolverSecuencia } from './documentoRuta'
 
 // ════════════════════════════════════════════════════════════════
 // Pieza G — SECUENCIA DE ENTREGA
@@ -107,6 +107,34 @@ function mismoCodigo(a: string, b: string): boolean {
   if (na === nb) return true
   const numA = Number(na), numB = Number(nb)
   return Number.isFinite(numA) && Number.isFinite(numB) && numA === numB
+}
+
+/**
+ * Arma el resolver que usa el DOCUMENTO DE RUTA para ordenar sus filas por secuencia
+ * de entrega. Es el mismo "VLOOKUP" que ya hacía armarSecuencia(), extraído para que
+ * el orden salga directo en el documento y no haya que exportar un Excel aparte.
+ *
+ * Devuelve null cuando la ruta no lleva secuencia o el código no está en el maestro:
+ * ahí el documento cae a su orden de siempre (ver seccionDe en documentoRuta.ts).
+ */
+export function crearResolverSecuencia(maestro: MaestroRow[], diaEntrega: string): ResolverSecuencia {
+  // Índice ruta -> filas aplicables (ya filtradas por día), armado UNA vez.
+  const porRuta = new Map<string, MaestroRow[]>()
+  for (const m of maestro) {
+    if (!RUTAS_CON_SECUENCIA.includes(m.ruta)) continue
+    const usaDia = RUTAS_CON_DIA.includes(m.ruta)
+    if (usaDia && m.dia != null && m.dia !== diaEntrega) continue
+    const lista = porRuta.get(m.ruta)
+    if (lista) lista.push(m)
+    else porRuta.set(m.ruta, [m])
+  }
+  return (ruta, fila) => {
+    const lista = porRuta.get(ruta)
+    if (!lista) return null
+    const cod = codigoDeEntrega(fila)
+    const encontrado = lista.find(m => mismoCodigo(m.codigo, cod))
+    return encontrado ? encontrado.secuencia : null
+  }
 }
 
 // ── Parte pura: armar las hojas ──────────────────────────────────────────────

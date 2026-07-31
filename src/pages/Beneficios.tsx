@@ -6,6 +6,13 @@ import { fetchClientesMap, type ClienteInfo } from '../lib/clientes'
 import CeldasCliente from '../components/CeldasCliente'
 import ClienteModal from '../components/ClienteModal'
 import RutaFields from '../components/RutaFields'
+import DireccionNacionalField from '../components/DireccionNacionalField'
+import {
+  RUTA_NACIONAL,
+  fetchDireccionesPorCodigo,
+  guardarDireccion,
+  type DireccionNacional,
+} from '../lib/direccionesNacional'
 import type { RegistroBeneficio } from '../types'
 
 function addDays(dateStr: string, days: number): string {
@@ -153,6 +160,12 @@ export default function Beneficio() {
   const [despPatas, setDespPatas] = useState('')
   // Múltiple: cabeza/patas POR CÓDIGO de cliente (un lote puede mezclar clientes).
   const [despCabezaPatasPorCodigo, setDespCabezaPatasPorCodigo] = useState<Record<string, { cabeza: string; patas: string }>>({})
+  // Direcciones SOLO de la ruta Nacional: catálogo guardado y lo elegido por código.
+  const [direccionesGuardadas, setDireccionesGuardadas] = useState<Record<string, DireccionNacional[]>>({})
+  const [despDireccionPorCodigo, setDespDireccionPorCodigo] = useState<Record<string, string>>({})
+  // Reparto por raya (caso 355): qué códigos reparten, y la dirección de cada raya.
+  const [despRepartirPorCodigo, setDespRepartirPorCodigo] = useState<Record<string, boolean>>({})
+  const [despDireccionPorRegistro, setDespDireccionPorRegistro] = useState<Record<string, string>>({})
   // Ruta+código destino del lote múltiple, para reusarlos en el paso de vísceras
   const [despMultiCtx, setDespMultiCtx] = useState<{ ruta: string; codigo_destino: string | null } | null>(null)
   // Desposte es POR ANIMAL: booleano en individual, set de ids marcados en múltiple.
@@ -469,6 +482,9 @@ export default function Beneficio() {
     setDespDesposteIds(new Set())
     setDespCabezaPatasPorCodigo({})
     setDespMediaCanal(false)
+    setDespDireccionPorCodigo({})
+    setDespRepartirPorCodigo({})
+    setDespDireccionPorRegistro({})
   }
 
   const despInputCls =
@@ -476,6 +492,64 @@ export default function Beneficio() {
   const codigosResEnLote = sortCodigos([...new Set(
     registros.filter(r => selected.has(r.id) && r.tipo_carne === 'res').map(r => r.codigo_cliente)
   )])
+
+  // Direcciones: aplican a TODO el lote nacional (reses y cerdos), no solo a reses.
+  const codigosEnLote = sortCodigos([...new Set(
+    registros.filter(r => selected.has(r.id)).map(r => r.codigo_cliente)
+  )])
+  const codigosEnLoteKey = codigosEnLote.join('|')
+
+  /** Rayas (animales) de un código dentro del lote seleccionado. Una raya = un registro. */
+  function rayasDelCodigo(codigo: string): RegistroBeneficio[] {
+    return registros.filter(r => selected.has(r.id) && r.codigo_cliente === codigo)
+  }
+
+  /**
+   * Dirección de UNA raya (solo Nacional). `despachos` ya es una fila por raya, así que
+   * esta es la dirección que se guarda en esa fila.
+   * Si el código no reparte, todas sus rayas llevan la misma dirección (caso simple, sin
+   * fricción). Si reparte (caso 355), cada raya lleva la suya y cae a la del código si
+   * todavía no le asignaron una.
+   */
+  function direccionDeRaya(registroId: string, codigo: string): string | null {
+    if (despRuta !== RUTA_NACIONAL) return null
+    const delCodigo = despDireccionPorCodigo[codigo] ?? ''
+    const cruda = despRepartirPorCodigo[codigo]
+      ? (despDireccionPorRegistro[registroId] ?? delCodigo)
+      : delCodigo
+    const d = cruda.trim()
+    return d === '' ? null : d
+  }
+
+  /** Guarda en el catálogo TODAS las direcciones usadas, para reusarlas la próxima vez. */
+  async function persistirDirecciones(rayas: { registroId: string; codigo: string }[]) {
+    if (despRuta !== RUTA_NACIONAL) return
+    const vistas = new Set<string>()
+    for (const { registroId, codigo } of rayas) {
+      const dir = direccionDeRaya(registroId, codigo)
+      if (!dir) continue
+      const clave = `${codigo}|${dir}`
+      if (vistas.has(clave)) continue
+      vistas.add(clave)
+      await guardarDireccion(codigo, dir)
+    }
+  }
+
+  // Al elegir ruta Nacional se traen las direcciones ya guardadas de los códigos en juego.
+  // El await va ANTES del setState (regla set-state-in-effect del compilador de React).
+  useEffect(() => {
+    if (despRuta !== RUTA_NACIONAL) return
+    const codigos = visceraModal
+      ? [visceraModal.registro.codigo_cliente]
+      : codigosEnLoteKey.split('|').filter(c => c !== '')
+    if (codigos.length === 0) return
+    let vigente = true
+    void (async () => {
+      const mapa = await fetchDireccionesPorCodigo(codigos)
+      if (vigente) setDireccionesGuardadas(mapa)
+    })()
+    return () => { vigente = false }
+  }, [despRuta, visceraModal, codigosEnLoteKey])
 
   async function handleDespachar(r: RegistroBeneficio) {
     resetDespFields()
@@ -547,6 +621,7 @@ export default function Beneficio() {
     const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
     const esRes = r.tipo_carne === 'res'
     const { fraccion, registroUpdate } = despachoDeCanal(r, despMediaCanal)
+    await persistirDirecciones([{ registroId: r.id, codigo: r.codigo_cliente }])
     await supabase.from('registros_beneficio').update(registroUpdate).eq('id', r.id)
     await supabase.from('despachos').insert({
       registro_id: r.id,
@@ -558,6 +633,7 @@ export default function Beneficio() {
       patas: esRes ? toIntOrZero(despPatas) : null,
       es_desposte: despDesposte,
       fraccion,
+      direccion: direccionDeRaya(r.id, r.codigo_cliente),
     })
     setSelected(prev => { const next = new Set(prev); next.delete(r.id); return next })
     setVisceraModal(null)
@@ -574,6 +650,7 @@ export default function Beneficio() {
     const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
     const esRes = r.tipo_carne === 'res'
     const { fraccion, registroUpdate } = despachoDeCanal(r, despMediaCanal)
+    await persistirDirecciones([{ registroId: r.id, codigo: r.codigo_cliente }])
     await supabase.from('registros_beneficio').update(registroUpdate).eq('id', r.id)
     await supabase.from('despachos').insert({
       registro_id: r.id,
@@ -585,6 +662,7 @@ export default function Beneficio() {
       patas: esRes ? toIntOrZero(despPatas) : null,
       es_desposte: despDesposte,
       fraccion,
+      direccion: direccionDeRaya(r.id, r.codigo_cliente),
     })
     const selectedIds = Array.from(visceraSelected)
     if (selectedIds.length > 0) {
@@ -756,6 +834,7 @@ export default function Beneficio() {
     }
 
     const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
+    await persistirDirecciones(idsADespachar.map(id => ({ registroId: id, codigo: regById.get(id)?.codigo_cliente ?? '' })))
 
     // Cabeza/Patas: un total POR CÓDIGO de cliente, escrito solo en la PRIMERA fila
     // (res) de ese código dentro del lote; las demás filas de ese código quedan null.
@@ -785,6 +864,8 @@ export default function Beneficio() {
           patas: esPrimeraDeSuCodigo ? toIntOrZero(cp?.patas ?? '') : null,
           // Fracción REAL que sale (0.5 si al animal ya le habían sacado una mitad).
           fraccion: fraccionPorId.get(id) ?? 1,
+          // Dirección: solo Nacional, y es POR CÓDIGO (cada cliente su punto de entrega).
+          direccion: r ? direccionDeRaya(id, r.codigo_cliente) : null,
         }
       })
     )
@@ -867,6 +948,49 @@ export default function Beneficio() {
               codigoDestino={despCodigoDestino}
               onCodigoDestino={setDespCodigoDestino}
             />
+            {despRuta === RUTA_NACIONAL && codigosEnLote.map(cod => {
+              const guardadas = direccionesGuardadas[cod] ?? []
+              const rayas = rayasDelCodigo(cod)
+              // El reparto por raya solo tiene sentido si el código tiene MÁS DE UNA dirección
+              // guardada y más de una raya en el lote. Cerdo va aparte: Rafa lo maneja manual.
+              const puedeRepartir =
+                guardadas.length >= 2 && rayas.length >= 2 && rayas.some(r => r.tipo_carne === 'res')
+              const repartir = !!despRepartirPorCodigo[cod]
+              return (
+                <div key={cod} className="mb-3">
+                  {!repartir && (
+                    <DireccionNacionalField
+                      codigo={cod}
+                      mostrarCodigo
+                      guardadas={guardadas}
+                      valor={despDireccionPorCodigo[cod] ?? ''}
+                      onValor={v => setDespDireccionPorCodigo(prev => ({ ...prev, [cod]: v }))}
+                    />
+                  )}
+                  {puedeRepartir && (
+                    <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer mb-2">
+                      <input
+                        type="checkbox"
+                        checked={repartir}
+                        onChange={e => setDespRepartirPorCodigo(prev => ({ ...prev, [cod]: e.target.checked }))}
+                        className="w-4 h-4 rounded accent-green-700 cursor-pointer"
+                      />
+                      Repartir {cod} entre varias direcciones
+                    </label>
+                  )}
+                  {repartir && rayas.map(r => (
+                    <DireccionNacionalField
+                      key={r.id}
+                      codigo={`${cod}-${r.numero_animal}`}
+                      mostrarCodigo
+                      guardadas={guardadas}
+                      valor={despDireccionPorRegistro[r.id] ?? despDireccionPorCodigo[cod] ?? ''}
+                      onValor={v => setDespDireccionPorRegistro(prev => ({ ...prev, [r.id]: v }))}
+                    />
+                  ))}
+                </div>
+              )
+            })}
             {codigosResEnLote.length > 0 && (
               <div className="mb-4 space-y-3">
                 {codigosResEnLote.map(cod => (
@@ -992,6 +1116,15 @@ export default function Beneficio() {
               codigoDestino={despCodigoDestino}
               onCodigoDestino={setDespCodigoDestino}
             />
+            {despRuta === RUTA_NACIONAL && (
+              <DireccionNacionalField
+                codigo={visceraModal.registro.codigo_cliente}
+                guardadas={direccionesGuardadas[visceraModal.registro.codigo_cliente] ?? []}
+                valor={despDireccionPorCodigo[visceraModal.registro.codigo_cliente] ?? ''}
+                onValor={v => setDespDireccionPorCodigo(prev => ({ ...prev, [visceraModal.registro.codigo_cliente]: v }))}
+                /* Individual = una sola raya: no hay nada que repartir, va directo. */
+              />
+            )}
             <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer mb-4">
               <input
                 type="checkbox"
