@@ -102,8 +102,11 @@ export function codigoDeEntrega(f: FilaDocumento): string {
 }
 
 /** Comparación de códigos tolerante: '04' y '4' son el mismo cliente. */
-function mismoCodigo(a: string, b: string): boolean {
-  const na = a.trim(), nb = b.trim()
+function mismoCodigo(a: unknown, b: unknown): boolean {
+  // String() en los dos lados a propósito: si algún día un código llega como número
+  // (PostgREST según el tipo de la columna, o un dato tocado a mano), .trim() reventaba
+  // y se caía el documento ENTERO en vez de simplemente no encontrar la secuencia.
+  const na = String(a ?? '').trim(), nb = String(b ?? '').trim()
   if (na === nb) return true
   const numA = Number(na), numB = Number(nb)
   return Number.isFinite(numA) && Number.isFinite(numB) && numA === numB

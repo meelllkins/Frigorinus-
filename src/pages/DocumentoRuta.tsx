@@ -59,10 +59,21 @@ const cellInputCls =
  * Si el maestro no se puede leer (tabla sin crear, sin permisos), devuelve undefined y
  * el documento sale con su orden de siempre — nunca rompe la pantalla.
  */
-async function resolverDeSecuencia(fecha: string) {
+async function cargarDocumento(fecha: string): Promise<DocumentoDia> {
   const maestro = await fetchMaestroSecuencia()
-  if (maestro.length === 0) return undefined
-  return crearResolverSecuencia(maestro, diaEntregaDe(fecha))
+  const resolver = maestro.length > 0 ? crearResolverSecuencia(maestro, diaEntregaDe(fecha)) : undefined
+  const d = await construirDocumentoDia(fecha, resolver)
+  // Sin maestro el documento igual se arma, pero las rutas regionales salen SIN el orden de
+  // entrega (queda el orden por código). Antes esto pasaba en SILENCIO y era indistinguible
+  // de un bug de ordenamiento; ahora se avisa en pantalla.
+  if (maestro.length === 0) {
+    d.avisos.unshift(
+      'No se pudo leer el maestro de secuencia de entrega (tabla secuencia_entrega vacía o sin acceso): ' +
+      'las rutas regionales salen ordenadas por código, no por orden de entrega. ' +
+      '¿Falta correr migracion_secuencia_entrega.sql?'
+    )
+  }
+  return d
 }
 
 export default function DocumentoRuta() {
@@ -78,7 +89,7 @@ export default function DocumentoRuta() {
   // Refresco (botón "Actualizar" / pestaña visible): recarga SIN reiniciar los campos
   // manuales — conserva lo que Rafa esté escribiendo y solo agrega rutas nuevas.
   const cargar = useCallback(async () => {
-    const d = await construirDocumentoDia(fecha, await resolverDeSecuencia(fecha))
+    const d = await cargarDocumento(fecha)
     setDoc(d)
     setCpLocal({}) // cabeza/patas se re-derivan del doc recién cargado
     setManualLocal(prev => {
@@ -96,7 +107,7 @@ export default function DocumentoRuta() {
   useEffect(() => {
     let vigente = true
     void (async () => {
-      const d = await construirDocumentoDia(fecha, await resolverDeSecuencia(fecha))
+      const d = await cargarDocumento(fecha)
       if (!vigente) return
       setDoc(d)
       setCpLocal({})
