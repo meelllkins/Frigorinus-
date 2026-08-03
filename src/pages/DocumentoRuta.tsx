@@ -32,6 +32,11 @@ function fechaLarga(fecha: string): string {
   return d.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
 }
 
+/** Identidad del bloque para el estado manual: la ruta, y en Externo además el carro. */
+function claveBloque(b: { ruta: string; carroId: string | null }): string {
+  return b.carroId ? `${b.ruta}|${b.carroId}` : b.ruta
+}
+
 function manualVacio(): DatosManuales {
   return { conductor: null, auxiliar: null, placa: null, horaProgramada: null, observacion: null }
 }
@@ -65,6 +70,7 @@ export default function DocumentoRuta() {
   const [doc, setDoc] = useState<DocumentoDia | null>(null)
   const [showAvisos, setShowAvisos] = useState(false)
   // Campos manuales en estado local (un refresco NO debe borrar lo que Rafa escribe).
+  // Clave por BLOQUE, no por ruta: cada carro de Externo tiene sus propios datos manuales.
   const [manualLocal, setManualLocal] = useState<Record<string, DatosManuales>>({})
   // Edición local de cabeza/patas por fila (se limpia con cada doc nuevo → refleja lo guardado).
   const [cpLocal, setCpLocal] = useState<Record<string, { cabeza: string; patas: string }>>({})
@@ -78,7 +84,8 @@ export default function DocumentoRuta() {
     setManualLocal(prev => {
       const next = { ...prev }
       for (const b of d.bloques) {
-        if (!(b.ruta in next)) next[b.ruta] = b.manual ?? manualVacio()
+        const k = claveBloque(b)
+        if (!(k in next)) next[k] = b.manual ?? manualVacio()
       }
       return next
     })
@@ -94,7 +101,7 @@ export default function DocumentoRuta() {
       setDoc(d)
       setCpLocal({})
       const manual: Record<string, DatosManuales> = {}
-      for (const b of d.bloques) manual[b.ruta] = b.manual ?? manualVacio()
+      for (const b of d.bloques) manual[claveBloque(b)] = b.manual ?? manualVacio()
       setManualLocal(manual)
     })()
     return () => { vigente = false }
@@ -108,25 +115,32 @@ export default function DocumentoRuta() {
   }, [cargar])
 
   // ── Campos manuales ────────────────────────────────────────────
-  function setCampoManual(ruta: string, key: keyof DatosManuales, valor: string) {
+  function setCampoManual(b: BloqueRuta, key: keyof DatosManuales, valor: string) {
+    const k = claveBloque(b)
     setManualLocal(prev => ({
       ...prev,
-      [ruta]: { ...(prev[ruta] ?? manualVacio()), [key]: valor === '' ? null : valor } as DatosManuales,
+      [k]: { ...(prev[k] ?? manualVacio()), [key]: valor === '' ? null : valor } as DatosManuales,
     }))
   }
-  function guardarCampoManual(ruta: string, key: keyof DatosManuales, valor: string) {
-    guardarDatosManuales(fecha, ruta, { [key]: valor.trim() === '' ? null : valor } as Partial<DatosManuales>)
+  function guardarCampoManual(b: BloqueRuta, key: keyof DatosManuales, valor: string) {
+    // El carro va en la clave: dos carros externos del mismo día ya no se pisan.
+    guardarDatosManuales(
+      fecha,
+      b.ruta,
+      { [key]: valor.trim() === '' ? null : valor } as Partial<DatosManuales>,
+      b.carroId
+    )
   }
 
-  function campoManual(ruta: string, campo: keyof DatosManuales, label: string) {
+  function campoManual(b: BloqueRuta, campo: keyof DatosManuales, label: string) {
     return (
       <div>
         <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{label}</label>
         <input
           type="text"
-          value={manualLocal[ruta]?.[campo] ?? ''}
-          onChange={e => setCampoManual(ruta, campo, e.target.value)}
-          onBlur={e => guardarCampoManual(ruta, campo, e.target.value)}
+          value={manualLocal[claveBloque(b)]?.[campo] ?? ''}
+          onChange={e => setCampoManual(b, campo, e.target.value)}
+          onBlur={e => guardarCampoManual(b, campo, e.target.value)}
           className={inputCls}
         />
       </div>
@@ -248,13 +262,6 @@ export default function DocumentoRuta() {
       }
     : null
 
-  // Externo puede traer varios bloques el mismo día (uno por carro). Los campos manuales
-  // (conductor/auxiliar/placa/hora/observación) se guardan en documentos_ruta con
-  // UNIQUE(fecha, ruta) -> hoy no hay forma de distinguir un carro de Externo de otro en esa
-  // tabla, así que esos campos quedan COMPARTIDOS entre todos los carros del día. Avisamos
-  // en pantalla para que no parezca un dato independiente por carro cuando no lo es.
-  const externosDelDia = doc?.bloques.filter(b => b.ruta === 'Externo').length ?? 0
-
   // Direcciones de entrega: SOLO la ruta Nacional las lleva. Se listan por código
   // (un mismo bloque puede llevar varios clientes, cada uno a su punto de entrega).
   // Es POR LÍNEA, no por código: un código repartido entre 3 direcciones (caso 355) ya
@@ -333,18 +340,13 @@ export default function DocumentoRuta() {
               <div>
                 <h3 className="text-lg font-bold text-gray-900">{b.ruta}</h3>
                 <p className="text-sm text-gray-500 capitalize">{fechaLarga(doc.fecha)}</p>
-                {b.ruta === 'Externo' && externosDelDia > 1 && (
-                  <p className="text-xs text-amber-700 mt-1">
-                    Conductor/auxiliar/placa/hora se comparten entre los {externosDelDia} carros de Externo de hoy (limitación de la base de datos, no de este carro en particular).
-                  </p>
-                )}
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {campoManual(b.ruta, 'conductor', 'Conductor')}
-                {campoManual(b.ruta, 'auxiliar', 'Auxiliar')}
-                {campoManual(b.ruta, 'horaProgramada', 'Hora programada')}
-                {campoManual(b.ruta, 'placa', 'Placa')}
+                {campoManual(b, 'conductor', 'Conductor')}
+                {campoManual(b, 'auxiliar', 'Auxiliar')}
+                {campoManual(b, 'horaProgramada', 'Hora programada')}
+                {campoManual(b, 'placa', 'Placa')}
               </div>
 
               {/* Un carro externo lleva UN SOLO tipo de carne: se dibuja solo la sub-tabla que
@@ -374,9 +376,9 @@ export default function DocumentoRuta() {
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Observación</label>
                 <textarea
                   rows={2}
-                  value={manualLocal[b.ruta]?.observacion ?? ''}
-                  onChange={e => setCampoManual(b.ruta, 'observacion', e.target.value)}
-                  onBlur={e => guardarCampoManual(b.ruta, 'observacion', e.target.value)}
+                  value={manualLocal[claveBloque(b)]?.observacion ?? ''}
+                  onChange={e => setCampoManual(b, 'observacion', e.target.value)}
+                  onBlur={e => guardarCampoManual(b, 'observacion', e.target.value)}
                   className={inputCls}
                 />
               </div>

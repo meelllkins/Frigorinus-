@@ -243,6 +243,8 @@ export default function Inventario() {
       fecha_despacho: hoy,
       ruta: despRuta,
       codigo_destino: codigoDestinoFinal,
+      // Adelanto de vísceras a Externo: es su propio carro (nadie más viaja con ellas).
+      carro_id: despRuta === 'Externo' ? crypto.randomUUID() : null,
     })
     // El despacho de víscera es independiente: no se toca el estado del animal/canal.
     setSelected(prev => { const next = new Set(prev); next.delete(v.id); return next })
@@ -263,6 +265,8 @@ export default function Inventario() {
       .in('id', ids)
 
     const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
+    // Un solo carro para todo el lote: salen juntas en el mismo camión.
+    const carroId = despRuta === 'Externo' ? crypto.randomUUID() : null
     await supabase.from('despachos').insert(
       candidates.map(v => ({
         registro_id: v.registro_id,
@@ -271,6 +275,7 @@ export default function Inventario() {
         fecha_despacho: hoy,
         ruta: despRuta,
         codigo_destino: codigoDestinoFinal,
+        carro_id: carroId,
       }))
     )
 

@@ -85,7 +85,7 @@ export default function Despachos() {
 
     const { data: viejos } = await supabase
       .from('despachos')
-      .select('id, registro_id, viscera_id, tipo_despacho, fecha_despacho, notas, created_at, ruta, cabeza, patas, codigo_destino, es_desposte, fraccion')
+      .select('id, registro_id, viscera_id, tipo_despacho, fecha_despacho, notas, created_at, ruta, cabeza, patas, codigo_destino, es_desposte, fraccion, carro_id')
       .lt('fecha_despacho', cutoffStr)
 
     if (viejos && viejos.length > 0) {
@@ -103,6 +103,7 @@ export default function Despachos() {
         patas: v.patas,
         codigo_destino: v.codigo_destino,
         es_desposte: v.es_desposte,
+        carro_id: v.carro_id,
         fraccion: v.fraccion,
         archivado_at: new Date().toISOString(),
       }))

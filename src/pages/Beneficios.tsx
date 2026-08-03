@@ -167,7 +167,7 @@ export default function Beneficio() {
   const [despRepartirPorCodigo, setDespRepartirPorCodigo] = useState<Record<string, boolean>>({})
   const [despDireccionPorRegistro, setDespDireccionPorRegistro] = useState<Record<string, string>>({})
   // Ruta+código destino del lote múltiple, para reusarlos en el paso de vísceras
-  const [despMultiCtx, setDespMultiCtx] = useState<{ ruta: string; codigo_destino: string | null } | null>(null)
+  const [despMultiCtx, setDespMultiCtx] = useState<{ ruta: string; codigo_destino: string | null; carro_id: string | null } | null>(null)
   // Desposte es POR ANIMAL: booleano en individual, set de ids marcados en múltiple.
   const [despDesposte, setDespDesposte] = useState(false)
   const [despDesposteIds, setDespDesposteIds] = useState<Set<string>>(new Set())
@@ -499,6 +499,15 @@ export default function Beneficio() {
   )])
   const codigosEnLoteKey = codigosEnLote.join('|')
 
+  /**
+   * Identificador del CARRO para este acto de despacho. Solo Externo: cada vez que se
+   * despacha a Externo es un carro distinto, con su propio conductor/placa/hora. Se genera
+   * uno por acto y se escribe en TODAS las filas de ese despacho (canal y sus vísceras).
+   */
+  function nuevoCarroId(): string | null {
+    return despRuta === 'Externo' ? crypto.randomUUID() : null
+  }
+
   /** Rayas (animales) de un código dentro del lote seleccionado. Una raya = un registro. */
   function rayasDelCodigo(codigo: string): RegistroBeneficio[] {
     return registros.filter(r => selected.has(r.id) && r.codigo_cliente === codigo)
@@ -621,6 +630,7 @@ export default function Beneficio() {
     const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
     const esRes = r.tipo_carne === 'res'
     const { fraccion, registroUpdate } = despachoDeCanal(r, despMediaCanal)
+    const carroId = nuevoCarroId() // un carro por acto de despacho (solo Externo)
     await persistirDirecciones([{ registroId: r.id, codigo: r.codigo_cliente }])
     await supabase.from('registros_beneficio').update(registroUpdate).eq('id', r.id)
     await supabase.from('despachos').insert({
@@ -634,6 +644,7 @@ export default function Beneficio() {
       es_desposte: despDesposte,
       fraccion,
       direccion: direccionDeRaya(r.id, r.codigo_cliente),
+      carro_id: carroId,
     })
     setSelected(prev => { const next = new Set(prev); next.delete(r.id); return next })
     setVisceraModal(null)
@@ -650,6 +661,7 @@ export default function Beneficio() {
     const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
     const esRes = r.tipo_carne === 'res'
     const { fraccion, registroUpdate } = despachoDeCanal(r, despMediaCanal)
+    const carroId = nuevoCarroId() // un carro por acto de despacho (solo Externo)
     await persistirDirecciones([{ registroId: r.id, codigo: r.codigo_cliente }])
     await supabase.from('registros_beneficio').update(registroUpdate).eq('id', r.id)
     await supabase.from('despachos').insert({
@@ -663,6 +675,7 @@ export default function Beneficio() {
       es_desposte: despDesposte,
       fraccion,
       direccion: direccionDeRaya(r.id, r.codigo_cliente),
+      carro_id: carroId,
     })
     const selectedIds = Array.from(visceraSelected)
     if (selectedIds.length > 0) {
@@ -677,9 +690,10 @@ export default function Beneficio() {
           viscera_id: v.id,
           tipo_despacho: 'viscera',
           fecha_despacho: hoy,
-          // Misma ruta y código destino que el canal (sin cabeza/patas).
+          // Misma ruta, código destino y CARRO que el canal (sin cabeza/patas).
           ruta: despRuta,
           codigo_destino: codigoDestinoFinal,
+          carro_id: carroId,
         }))
       )
     }
@@ -781,6 +795,8 @@ export default function Beneficio() {
         // Misma ruta y código destino que el canal del lote (sin cabeza/patas).
         ruta: despMultiCtx?.ruta ?? null,
         codigo_destino: despMultiCtx?.codigo_destino ?? null,
+        // Mismo carro que los canales del lote: las vísceras viajan en ese camión.
+        carro_id: despMultiCtx?.carro_id ?? null,
       }))
     )
     setDespMultiCtx(null)
@@ -834,6 +850,7 @@ export default function Beneficio() {
     }
 
     const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
+    const carroId = nuevoCarroId() // todo el lote viaja en el MISMO carro
     await persistirDirecciones(idsADespachar.map(id => ({ registroId: id, codigo: regById.get(id)?.codigo_cliente ?? '' })))
 
     // Cabeza/Patas: un total POR CÓDIGO de cliente, escrito solo en la PRIMERA fila
@@ -866,10 +883,11 @@ export default function Beneficio() {
           fraccion: fraccionPorId.get(id) ?? 1,
           // Dirección: solo Nacional, y es POR CÓDIGO (cada cliente su punto de entrega).
           direccion: r ? direccionDeRaya(id, r.codigo_cliente) : null,
+          carro_id: carroId,
         }
       })
     )
-    setDespMultiCtx({ ruta: despRuta, codigo_destino: codigoDestinoFinal })
+    setDespMultiCtx({ ruta: despRuta, codigo_destino: codigoDestinoFinal, carro_id: carroId })
 
     // Solo se ofrecen vísceras de los animales que efectivamente salieron.
     const resIds = registros

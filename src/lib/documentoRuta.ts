@@ -38,6 +38,9 @@ export type DatosManuales = {
 
 export type BloqueRuta = {
   ruta: string
+  // Identidad del carro (solo Externo). Es lo que separa los datos manuales de un carro
+  // de los de otro. null en rutas con nombre.
+  carroId: string | null
   bovinos: SeccionDocumento
   porcinos: SeccionDocumento
   manual: DatosManuales | null
@@ -122,6 +125,9 @@ export type DespachoRow = {
   // este valor (Postgres usa la hora de la transacción), así que sirve para identificar
   // "este carro" en Externo. Ver eventoExternoDe().
   created_at: string | null
+  // Identificador EXPLÍCITO del carro externo, generado por el frontend al despachar.
+  // NULL en rutas con nombre y en los despachos viejos (ahí se cae a la inferencia).
+  carro_id: string | null
   // FK directa (registro_id) -> registros_beneficio. Se usa también para vísceras.
   registros_beneficio: { codigo_cliente: string | null; numero_animal: number | string | null; tipo_carne: 'res' | 'cerdo' } | null
   // FK (viscera_id) -> inventario_visceras. Solo para saber roja/blanca.
@@ -130,6 +136,7 @@ export type DespachoRow = {
 
 export type ManualRow = {
   ruta: string
+  carro_id: string // '' para rutas con nombre; el id del carro en Externo
   conductor: string | null
   auxiliar: string | null
   placa: string | null
@@ -365,11 +372,14 @@ export function armarDocumento(
   const carroDelCanalExterno = new Map<string, string>()
   for (const d of despachos) {
     if (d.ruta === 'Externo' && d.tipo_despacho === 'canal' && d.registro_id != null) {
-      carroDelCanalExterno.set(d.registro_id, d.created_at ?? d.id)
+      carroDelCanalExterno.set(d.registro_id, d.carro_id ?? d.created_at ?? d.id)
     }
   }
+  // TRANSICIÓN: manda el carro_id explícito; si no lo hay (despachos viejos), se cae a la
+  // inferencia por created_at de siempre. Así lo viejo sigue agrupándose igual que antes.
   const eventoExternoDe = (d: DespachoRow): string => {
     if (d.ruta !== 'Externo') return '' // rutas con nombre: sin evento, se agrupan como siempre
+    if (d.carro_id != null) return d.carro_id
     if (d.tipo_despacho !== 'canal' && d.registro_id != null) {
       const carroCanal = carroDelCanalExterno.get(d.registro_id)
       if (carroCanal != null) return carroCanal
@@ -469,10 +479,12 @@ export function armarDocumento(
   // Ítems con su ruta/tipoCarne para poder distribuirlos en bloques/secciones.
   const items = [...grupos.values()].map(g => ({ ruta: g.ruta, tipoCarne: g.tipoCarne, evento: g.evento, fila: grupoAFila(g) }))
 
-  // Datos manuales por ruta (UNIQUE fecha+ruta -> a lo sumo uno por ruta).
-  const manualPorRuta = new Map<string, DatosManuales>()
+  // Datos manuales por (ruta + carro). Las rutas con nombre usan carro_id '' -> una sola
+  // fila por ruta, igual que antes. Cada carro externo tiene la suya.
+  const claveManual = (ruta: string, carroId: string | null) => `${ruta}|${carroId ?? ''}`
+  const manualPorClave = new Map<string, DatosManuales>()
   for (const m of manuales) {
-    manualPorRuta.set(m.ruta, {
+    manualPorClave.set(claveManual(m.ruta, m.carro_id ?? ''), {
       conductor: m.conductor ?? null,
       auxiliar: m.auxiliar ?? null,
       placa: m.placa ?? null,
@@ -483,11 +495,12 @@ export function armarDocumento(
 
   // Un bloque por ruta con filas, a partir de un subconjunto de `items` ya elegido
   // por el llamador (todos los de esa ruta, o solo los de UN carro de Externo).
-  const armarBloque = (ruta: string, itemsDelBloque: typeof items): BloqueRuta => ({
+  const armarBloque = (ruta: string, itemsDelBloque: typeof items, carroId: string | null = null): BloqueRuta => ({
     ruta,
+    carroId,
     bovinos: seccionDe(itemsDelBloque.filter(it => it.tipoCarne === 'res').map(it => it.fila), ruta, secuenciaDe),
     porcinos: seccionDe(itemsDelBloque.filter(it => it.tipoCarne === 'cerdo').map(it => it.fila), ruta, secuenciaDe),
-    manual: manualPorRuta.get(ruta) ?? null,
+    manual: manualPorClave.get(claveManual(ruta, carroId)) ?? null,
   })
 
   const bloques: BloqueRuta[] = []
@@ -518,8 +531,11 @@ export function armarDocumento(
     else carrosExterno.set(claveCarro, [it])
   }
   const carrosOrdenados = [...carrosExterno.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-  for (const [, itemsDelCarro] of carrosOrdenados) {
-    bloques.push(armarBloque('Externo', itemsDelCarro))
+  for (const [claveCarro, itemsDelCarro] of carrosOrdenados) {
+    // La clave lleva el sufijo |tipoCarne para no mezclar res y cerdo en un carro, pero la
+    // IDENTIDAD del carro (con la que se guardan conductor/placa) es solo el evento.
+    const carroId = claveCarro.slice(0, claveCarro.lastIndexOf('|'))
+    bloques.push(armarBloque('Externo', itemsDelCarro, carroId))
   }
 
   // Despachos con ruta NULL: no se descartan, van en sinRuta (lista plana).
@@ -536,7 +552,7 @@ export function armarDocumento(
 // ════════════════════════════════════════════════════════════════
 
 const SELECT_DESPACHOS =
-  'id, registro_id, viscera_id, tipo_despacho, ruta, codigo_destino, cabeza, patas, es_desposte, fraccion, direccion, created_at, ' +
+  'id, registro_id, viscera_id, tipo_despacho, ruta, codigo_destino, cabeza, patas, es_desposte, fraccion, direccion, created_at, carro_id, ' +
   'registros_beneficio(codigo_cliente, numero_animal, tipo_carne), viscera:inventario_visceras(tipo)'
 
 /**
@@ -571,7 +587,7 @@ export async function construirDocumentoDia(
   // Consulta 2: datos manuales de ruta del día.
   const { data: manData, error: errMan } = await supabase
     .from('documentos_ruta')
-    .select('ruta, conductor, auxiliar, placa, hora_programada, observacion')
+    .select('ruta, carro_id, conductor, auxiliar, placa, hora_programada, observacion')
     .eq('fecha', fecha)
 
   if (errMan) {
@@ -598,9 +614,12 @@ export async function construirDocumentoDia(
 export async function guardarDatosManuales(
   fecha: string,
   ruta: string,
-  datos: Partial<DatosManuales>
+  datos: Partial<DatosManuales>,
+  carroId: string | null = null
 ): Promise<boolean> {
-  const fila: Record<string, string | null> = { fecha, ruta }
+  // carro_id '' = ruta con nombre (una sola fila por fecha+ruta, como siempre).
+  // En Externo cada carro guarda la suya, así dos carros del mismo día no se pisan.
+  const fila: Record<string, string | null> = { fecha, ruta, carro_id: carroId ?? '' }
   if ('conductor' in datos) fila.conductor = datos.conductor ?? null
   if ('auxiliar' in datos) fila.auxiliar = datos.auxiliar ?? null
   if ('placa' in datos) fila.placa = datos.placa ?? null
@@ -609,7 +628,7 @@ export async function guardarDatosManuales(
 
   const { error } = await supabase
     .from('documentos_ruta')
-    .upsert(fila, { onConflict: 'fecha,ruta' })
+    .upsert(fila, { onConflict: 'fecha,ruta,carro_id' })
 
   if (error) {
     console.error('[documentoRuta] Error guardando datos manuales:', error)

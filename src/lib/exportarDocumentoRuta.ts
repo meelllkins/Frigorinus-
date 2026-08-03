@@ -134,9 +134,9 @@ function celdaTotal(col: number, first: number, last: number, cache: number, nFi
 }
 
 // Bovinos: encabezados de 1 columna, CABEZA/PATAS incluidas.
-// `conTotal` false (solo Externo): no se escribe la fila de total (cada código es un cargue
-// distinto, no se puede sumar entre camiones). Las filas de abajo suben; no queda fila vacía.
-function escribirBovinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: number, rIni: number, ss: SetEstilos, conTotal: boolean, colDireccion: number | null = null): number {
+// TODOS los bloques llevan fila de total, Externo incluido: Rafa quiere ver el total de cada
+// carro. (Antes se omitía en Externo; esa regla quedó sin efecto.)
+function escribirBovinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: number, rIni: number, ss: SetEstilos, colDireccion: number | null = null): number {
   let r = rIni
   const hayDesp = sec.filas.some(f => f.esDesposte)
   h.combinada(r++, c, cEnd, { v: hayDesp ? 'BOVINOS/DESPOSTE' : 'BOVINOS', t: 's', s: ss.tituloBovinos })
@@ -160,8 +160,6 @@ function escribirBovinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: number
   }
   const last = r - 1
 
-  if (!conTotal) return r // Externo: sin fila de total
-
   h.celda(r, c, { v: 'total', t: 's', s: ss.total })
   const totales = [sec.totales.cant, sec.totales.vb, sec.totales.vr, sec.totales.cabeza, sec.totales.patas]
   totales.forEach((cache, i) => h.celda(r, c + 1 + i, celdaTotal(c + 1 + i, first, last, cache, sec.filas.length, ss)))
@@ -169,8 +167,7 @@ function escribirBovinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: number
 }
 
 // Porcinos: COD combinado en 3 columnas (c..c+2) y solo CANT/V/B/V/R.
-// `conTotal` false (solo Externo): no se escribe la fila de total.
-function escribirPorcinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: number, rIni: number, ss: SetEstilos, conTotal: boolean, colDireccion: number | null = null): number {
+function escribirPorcinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: number, rIni: number, ss: SetEstilos, colDireccion: number | null = null): number {
   let r = rIni
   const hayDesp = sec.filas.some(f => f.esDesposte)
   h.combinada(r++, c, cEnd, { v: hayDesp ? 'PORCINOS/ DESPOSTE' : 'PORCINOS ', t: 's', s: ss.tituloPorcinos })
@@ -192,8 +189,6 @@ function escribirPorcinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: numbe
     r++
   }
   const last = r - 1
-
-  if (!conTotal) return r // Externo: sin fila de total
 
   h.combinada(r, c, c + 2, { v: 'total', t: 's', s: ss.total })
   const totales = [sec.totales.cant, sec.totales.vb, sec.totales.vr]
@@ -234,15 +229,14 @@ function escribirBloque(
   filaLabel('HORA PROGRAMADA: ', manual?.horaProgramada ?? null)
   filaLabel('PLACA', manual?.placa ?? null)
 
-  const conTotal = !esExterno // Externo no lleva fila de total en ninguna sección.
   // Un carro externo lleva UN SOLO tipo de carne: se escribe solo la sección con filas, para
   // que no salga la vacía al lado (eso se veía como "res y cerdo mezclados"). Las rutas con
   // nombre sí escriben las dos aunque una esté vacía.
   if (!esExterno || b.bovinos.filas.length > 0) {
-    r = escribirBovinos(h, b.bovinos, c, cEnd, r, ss, conTotal, colDireccion)
+    r = escribirBovinos(h, b.bovinos, c, cEnd, r, ss, colDireccion)
   }
   if (!esExterno || b.porcinos.filas.length > 0) {
-    r = escribirPorcinos(h, b.porcinos, c, cEnd, r, ss, conTotal, colDireccion)
+    r = escribirPorcinos(h, b.porcinos, c, cEnd, r, ss, colDireccion)
   }
 
   h.combinada(r++, c, cEnd, { v: 'OBSERVACIÓN ', t: 's', s: ss.tituloObs })
@@ -301,7 +295,7 @@ export function exportarDocumentoRuta(doc: DocumentoDia, manualEnPantalla: Map<s
     const llevaDireccion = [...b.bovinos.filas, ...b.porcinos.filas].some(f => f.direccion)
     const ancho = llevaDireccion ? COLS_TABLA + 1 : COLS_TABLA
 
-    escribirBloque(h, b, c, textoFecha, manualEnPantalla.get(b.ruta) ?? b.manual ?? null, b.ruta === 'Externo', ancho)
+    escribirBloque(h, b, c, textoFecha, manualEnPantalla.get(b.carroId ? `${b.ruta}|${b.carroId}` : b.ruta) ?? b.manual ?? null, b.ruta === 'Externo', ancho)
 
     for (const w of ANCHOS_BLOQUE) cols.push({ wch: w })
     if (llevaDireccion) cols.push({ wch: ANCHO_DIRECCION })
