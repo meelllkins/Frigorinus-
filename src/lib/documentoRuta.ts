@@ -504,12 +504,18 @@ export function armarDocumento(
   // Por eso el carro se identifica por el acto de despacho (`evento`, ver eventoExternoDe)
   // y NO por combinación de campos de negocio: agrupar por cliente/destino fue justamente
   // el error del intento anterior. Los carros van al final, en orden cronológico.
+  // La clave incluye tipoCarne: un carro externo lleva UN SOLO tipo de carne. Sin esto, si
+  // dos actos de despacho distintos (uno de res, uno de cerdo) cayeran en la misma marca de
+  // tiempo, se fusionaban en un bloque con BOVINOS y PORCINOS juntos. Es raro (hace falta
+  // colisión de microsegundos), pero el invariante "un carro = un tipo" queda garantizado acá
+  // en vez de depender de la precisión del reloj.
   const carrosExterno = new Map<string, typeof items>()
   for (const it of items) {
     if (it.ruta !== 'Externo') continue
-    const lista = carrosExterno.get(it.evento)
+    const claveCarro = `${it.evento}|${it.tipoCarne}`
+    const lista = carrosExterno.get(claveCarro)
     if (lista) lista.push(it)
-    else carrosExterno.set(it.evento, [it])
+    else carrosExterno.set(claveCarro, [it])
   }
   const carrosOrdenados = [...carrosExterno.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
   for (const [, itemsDelCarro] of carrosOrdenados) {

@@ -79,6 +79,10 @@ type SetEstilos = typeof S
 // Restamos ese margen para que el width final coincida con la hoja real de Rafa.
 const GUTTER_WCH = 0.83
 const ANCHOS_BLOQUE = [26.29, 7.29, 5.86, 6.57, 7.14, 6.0].map(w => w - GUTTER_WCH)
+/** Columnas de la tabla del bloque: COD | CANT | V/B | V/R | CABEZA | PATAS. */
+const COLS_TABLA = 6
+/** Columna extra de DIRECCION, a la derecha (solo la usa Nacional). */
+const ANCHO_DIRECCION = 42 - GUTTER_WCH
 const ANCHO_SEP = 1.14 - GUTTER_WCH // columna A (margen) y separadoras entre bloques
 
 // ── Construcción de la hoja celda por celda (bloques lado a lado, combinaciones) ──
@@ -132,13 +136,14 @@ function celdaTotal(col: number, first: number, last: number, cache: number, nFi
 // Bovinos: encabezados de 1 columna, CABEZA/PATAS incluidas.
 // `conTotal` false (solo Externo): no se escribe la fila de total (cada código es un cargue
 // distinto, no se puede sumar entre camiones). Las filas de abajo suben; no queda fila vacía.
-function escribirBovinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: number, rIni: number, ss: SetEstilos, conTotal: boolean): number {
+function escribirBovinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: number, rIni: number, ss: SetEstilos, conTotal: boolean, colDireccion: number | null = null): number {
   let r = rIni
   const hayDesp = sec.filas.some(f => f.esDesposte)
   h.combinada(r++, c, cEnd, { v: hayDesp ? 'BOVINOS/DESPOSTE' : 'BOVINOS', t: 's', s: ss.tituloBovinos })
 
   const heads = ['COD', 'CANT', 'V/B', 'V/R', 'CABEZA', 'PATAS']
   heads.forEach((t, i) => h.celda(r, c + i, { v: t, t: 's', s: ss.encBovinos }))
+  if (colDireccion != null) h.celda(r, colDireccion, { v: 'DIRECCION', t: 's', s: ss.encBovinos })
   r++
 
   const first = r
@@ -149,6 +154,8 @@ function escribirBovinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: number
     h.celda(r, c + 3, { v: f.vr, t: 'n', s: ss.datos })
     h.celda(r, c + 4, celdaNum(f.cabeza, ss))
     h.celda(r, c + 5, celdaNum(f.patas, ss))
+    // Direccion AL LADO del codigo, en su misma fila (solo Nacional).
+    if (colDireccion != null) h.celda(r, colDireccion, { v: f.direccion ?? '', t: 's', s: ss.datos })
     r++
   }
   const last = r - 1
@@ -163,7 +170,7 @@ function escribirBovinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: number
 
 // Porcinos: COD combinado en 3 columnas (c..c+2) y solo CANT/V/B/V/R.
 // `conTotal` false (solo Externo): no se escribe la fila de total.
-function escribirPorcinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: number, rIni: number, ss: SetEstilos, conTotal: boolean): number {
+function escribirPorcinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: number, rIni: number, ss: SetEstilos, conTotal: boolean, colDireccion: number | null = null): number {
   let r = rIni
   const hayDesp = sec.filas.some(f => f.esDesposte)
   h.combinada(r++, c, cEnd, { v: hayDesp ? 'PORCINOS/ DESPOSTE' : 'PORCINOS ', t: 's', s: ss.tituloPorcinos })
@@ -172,6 +179,7 @@ function escribirPorcinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: numbe
   h.celda(r, c + 3, { v: 'CANT', t: 's', s: ss.encPorcinos })
   h.celda(r, c + 4, { v: 'V/B', t: 's', s: ss.encPorcinos })
   h.celda(r, c + 5, { v: 'V/R', t: 's', s: ss.encPorcinos })
+  if (colDireccion != null) h.celda(r, colDireccion, { v: 'DIRECCION', t: 's', s: ss.encPorcinos })
   r++
 
   const first = r
@@ -180,6 +188,7 @@ function escribirPorcinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: numbe
     h.celda(r, c + 3, { v: f.cant, t: 'n', s: ss.datos })
     h.celda(r, c + 4, { v: f.vb, t: 'n', s: ss.datos })
     h.celda(r, c + 5, { v: f.vr, t: 'n', s: ss.datos })
+    if (colDireccion != null) h.celda(r, colDireccion, { v: f.direccion ?? '', t: 's', s: ss.datos })
     r++
   }
   const last = r - 1
@@ -196,8 +205,19 @@ function escribirPorcinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: numbe
 // `textoFecha` = línea de fecha de ENTREGA ya formateada (la misma para todos los bloques).
 // `esExterno`: mismos colores que cualquier otra ruta; lo único distinto es que sus
 // secciones NO llevan fila de total (cada código es un cargue aparte, no se suma entre carros).
-function escribirBloque(h: Hoja, b: BloqueRuta, c: number, textoFecha: string, manual: DatosManuales | null, esExterno: boolean): void {
-  const cEnd = c + 5
+function escribirBloque(
+  h: Hoja,
+  b: BloqueRuta,
+  c: number,
+  textoFecha: string,
+  manual: DatosManuales | null,
+  esExterno: boolean,
+  ancho: number
+): void {
+  const cEnd = c + ancho - 1
+  // Columna extra a la DERECHA para la dirección (solo Nacional). Rafa las quiere al lado
+  // del código, en la misma fila —así están en sus alineaciones—, no en filas debajo.
+  const colDireccion = ancho > COLS_TABLA ? c + COLS_TABLA : null
   const ss = S
   let r = 0
 
@@ -215,19 +235,14 @@ function escribirBloque(h: Hoja, b: BloqueRuta, c: number, textoFecha: string, m
   filaLabel('PLACA', manual?.placa ?? null)
 
   const conTotal = !esExterno // Externo no lleva fila de total en ninguna sección.
-  r = escribirBovinos(h, b.bovinos, c, cEnd, r, ss, conTotal)
-  r = escribirPorcinos(h, b.porcinos, c, cEnd, r, ss, conTotal)
-
-  // Direcciones de entrega: SOLO Nacional. Van como filas combinadas (mismo ancho de
-  // 6 columnas del bloque) para no romper la geometría lado a lado de las hojas.
-  // Es POR LÍNEA, no por código: un código repartido entre varias direcciones (caso 355)
-  // ya viene como varias filas del documento, cada una con la suya y su cantidad.
-  const conDireccion = [...b.bovinos.filas, ...b.porcinos.filas].filter(f => f.direccion)
-  if (conDireccion.length > 0) {
-    h.combinada(r++, c, cEnd, { v: 'DIRECCIONES', t: 's', s: ss.tituloObs })
-    for (const f of conDireccion) {
-      h.combinada(r++, c, cEnd, { v: `${f.cod} — ${f.direccion} — ${f.cant}`, t: 's', s: ss.datos })
-    }
+  // Un carro externo lleva UN SOLO tipo de carne: se escribe solo la sección con filas, para
+  // que no salga la vacía al lado (eso se veía como "res y cerdo mezclados"). Las rutas con
+  // nombre sí escriben las dos aunque una esté vacía.
+  if (!esExterno || b.bovinos.filas.length > 0) {
+    r = escribirBovinos(h, b.bovinos, c, cEnd, r, ss, conTotal, colDireccion)
+  }
+  if (!esExterno || b.porcinos.filas.length > 0) {
+    r = escribirPorcinos(h, b.porcinos, c, cEnd, r, ss, conTotal, colDireccion)
   }
 
   h.combinada(r++, c, cEnd, { v: 'OBSERVACIÓN ', t: 's', s: ss.tituloObs })
@@ -277,17 +292,21 @@ export function exportarDocumentoRuta(doc: DocumentoDia, manualEnPantalla: Map<s
   const entrega = fechaEntrega(doc.fecha)
   const textoFecha = textoLineaFecha(entrega)
 
-  // Bloques lado a lado: bloque i arranca en la columna 1 + i*7 (A queda de margen).
-  doc.bloques.forEach((b, i) => {
-    const c = 1 + i * 7
-    escribirBloque(h, b, c, textoFecha, manualEnPantalla.get(b.ruta) ?? b.manual ?? null, b.ruta === 'Externo')
-  })
-
-  // Anchos: A margen; por bloque las 6 columnas + 1 columna de separación.
+  // Bloques lado a lado con ANCHO VARIABLE: el de Nacional lleva una columna extra a la
+  // derecha para las direcciones, así que el offset se acumula en vez de ser 1 + i*7 fijo.
+  // A queda de margen; entre bloque y bloque va una columna separadora.
   const cols: { wch: number }[] = [{ wch: ANCHO_SEP }]
-  for (let i = 0; i < doc.bloques.length; i++) {
+  let c = 1
+  for (const b of doc.bloques) {
+    const llevaDireccion = [...b.bovinos.filas, ...b.porcinos.filas].some(f => f.direccion)
+    const ancho = llevaDireccion ? COLS_TABLA + 1 : COLS_TABLA
+
+    escribirBloque(h, b, c, textoFecha, manualEnPantalla.get(b.ruta) ?? b.manual ?? null, b.ruta === 'Externo', ancho)
+
     for (const w of ANCHOS_BLOQUE) cols.push({ wch: w })
+    if (llevaDireccion) cols.push({ wch: ANCHO_DIRECCION })
     cols.push({ wch: ANCHO_SEP })
+    c += ancho + 1
   }
 
   XLSX.utils.book_append_sheet(wb, h.toSheet(cols), textoNombreHoja(entrega))

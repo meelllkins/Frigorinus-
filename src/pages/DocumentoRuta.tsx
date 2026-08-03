@@ -347,8 +347,12 @@ export default function DocumentoRuta() {
                 {campoManual(b.ruta, 'placa', 'Placa')}
               </div>
 
-              {tabla('Bovinos', b.bovinos, true, true)}
-              {tabla('Porcinos', b.porcinos, false, true)}
+              {/* Un carro externo lleva UN SOLO tipo de carne: se dibuja solo la sub-tabla que
+                  tiene filas, para que no aparezca la vacía al lado (eso es lo que se veía como
+                  "res y cerdo mezclados"). Las rutas con nombre sí muestran las dos aunque una
+                  esté vacía, que es como Rafa arma sus alineaciones. */}
+              {(b.ruta !== 'Externo' || b.bovinos.filas.length > 0) && tabla('Bovinos', b.bovinos, true, true)}
+              {(b.ruta !== 'Externo' || b.porcinos.filas.length > 0) && tabla('Porcinos', b.porcinos, false, true)}
 
               {direccionesDelBloque(b).length > 0 && (
                 <div>
