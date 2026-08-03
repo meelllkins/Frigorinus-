@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { ClipboardList, AlertTriangle, Package, Truck, LogOut, Thermometer, Download, Trash2, NotebookPen, FileText } from 'lucide-react'
+import { ClipboardList, AlertTriangle, Package, Truck, LogOut, Download, Trash2, NotebookPen, FileText } from 'lucide-react'
+import logo from '../assets/logo.png'
 
 export default function Layout() {
   const [showResetModal, setShowResetModal] = useState(false)
@@ -116,9 +117,12 @@ export default function Layout() {
 
       <header className="bg-gray-900 px-3 sm:px-6 py-4 flex items-center justify-between shadow-lg">
         <div className="flex items-center gap-3">
-          <div className="bg-green-700 rounded-lg p-2 flex items-center justify-center">
-            <Thermometer size={20} className="text-white" />
-          </div>
+          {/* Mismo icono que la PWA: la marca sobre el azul del propio logo. */}
+          <img
+            src={logo}
+            alt="Frigorinus"
+            className="w-10 h-10 rounded-lg shrink-0"
+          />
           <div>
             <h1 className="text-base font-bold text-white tracking-wide leading-tight">Frigorinus</h1>
             <p className="text-xs text-gray-400 leading-tight hidden sm:block">Logística de planta</p>
