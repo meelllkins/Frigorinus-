@@ -115,6 +115,7 @@ export default function DocumentoRuta() {
     const { doc: d, maestro: m } = await cargarDocumento(fecha)
     setDoc(d)
     setMaestro(m)
+    if (d.errorConsulta) setShowAvisos(true) // error real de consulta: no puede pasar desapercibido
     setCpLocal({}) // cabeza/patas se re-derivan del doc recién cargado
     setManualLocal(prev => {
       const next = { ...prev }
@@ -135,6 +136,7 @@ export default function DocumentoRuta() {
       if (!vigente) return
       setDoc(d)
       setMaestro(m)
+      if (d.errorConsulta) setShowAvisos(true) // error real de consulta: no puede pasar desapercibido
       setCpLocal({})
       const manual: Record<string, DatosManuales> = {}
       for (const b of d.bloques) manual[claveBloque(b)] = b.manual ?? manualVacio()
@@ -398,19 +400,25 @@ export default function DocumentoRuta() {
       )}
 
       {doc && doc.avisos.length > 0 && (
-        <div className="border border-amber-300 bg-amber-50 rounded-xl overflow-hidden">
+        <div className={
+          doc.errorConsulta
+            ? 'border border-red-300 bg-red-50 rounded-xl overflow-hidden'
+            : 'border border-amber-300 bg-amber-50 rounded-xl overflow-hidden'
+        }>
           <button
             onClick={() => setShowAvisos(v => !v)}
-            className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-amber-800"
+            className={`w-full flex items-center justify-between px-4 py-3 text-sm font-semibold ${doc.errorConsulta ? 'text-red-800' : 'text-amber-800'}`}
           >
             <span className="flex items-center gap-2">
-              <AlertTriangle size={16} className="text-amber-500" />
-              {doc.avisos.length} {doc.avisos.length === 1 ? 'aviso de datos' : 'avisos de datos'}
+              <AlertTriangle size={16} className={doc.errorConsulta ? 'text-red-500' : 'text-amber-500'} />
+              {doc.errorConsulta
+                ? 'No se pudo cargar el documento — falló una consulta a la base de datos'
+                : `${doc.avisos.length} ${doc.avisos.length === 1 ? 'aviso de datos' : 'avisos de datos'}`}
             </span>
             <ChevronDown size={16} className={`transition-transform duration-200 ${showAvisos ? 'rotate-180' : ''}`} />
           </button>
           {showAvisos && (
-            <ul className="px-4 pb-3 space-y-1 text-sm text-amber-800 list-disc list-inside">
+            <ul className={`px-4 pb-3 space-y-1 text-sm list-disc list-inside ${doc.errorConsulta ? 'text-red-800' : 'text-amber-800'}`}>
               {doc.avisos.map((a, i) => <li key={i}>{a}</li>)}
             </ul>
           )}

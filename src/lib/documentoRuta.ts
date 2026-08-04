@@ -54,6 +54,10 @@ export type DocumentoDia = {
   bloques: BloqueRuta[]
   sinRuta: FilaDocumento[] // despachos del día con ruta NULL
   avisos: string[]         // problemas de datos detectados
+  // true si alguna consulta a Supabase falló (columna faltante, permisos, red...).
+  // Con esto la pantalla puede distinguir "no hubo despachos hoy" de "la consulta se
+  // rompió y por eso no hay nada que mostrar" — antes las dos se veían igual: en blanco.
+  errorConsulta: boolean
 }
 
 export const UMBRAL_RANGO = 8
@@ -551,7 +555,7 @@ export function armarDocumento(
     .map(it => it.fila)
     .sort(compararFila)
 
-  return { fecha, bloques, sinRuta, avisos }
+  return { fecha, bloques, sinRuta, avisos, errorConsulta: false }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -609,6 +613,7 @@ export async function construirDocumentoDia(
     secuenciaDe
   )
   doc.avisos.unshift(...avisosConsulta)
+  doc.errorConsulta = !!errDesp || !!errMan
   return doc
 }
 
