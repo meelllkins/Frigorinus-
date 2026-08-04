@@ -694,6 +694,10 @@ export default function Beneficio() {
           ruta: despRuta,
           codigo_destino: codigoDestinoFinal,
           carro_id: carroId,
+          // Misma dirección que su canal (individual = un solo animal, un solo código).
+          // Se escribe acá y no se deja solo al fallback de documentoRuta.ts: ese fallback
+          // solo une por registro_id (misma raya) y no sobrevive al archivado.
+          direccion: direccionDeRaya(v.registro_id, r.codigo_cliente),
         }))
       )
     }
@@ -797,6 +801,11 @@ export default function Beneficio() {
         codigo_destino: despMultiCtx?.codigo_destino ?? null,
         // Mismo carro que los canales del lote: las vísceras viajan en ese camión.
         carro_id: despMultiCtx?.carro_id ?? null,
+        // Misma dirección que el canal de SU código (direccionDeRaya lee el estado que
+        // quedó de cuando se despachó el canal del lote; no se resetea hasta el próximo
+        // despacho). Escrita acá para que sobreviva al archivado, no solo al fallback de
+        // documentoRuta.ts.
+        direccion: direccionDeRaya(v.registro_id, v.codigo_cliente),
       }))
     )
     setDespMultiCtx(null)

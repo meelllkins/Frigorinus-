@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { DireccionNacional } from '../lib/direccionesNacional'
 
 /**
@@ -23,9 +24,14 @@ export default function DireccionNacionalField({ codigo, guardadas, valor, onVal
   const inputCls =
     'w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-700 focus:ring-1 focus:ring-green-700 transition-colors'
 
+  // Elegir "Otra" limpia `valor` para escribir, y con valor='' el desplegable no puede
+  // distinguir "nada elegido" de "eligió Otra": ambos casos dejan valor=''. Por eso el modo
+  // se guarda aparte, no se deriva de valor.
+  const [modoOtro, setModoOtro] = useState(false)
+
   // Si lo escrito no coincide con ninguna guardada, el desplegable queda en "Otra".
   const coincide = guardadas.some(d => d.direccion === valor)
-  const seleccion = valor === '' ? '' : coincide ? valor : OTRA
+  const seleccion = modoOtro ? OTRA : valor === '' ? '' : coincide ? valor : OTRA
 
   return (
     <div className="mb-3">
@@ -42,8 +48,14 @@ export default function DireccionNacionalField({ codigo, guardadas, valor, onVal
         value={seleccion}
         onChange={e => {
           const v = e.target.value
-          // "Otra" limpia el campo para escribir; si no, se toma la guardada tal cual.
-          onValor(v === OTRA ? '' : v)
+          if (v === OTRA) {
+            // "Otra" limpia el campo para escribir.
+            setModoOtro(true)
+            onValor('')
+          } else {
+            setModoOtro(false)
+            onValor(v)
+          }
         }}
         className={`${inputCls} bg-white mb-2`}
       >

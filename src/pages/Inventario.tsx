@@ -6,6 +6,13 @@ import { fetchClientesMap, type ClienteInfo } from '../lib/clientes'
 import CeldasCliente from '../components/CeldasCliente'
 import ClienteModal from '../components/ClienteModal'
 import RutaFields from '../components/RutaFields'
+import DireccionNacionalField from '../components/DireccionNacionalField'
+import {
+  RUTA_NACIONAL,
+  fetchDireccionesPorCodigo,
+  guardarDireccion,
+  type DireccionNacional,
+} from '../lib/direccionesNacional'
 
 interface VisceraCon {
   id: string
@@ -100,6 +107,11 @@ export default function Inventario() {
   const [despOtroCodigo, setDespOtroCodigo] = useState(false)
   const [despCodigoDestino, setDespCodigoDestino] = useState('')
   const [despachoUnica, setDespachoUnica] = useState<VisceraCon | null>(null)
+  // Dirección SOLO de la ruta Nacional (adelanto de víscera sin canal): catálogo guardado
+  // y lo elegido por código. Sin canal en el mismo acto no hay reparto por raya (eso es
+  // decisión del código completo, no de una víscera suelta).
+  const [direccionesGuardadas, setDireccionesGuardadas] = useState<Record<string, DireccionNacional[]>>({})
+  const [despDireccionPorCodigo, setDespDireccionPorCodigo] = useState<Record<string, string>>({})
   const selectAllRef = useRef<HTMLInputElement>(null)
 
   const [regForm, setRegForm] = useState(getInitialRegForm)
@@ -218,6 +230,7 @@ export default function Inventario() {
     setDespRuta('')
     setDespOtroCodigo(false)
     setDespCodigoDestino('')
+    setDespDireccionPorCodigo({})
   }
 
   // El botón "Despachar" de la fila ahora abre el modal de ruta (obligatoria).
@@ -226,12 +239,34 @@ export default function Inventario() {
     setDespachoUnica(v)
   }
 
+  /** Dirección elegida para un código (solo Nacional). Sin reparto por raya: acá no hay
+   * canal en el mismo acto, así que todas las vísceras de un código comparten una sola. */
+  function direccionDeCodigo(codigo: string): string | null {
+    if (despRuta !== RUTA_NACIONAL) return null
+    const d = (despDireccionPorCodigo[codigo] ?? '').trim()
+    return d === '' ? null : d
+  }
+
+  /** Guarda en el catálogo las direcciones usadas, para reusarlas la próxima vez. */
+  async function persistirDirecciones(codigos: string[]) {
+    if (despRuta !== RUTA_NACIONAL) return
+    const vistos = new Set<string>()
+    for (const codigo of codigos) {
+      if (vistos.has(codigo)) continue
+      vistos.add(codigo)
+      const dir = direccionDeCodigo(codigo)
+      if (!dir) continue
+      await guardarDireccion(codigo, dir)
+    }
+  }
+
   async function handleConfirmDespachoUnica() {
     if (!despachoUnica || !despRuta) return
     const v = despachoUnica
     setDispatching(true)
     const hoy = localToday()
     const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
+    await persistirDirecciones([v.registros_beneficio.codigo_cliente])
     await supabase
       .from('inventario_visceras')
       .update({ estado: 'despachada', fecha_despacho: hoy })
@@ -245,6 +280,9 @@ export default function Inventario() {
       codigo_destino: codigoDestinoFinal,
       // Adelanto de vísceras a Externo: es su propio carro (nadie más viaja con ellas).
       carro_id: despRuta === 'Externo' ? crypto.randomUUID() : null,
+      // Solo Nacional: para que el código no salga partido en el documento de ruta si
+      // esta víscera se adelantó y su canal (con dirección propia) sale otro día.
+      direccion: direccionDeCodigo(v.registros_beneficio.codigo_cliente),
     })
     // El despacho de víscera es independiente: no se toca el estado del animal/canal.
     setSelected(prev => { const next = new Set(prev); next.delete(v.id); return next })
@@ -259,14 +297,16 @@ export default function Inventario() {
     const ids = Array.from(selected)
     const candidates = visceras.filter(v => selected.has(v.id))
 
+    const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
+    // Un solo carro para todo el lote: salen juntas en el mismo camión.
+    const carroId = despRuta === 'Externo' ? crypto.randomUUID() : null
+    await persistirDirecciones(candidates.map(v => v.registros_beneficio.codigo_cliente))
+
     await supabase
       .from('inventario_visceras')
       .update({ estado: 'despachada', fecha_despacho: hoy })
       .in('id', ids)
 
-    const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
-    // Un solo carro para todo el lote: salen juntas en el mismo camión.
-    const carroId = despRuta === 'Externo' ? crypto.randomUUID() : null
     await supabase.from('despachos').insert(
       candidates.map(v => ({
         registro_id: v.registro_id,
@@ -276,6 +316,9 @@ export default function Inventario() {
         ruta: despRuta,
         codigo_destino: codigoDestinoFinal,
         carro_id: carroId,
+        // Solo Nacional, por código (ver direccionDeCodigo): así el lote no sale partido
+        // en el documento si su(s) canal(es) todavía no se despachó(aron).
+        direccion: direccionDeCodigo(v.registros_beneficio.codigo_cliente),
       }))
     )
 
@@ -296,6 +339,31 @@ export default function Inventario() {
     if (!isNaN(na) && !isNaN(nb)) return na - nb
     return a.localeCompare(b)
   })
+
+  // Códigos de las vísceras seleccionadas para el despacho múltiple (para pedir su
+  // dirección cuando la ruta es Nacional). Como string join -> no dispara el efecto de
+  // abajo en cada render, solo cuando el conjunto de códigos realmente cambia.
+  const codigosSeleccionados = [...new Set(
+    visceras.filter(v => selected.has(v.id)).map(v => v.registros_beneficio.codigo_cliente)
+  )]
+  const codigosSeleccionadosKey = codigosSeleccionados.join('|')
+
+  // Al elegir ruta Nacional se traen las direcciones ya guardadas de los códigos en juego
+  // (el despacho único, o los de la selección múltiple). El await va ANTES del setState
+  // (regla set-state-in-effect del compilador de React).
+  useEffect(() => {
+    if (despRuta !== RUTA_NACIONAL) return
+    const codigos = despachoUnica
+      ? [despachoUnica.registros_beneficio.codigo_cliente]
+      : codigosSeleccionadosKey.split('|').filter(c => c !== '')
+    if (codigos.length === 0) return
+    let vigente = true
+    void (async () => {
+      const mapa = await fetchDireccionesPorCodigo(codigos)
+      if (vigente) setDireccionesGuardadas(mapa)
+    })()
+    return () => { vigente = false }
+  }, [despRuta, despachoUnica, codigosSeleccionadosKey])
 
   const allVisibleSelected =
     visibleVisceras.length > 0 && visibleVisceras.every(v => selected.has(v.id))
@@ -408,6 +476,16 @@ export default function Inventario() {
               codigoDestino={despCodigoDestino}
               onCodigoDestino={setDespCodigoDestino}
             />
+            {despRuta === RUTA_NACIONAL && codigosSeleccionados.map(cod => (
+              <DireccionNacionalField
+                key={cod}
+                codigo={cod}
+                mostrarCodigo
+                guardadas={direccionesGuardadas[cod] ?? []}
+                valor={despDireccionPorCodigo[cod] ?? ''}
+                onValor={v => setDespDireccionPorCodigo(prev => ({ ...prev, [cod]: v }))}
+              />
+            ))}
             <div className="flex gap-3 justify-end">
               <button
                 onClick={() => setShowModal(false)}
@@ -445,6 +523,16 @@ export default function Inventario() {
               codigoDestino={despCodigoDestino}
               onCodigoDestino={setDespCodigoDestino}
             />
+            {despRuta === RUTA_NACIONAL && (
+              <DireccionNacionalField
+                codigo={despachoUnica.registros_beneficio.codigo_cliente}
+                guardadas={direccionesGuardadas[despachoUnica.registros_beneficio.codigo_cliente] ?? []}
+                valor={despDireccionPorCodigo[despachoUnica.registros_beneficio.codigo_cliente] ?? ''}
+                onValor={v =>
+                  setDespDireccionPorCodigo(prev => ({ ...prev, [despachoUnica.registros_beneficio.codigo_cliente]: v }))
+                }
+              />
+            )}
             <div className="flex gap-3 justify-end">
               <button
                 onClick={() => setDespachoUnica(null)}
