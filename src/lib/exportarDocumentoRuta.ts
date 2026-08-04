@@ -147,11 +147,9 @@ function escribirBovinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: number
   r++
 
   const first = r
-  for (const [i, f] of sec.filas.entries()) {
-    // Marca de dónde empiezan los códigos sin orden de entrega (los que van al final).
-    if (f.secuencia == null && i > 0 && sec.filas[i - 1].secuencia != null) {
-      h.combinada(r++, c, cEnd, { v: '— SIN ORDEN DE ENTREGA ASIGNADO —', t: 's', s: ss.datos })
-    }
+  // Los códigos sin orden de entrega igual salen al final (los ordena seccionDe), pero en el
+  // Excel van SIN separador ni aviso: Rafa lo quiere limpio. El aviso queda solo en pantalla.
+  for (const f of sec.filas) {
     h.celda(r, c, { v: f.cod, t: 's', s: ss.datos })
     h.celda(r, c + 1, { v: f.cant, t: 'n', s: ss.datos })
     h.celda(r, c + 2, { v: f.vb, t: 'n', s: ss.datos })
@@ -184,10 +182,7 @@ function escribirPorcinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: numbe
   r++
 
   const first = r
-  for (const [i, f] of sec.filas.entries()) {
-    if (f.secuencia == null && i > 0 && sec.filas[i - 1].secuencia != null) {
-      h.combinada(r++, c, cEnd, { v: '— SIN ORDEN DE ENTREGA ASIGNADO —', t: 's', s: ss.datos })
-    }
+  for (const f of sec.filas) {
     h.combinada(r, c, c + 2, { v: f.cod, t: 's', s: ss.datos })
     h.celda(r, c + 3, { v: f.cant, t: 'n', s: ss.datos })
     h.celda(r, c + 4, { v: f.vb, t: 'n', s: ss.datos })
