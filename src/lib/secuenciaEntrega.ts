@@ -17,29 +17,36 @@ import type { DocumentoDia, FilaDocumento, ResolverSecuencia } from './documento
 // y el Documento de ruta no pueden discrepar: es el mismo cálculo.
 
 /**
- * Rutas que se REORDENAN por secuencia. Las demás (Puerto Berrío, Cisneros/San
- * Roque, Don Matías, Gómez Plata, Nacional, Barbosa) las ordena el cliente, así
- * que salen en el orden en que vienen.
+ * Las 10 rutas REGIONALES: se ordenan por el maestro de secuencia (orden de entrega).
+ * Son exactamente las que tienen maestro cargado en `secuencia_entrega`, y los nombres
+ * coinciden EXACTO con RUTAS (src/lib/rutas.ts) y con lo que guarda `despachos.ruta`.
  *
- * ⚠️ A CONFIRMAR CON RAFA: el Excel tiene maestro poblado también en BERRIO,
- * CISNEROS SAN ROQUE, DON MATIAS y GOMEZ PLATA. Los cuatro se cargaron a la
- * tabla, pero acá NO se reordenan, porque en esas rutas el orden lo define el
- * cliente. Para activar cualquiera, basta agregarla a esta lista (no hay que
- * tocar la base: el maestro ya está cargado).
+ * Las que NO están acá —Nacional, Barbosa y Externo— no llevan orden de entrega por
+ * diseño: sus códigos nunca generan aviso ni preguntan por una secuencia.
  */
 export const RUTAS_CON_SECUENCIA: readonly string[] = [
   'Remedios/Segovia',
   'Cimitarra',
-  'Yalí/Vegachí',
+  'Yalí/Vegachí',      // hoja "FLORES-YALI-VEGA" del Excel
   'San José/Maceo',
   'Caracolí/Cristales',
   'Yolombó',
+  'Puerto Berrío',     // hoja "BERRIO"
+  'Cisneros/San Roque',
+  'Don Matías',
+  'Gómez Plata',
 ]
+
+/** ¿Esta ruta ordena por secuencia? Es la ÚNICA condición para avisar/preguntar. */
+export function rutaUsaSecuencia(ruta: string): boolean {
+  return RUTAS_CON_SECUENCIA.includes(ruta)
+}
 
 /** Rutas cuyo orden de entrega cambia según el día (hoy solo Cimitarra). */
 export const RUTAS_CON_DIA: readonly string[] = ['Cimitarra']
 
 export type MaestroRow = {
+  id: string
   ruta: string
   ciudad: string | null
   dia: string | null // NULL = sirve cualquier día
@@ -140,6 +147,46 @@ export function crearResolverSecuencia(maestro: MaestroRow[], diaEntrega: string
   }
 }
 
+/**
+ * Asigna (o corrige) la secuencia de un código en una ruta. Lo llama el Documento de ruta
+ * cuando Rafa le pone orden a un código que no lo tenía, o corrige uno existente.
+ *
+ * NO hace upsert de PostgREST a propósito: el índice único de la tabla es
+ * (ruta, COALESCE(dia,''), codigo), una EXPRESIÓN, y onConflict solo admite nombres de
+ * columna. Así que se busca la fila en el maestro que ya está en memoria —con el mismo
+ * criterio tolerante que usa el orden, o sea '04' ≡ '4'— y se ACTUALIZA por id; solo se
+ * inserta si no existía. Con eso reasignar nunca duplica.
+ *
+ * El número se guarda TAL CUAL lo escribe Rafa: no se corren las demás secuencias. Si dos
+ * códigos quedan con el mismo número, desempatan por código (el comportamiento de siempre).
+ */
+export async function guardarSecuencia(
+  maestro: MaestroRow[],
+  ruta: string,
+  codigo: string,
+  secuencia: number,
+  diaEntrega: string
+): Promise<boolean> {
+  const cod = codigo.trim()
+  if (cod === '' || !Number.isFinite(secuencia)) return false
+
+  const usaDia = RUTAS_CON_DIA.includes(ruta)
+  const dia = usaDia ? diaEntrega : null
+  const existente = maestro.find(
+    m => m.ruta === ruta && (!usaDia || m.dia == null || m.dia === diaEntrega) && mismoCodigo(m.codigo, cod)
+  )
+
+  const { error } = existente
+    ? await supabase.from('secuencia_entrega').update({ secuencia }).eq('id', existente.id)
+    : await supabase.from('secuencia_entrega').insert({ ruta, ciudad: null, dia, codigo: cod, secuencia })
+
+  if (error) {
+    console.error('[secuenciaEntrega] Error guardando la secuencia:', error)
+    return false
+  }
+  return true
+}
+
 // ── Parte pura: armar las hojas ──────────────────────────────────────────────
 
 /**
@@ -218,7 +265,7 @@ export function armarSecuencia(doc: DocumentoDia, maestro: MaestroRow[], diaEntr
 export async function fetchMaestroSecuencia(): Promise<MaestroRow[]> {
   const { data, error } = await supabase
     .from('secuencia_entrega')
-    .select('ruta, ciudad, dia, codigo, secuencia')
+    .select('id, ruta, ciudad, dia, codigo, secuencia')
     .order('ruta', { ascending: true })
     .order('secuencia', { ascending: true })
 

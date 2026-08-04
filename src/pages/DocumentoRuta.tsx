@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Fragment } from 'react'
 import { RefreshCw, AlertTriangle, ChevronDown, FileSpreadsheet } from 'lucide-react'
 import {
   construirDocumentoDia,
@@ -15,6 +15,9 @@ import {
   fetchMaestroSecuencia,
   crearResolverSecuencia,
   diaEntregaDe,
+  rutaUsaSecuencia,
+  guardarSecuencia,
+  type MaestroRow,
 } from '../lib/secuenciaEntrega'
 
 // Fecha local de hoy (mismo patrón que el resto del proyecto: YYYY-MM-DD local, sin new Date() suelto).
@@ -59,21 +62,36 @@ const cellInputCls =
  * Si el maestro no se puede leer (tabla sin crear, sin permisos), devuelve undefined y
  * el documento sale con su orden de siempre — nunca rompe la pantalla.
  */
-async function cargarDocumento(fecha: string): Promise<DocumentoDia> {
+async function cargarDocumento(fecha: string): Promise<{ doc: DocumentoDia; maestro: MaestroRow[] }> {
   const maestro = await fetchMaestroSecuencia()
   const resolver = maestro.length > 0 ? crearResolverSecuencia(maestro, diaEntregaDe(fecha)) : undefined
-  const d = await construirDocumentoDia(fecha, resolver)
+  const doc = await construirDocumentoDia(fecha, resolver)
+
   // Sin maestro el documento igual se arma, pero las rutas regionales salen SIN el orden de
   // entrega (queda el orden por código). Antes esto pasaba en SILENCIO y era indistinguible
   // de un bug de ordenamiento; ahora se avisa en pantalla.
   if (maestro.length === 0) {
-    d.avisos.unshift(
+    doc.avisos.unshift(
       'No se pudo leer el maestro de secuencia de entrega (tabla secuencia_entrega vacía o sin acceso): ' +
       'las rutas regionales salen ordenadas por código, no por orden de entrega. ' +
       '¿Falta correr migracion_secuencia_entrega.sql?'
     )
   }
-  return d
+
+  // Códigos sin orden asignado. SOLO en rutas regionales: en Nacional/Barbosa/Externo no
+  // existe la secuencia, así que un código sin match ahí no es un problema y no se avisa.
+  for (const b of doc.bloques) {
+    if (!rutaUsaSecuencia(b.ruta)) continue
+    const sinOrden = [...b.bovinos.filas, ...b.porcinos.filas].filter(f => f.secuencia == null)
+    if (sinOrden.length === 0) continue
+    const codigos = [...new Set(sinOrden.map(f => f.codigoCliente))].join(', ')
+    doc.avisos.push(
+      `${b.ruta}: ${sinOrden.length === 1 ? 'el código' : 'los códigos'} ${codigos} ` +
+      `no ${sinOrden.length === 1 ? 'tiene' : 'tienen'} orden de entrega asignado; ` +
+      `${sinOrden.length === 1 ? 'sale' : 'salen'} al final. Se puede asignar desde la tabla.`
+    )
+  }
+  return { doc, maestro }
 }
 
 export default function DocumentoRuta() {
@@ -85,12 +103,18 @@ export default function DocumentoRuta() {
   const [manualLocal, setManualLocal] = useState<Record<string, DatosManuales>>({})
   // Edición local de cabeza/patas por fila (se limpia con cada doc nuevo → refleja lo guardado).
   const [cpLocal, setCpLocal] = useState<Record<string, { cabeza: string; patas: string }>>({})
+  // El maestro se guarda para poder ACTUALIZAR la secuencia de un código existente
+  // (guardarSecuencia lo necesita para no duplicar filas).
+  const [maestro, setMaestro] = useState<MaestroRow[]>([])
+  // Fila cuya secuencia se está editando (key de la fila) y el valor tipeado.
+  const [editSec, setEditSec] = useState<{ key: string; valor: string } | null>(null)
 
   // Refresco (botón "Actualizar" / pestaña visible): recarga SIN reiniciar los campos
   // manuales — conserva lo que Rafa esté escribiendo y solo agrega rutas nuevas.
   const cargar = useCallback(async () => {
-    const d = await cargarDocumento(fecha)
+    const { doc: d, maestro: m } = await cargarDocumento(fecha)
     setDoc(d)
+    setMaestro(m)
     setCpLocal({}) // cabeza/patas se re-derivan del doc recién cargado
     setManualLocal(prev => {
       const next = { ...prev }
@@ -107,9 +131,10 @@ export default function DocumentoRuta() {
   useEffect(() => {
     let vigente = true
     void (async () => {
-      const d = await cargarDocumento(fecha)
+      const { doc: d, maestro: m } = await cargarDocumento(fecha)
       if (!vigente) return
       setDoc(d)
+      setMaestro(m)
       setCpLocal({})
       const manual: Record<string, DatosManuales> = {}
       for (const b of d.bloques) manual[claveBloque(b)] = b.manual ?? manualVacio()
@@ -180,6 +205,17 @@ export default function DocumentoRuta() {
     if (ok) await cargar() // recalcula totales de la sección
   }
 
+  // ── Secuencia de entrega (solo rutas regionales) ───────────────
+  // Rafa asigna el número que corresponde; se guarda tal cual, sin correr las demás.
+  async function guardarSec(ruta: string, f: FilaDocumento, valor: string) {
+    setEditSec(null)
+    const n = Number(valor.trim())
+    if (valor.trim() === '' || !Number.isFinite(n)) return
+    if (n === f.secuencia) return // sin cambios
+    const ok = await guardarSecuencia(maestro, ruta, f.codigoCliente, n, diaEntregaDe(fecha))
+    if (ok) await cargar() // recarga: el documento se reordena con la secuencia nueva
+  }
+
   // ── Exportar a Excel ───────────────────────────────────────────
   // Usa los datos manuales del ESTADO LOCAL (lo que Rafa ve, aunque no haya sacado el foco).
   function exportar() {
@@ -188,7 +224,8 @@ export default function DocumentoRuta() {
   }
 
   // ── Render de una tabla de sección ─────────────────────────────
-  function tabla(titulo: string, seccion: SeccionDocumento, conCP: boolean, editable: boolean) {
+  function tabla(titulo: string, seccion: SeccionDocumento, conCP: boolean, editable: boolean, ruta: string | null = null) {
+    const conSecuencia = ruta != null && rutaUsaSecuencia(ruta)
     const thCls = 'text-left px-4 py-2.5 font-semibold text-white text-xs uppercase tracking-wider'
     const tdNum = 'px-4 py-2.5 text-gray-700 text-right'
     return (
@@ -215,9 +252,49 @@ export default function DocumentoRuta() {
                 seccion.filas.map((f, i) => {
                   const cp = cpLocal[filaKey(f)] ?? cpDe(f)
                   const sinCanal = f.despachoIdsCanal.length === 0
+                  // Separador: se dibuja UNA vez, justo antes del primer código sin orden.
+                  const primeroSinOrden =
+                    conSecuencia && f.secuencia == null &&
+                    (i === 0 || seccion.filas[i - 1].secuencia != null)
+                  const editando = editSec?.key === f.key
                   return (
-                    <tr key={f.key} className={i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}>
-                      <td className="px-4 py-2.5 font-mono font-semibold text-gray-900">{f.cod}</td>
+                    <Fragment key={f.key}>
+                      {primeroSinOrden && (
+                        <tr className="bg-amber-50">
+                          <td colSpan={conCP ? 6 : 4} className="px-4 py-1.5 text-center text-[11px] font-semibold text-amber-700 uppercase tracking-wider">
+                            — Sin orden de entrega asignado —
+                          </td>
+                        </tr>
+                      )}
+                    <tr className={i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}>
+                      <td className="px-4 py-2.5 font-mono font-semibold text-gray-900">
+                        {f.cod}
+                        {conSecuencia && (
+                          editando ? (
+                            <input
+                              type="number" min={1} autoFocus
+                              value={editSec.valor}
+                              onChange={e => setEditSec({ key: f.key, valor: e.target.value })}
+                              onBlur={e => guardarSec(ruta, f, e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setEditSec(null) }}
+                              className="ml-2 w-16 border border-gray-300 rounded px-1 py-0.5 text-xs font-sans"
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setEditSec({ key: f.key, valor: f.secuencia != null ? String(f.secuencia) : '' })}
+                              title={f.secuencia != null ? 'Cambiar el orden de entrega' : 'Asignar orden de entrega'}
+                              className={`ml-2 px-1.5 py-0.5 rounded text-[11px] font-sans font-semibold transition-colors ${
+                                f.secuencia != null
+                                  ? 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'
+                                  : 'text-amber-700 bg-amber-100 hover:bg-amber-200'
+                              }`}
+                            >
+                              {f.secuencia != null ? f.secuencia : 'sin orden'}
+                            </button>
+                          )
+                        )}
+                      </td>
                       <td className={tdNum}>{f.cant}</td>
                       <td className={tdNum}>{f.vb}</td>
                       <td className={tdNum}>{f.vr}</td>
@@ -241,6 +318,7 @@ export default function DocumentoRuta() {
                         </>
                       ))}
                     </tr>
+                    </Fragment>
                   )
                 })
               )}
@@ -364,8 +442,8 @@ export default function DocumentoRuta() {
                   tiene filas, para que no aparezca la vacía al lado (eso es lo que se veía como
                   "res y cerdo mezclados"). Las rutas con nombre sí muestran las dos aunque una
                   esté vacía, que es como Rafa arma sus alineaciones. */}
-              {(b.ruta !== 'Externo' || b.bovinos.filas.length > 0) && tabla('Bovinos', b.bovinos, true, true)}
-              {(b.ruta !== 'Externo' || b.porcinos.filas.length > 0) && tabla('Porcinos', b.porcinos, false, true)}
+              {(b.ruta !== 'Externo' || b.bovinos.filas.length > 0) && tabla('Bovinos', b.bovinos, true, true, b.ruta)}
+              {(b.ruta !== 'Externo' || b.porcinos.filas.length > 0) && tabla('Porcinos', b.porcinos, false, true, b.ruta)}
 
               {direccionesDelBloque(b).length > 0 && (
                 <div>

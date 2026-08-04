@@ -21,6 +21,9 @@ export type FilaDocumento = {
   despachoIds: string[]      // ids de TODAS las filas de `despachos` del grupo
   despachoIdsCanal: string[] // ids de las filas de CANAL del grupo, ordenados (para corregir cabeza/patas)
   direccion: string | null   // solo ruta Nacional: punto de entrega elegido al despachar
+  // Orden de entrega resuelto contra el maestro. null = la ruta no usa secuencia, o el
+  // código todavía no tiene orden asignado (esas filas caen al final del bloque).
+  secuencia: number | null
 }
 
 export type SeccionDocumento = {
@@ -270,6 +273,7 @@ function grupoAFila(g: Grupo): FilaDocumento {
     despachoIds: g.despachoIds,
     despachoIdsCanal: [...g.despachoIdsCanal].sort(), // ordenado por id -> estable entre refrescos
     direccion: g.direccion,
+    secuencia: null, // la resuelve seccionDe(), que es quien tiene el maestro
   }
 }
 
@@ -286,13 +290,16 @@ function seccionDe(filas: FilaDocumento[], ruta: string | null, secuenciaDe?: Re
   // menor a mayor (el 1 se entrega primero). Si no hay resolver, o la ruta no lleva
   // secuencia, o el código no está en el maestro, la secuencia es null -> todas quedan
   // "empatadas" y manda compararFila, o sea el orden de siempre.
-  const secDe = (f: FilaDocumento): number =>
-    (ruta != null && secuenciaDe ? secuenciaDe(ruta, f) : null) ?? Number.POSITIVE_INFINITY
-  const ordenadas = [...filas].sort((a, b) => {
-    const sa = secDe(a), sb = secDe(b)
-    if (sa !== sb) return sa - sb
-    return compararFila(a, b) // desempate determinista (incluye códigos sin secuencia)
-  })
+  // La secuencia se guarda EN la fila: la usan el orden, el separador "sin orden asignado"
+  // de la pantalla y del Excel, y el control para asignarla. Así nadie la recalcula aparte.
+  const ordenadas = filas
+    .map(f => ({ ...f, secuencia: ruta != null && secuenciaDe ? secuenciaDe(ruta, f) : null }))
+    .sort((a, b) => {
+      const sa = a.secuencia ?? Number.POSITIVE_INFINITY
+      const sb = b.secuencia ?? Number.POSITIVE_INFINITY
+      if (sa !== sb) return sa - sb
+      return compararFila(a, b) // desempate determinista (incluye códigos sin secuencia)
+    })
   const totales = { cant: 0, vb: 0, vr: 0, cabeza: 0, patas: 0 }
   for (const f of ordenadas) {
     totales.cant += f.cant
