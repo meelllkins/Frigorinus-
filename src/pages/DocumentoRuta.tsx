@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, Fragment } from 'react'
+import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
 import { RefreshCw, AlertTriangle, ChevronDown, FileSpreadsheet } from 'lucide-react'
 import {
   construirDocumentoDia,
@@ -42,6 +42,21 @@ function claveBloque(b: { ruta: string; carroId: string | null }): string {
 
 function manualVacio(): DatosManuales {
   return { conductor: null, auxiliar: null, placa: null, horaProgramada: null, observacion: null }
+}
+
+/**
+ * Espera antes de persistir lo tipeado. Suficiente para no escribir letra por letra,
+ * corto para que un cambio de pestaña o de módulo llegue después del guardado.
+ */
+const GUARDADO_MS = 1000
+
+/** Una escritura pendiente: se acumula por BLOQUE, así varios campos del mismo
+ *  encabezado salen en un solo upsert en vez de uno por campo. */
+type EscrituraPendiente = {
+  fecha: string
+  ruta: string
+  carroId: string | null
+  datos: Partial<DatosManuales>
 }
 
 function toNumOrNull(s: string): number | null {
@@ -108,6 +123,14 @@ export default function DocumentoRuta() {
   const [maestro, setMaestro] = useState<MaestroRow[]>([])
   // Fila cuya secuencia se está editando (key de la fila) y el valor tipeado.
   const [editSec, setEditSec] = useState<{ key: string; valor: string } | null>(null)
+  // Escrituras del encabezado todavía no confirmadas contra la base, por clave de bloque.
+  // Va en un ref y no en estado: se lee desde el cleanup del desmontaje, donde un
+  // valor capturado por render ya sería viejo.
+  const pendientesRef = useRef<Map<string, EscrituraPendiente>>(new Map())
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Último fallo de guardado del encabezado. Antes se descartaba: el dato se veía en
+  // pantalla (estado local) y desaparecía recién al volver, sin nada que lo explicara.
+  const [errorGuardado, setErrorGuardado] = useState<string | null>(null)
 
   // Refresco (botón "Actualizar" / pestaña visible): recarga SIN reiniciar los campos
   // manuales — conserva lo que Rafa esté escribiendo y solo agrega rutas nuevas.
@@ -151,22 +174,79 @@ export default function DocumentoRuta() {
   }, [cargar])
 
   // ── Campos manuales ────────────────────────────────────────────
+  // Persistir SOLO en onBlur perdía lo tipeado: si el campo no se confirma y la pantalla
+  // se desmonta (cambio de módulo) o la página se recarga (PWA vuelta del fondo), se va
+  // con ella `manualLocal`, que es estado de React; al volver, el efecto de montaje
+  // reconstruye el encabezado desde la base y lo escrito nunca existió. Ahora cada tecla
+  // agenda el guardado y el blur solo lo adelanta.
+
+  /** Escribe lo pendiente y corta el temporizador. La llaman el debounce, el blur, el
+   *  ocultado de la pestaña y la salida de la pantalla. */
+  const flushManual = useCallback(async () => {
+    if (timerRef.current != null) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+    if (pendientesRef.current.size === 0) return
+    // Se vacía ANTES de esperar: lo que se tipee durante el viaje a la base entra como
+    // pendiente nuevo en vez de perderse dentro de este lote.
+    const lote = [...pendientesRef.current.values()]
+    pendientesRef.current.clear()
+
+    const fallas: string[] = []
+    for (const p of lote) {
+      const r = await guardarDatosManuales(p.fecha, p.ruta, p.datos, p.carroId)
+      if (!r.ok) fallas.push(`${p.ruta}: ${r.mensaje}`)
+    }
+    setErrorGuardado(fallas.length > 0 ? fallas.join(' · ') : null)
+  }, [])
+
+  /** Agenda el guardado de un campo, acumulando por bloque: si varios campos del mismo
+   *  encabezado quedan sucios a la vez (sin blur de por medio), salen en un solo upsert. */
+  function encolarManual(b: BloqueRuta, key: keyof DatosManuales, valor: string) {
+    const k = claveBloque(b)
+    const previo = pendientesRef.current.get(k)
+    pendientesRef.current.set(k, {
+      // La fecha viaja con la escritura: si se mueve el selector, lo pendiente se guarda
+      // en el día en el que se escribió.
+      fecha,
+      ruta: b.ruta,
+      carroId: b.carroId, // el carro va en la clave: dos externos del mismo día no se pisan
+      datos: { ...previo?.datos, [key]: valor.trim() === '' ? null : valor } as Partial<DatosManuales>,
+    })
+    if (timerRef.current != null) clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => { void flushManual() }, GUARDADO_MS)
+  }
+
   function setCampoManual(b: BloqueRuta, key: keyof DatosManuales, valor: string) {
     const k = claveBloque(b)
     setManualLocal(prev => ({
       ...prev,
       [k]: { ...(prev[k] ?? manualVacio()), [key]: valor === '' ? null : valor } as DatosManuales,
     }))
+    encolarManual(b, key, valor)
   }
+
   function guardarCampoManual(b: BloqueRuta, key: keyof DatosManuales, valor: string) {
-    // El carro va en la clave: dos carros externos del mismo día ya no se pisan.
-    guardarDatosManuales(
-      fecha,
-      b.ruta,
-      { [key]: valor.trim() === '' ? null : valor } as Partial<DatosManuales>,
-      b.carroId
-    )
+    encolarManual(b, key, valor)
+    void flushManual()
   }
+
+  // Respaldo del debounce para el segundo justo antes de irse: se fuerza la escritura al
+  // ocultarse la pestaña, al descargarse la página y en el cleanup del desmontaje — este
+  // último es el punto exacto en el que `manualLocal` deja de existir. La petición ya
+  // despachada sobrevive al desmontaje; lo que no sobrevive es el estado.
+  useEffect(() => {
+    const onOcultar = () => { if (document.visibilityState === 'hidden') void flushManual() }
+    const onDescargar = () => { void flushManual() }
+    document.addEventListener('visibilitychange', onOcultar)
+    window.addEventListener('pagehide', onDescargar)
+    return () => {
+      document.removeEventListener('visibilitychange', onOcultar)
+      window.removeEventListener('pagehide', onDescargar)
+      void flushManual()
+    }
+  }, [flushManual])
 
   function campoManual(b: BloqueRuta, campo: keyof DatosManuales, label: string) {
     return (
@@ -395,6 +475,16 @@ export default function DocumentoRuta() {
         <p className="text-xs text-amber-700 -mt-3">
           Hay despachos sin ruta asignada: se exportan en una hoja aparte llamada «Sin ruta».
         </p>
+      )}
+
+      {errorGuardado && (
+        <div className="border border-red-300 bg-red-50 rounded-xl px-4 py-3 flex items-start gap-2">
+          <AlertTriangle size={16} className="text-red-500 mt-0.5 shrink-0" />
+          <div className="text-sm text-red-800 min-w-0">
+            <p className="font-semibold">Los datos del encabezado NO se guardaron.</p>
+            <p className="mt-0.5 break-words">{errorGuardado}</p>
+          </div>
+        </div>
       )}
 
       {doc && doc.avisos.length > 0 && (

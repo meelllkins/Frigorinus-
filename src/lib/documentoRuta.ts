@@ -613,17 +613,23 @@ export async function construirDocumentoDia(
 }
 
 /**
+ * Resultado de un guardado. En el fallo viaja el mensaje del motor: es lo único que
+ * distingue "no hay red" de "la columna o el UNIQUE no existen en la tabla".
+ */
+export type ResultadoGuardado = { ok: true } | { ok: false; mensaje: string }
+
+/**
  * Upsert de los datos manuales de una ruta en `documentos_ruta` (onConflict fecha,ruta).
  * `datos` es parcial: solo se escriben las columnas presentes. OJO con el nombre:
  * en la BD es `hora_programada`, en DatosManuales es `horaProgramada`.
- * Devuelve true/false; nunca lanza.
+ * Nunca lanza: el fallo vuelve en el resultado para que la pantalla pueda mostrarlo.
  */
 export async function guardarDatosManuales(
   fecha: string,
   ruta: string,
   datos: Partial<DatosManuales>,
   carroId: string | null = null
-): Promise<boolean> {
+): Promise<ResultadoGuardado> {
   // carro_id '' = ruta con nombre (una sola fila por fecha+ruta, como siempre).
   // En Externo cada carro guarda la suya, así dos carros del mismo día no se pisan.
   const fila: Record<string, string | null> = { fecha, ruta, carro_id: carroId ?? '' }
@@ -639,9 +645,9 @@ export async function guardarDatosManuales(
 
   if (error) {
     console.error('[documentoRuta] Error guardando datos manuales:', error)
-    return false
+    return { ok: false, mensaje: error.message }
   }
-  return true
+  return { ok: true }
 }
 
 /**
