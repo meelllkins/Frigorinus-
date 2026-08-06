@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx-js-style'
+import { claveBloque } from './documentoRuta'
 import type {
   DocumentoDia,
   BloqueRuta,
@@ -16,14 +17,12 @@ function sinTildes(s: string): string {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
 }
 
-// La fecha que se MUESTRA/nombra en el documento es la de ENTREGA: lo despachado un día
-// se entrega al siguiente (despacho + 1). Se calcula UNA sola vez en exportarDocumentoRuta y
-// se pasa igual a todos los bloques (incluido Externo). El filtro por fecha de despacho y el
-// nombre del archivo descargado NO cambian; solo cambia lo que se imprime dentro del Excel.
-function fechaEntrega(fecha: string): Date {
-  const d = new Date(fecha + 'T00:00:00')
-  d.setDate(d.getDate() + 1)
-  return d
+// La fecha que se MUESTRA/nombra en el documento es la de ENTREGA. Antes se deducía acá
+// como despacho + 1; ahora viene resuelta en `doc.fechaEntrega` y esto solo la convierte a
+// Date para formatearla. El filtro por fecha de despacho y el nombre del archivo descargado
+// NO cambian; solo cambia de dónde sale lo que se imprime dentro del Excel.
+function comoFecha(fecha: string): Date {
+  return new Date(fecha + 'T00:00:00')
 }
 
 // "JUEVES 30 JULIO": día de semana + día + mes, MAYÚSCULA sin tildes, desde una fecha ya resuelta.
@@ -274,18 +273,17 @@ function hojaSinRuta(sinRuta: FilaDocumento[]): MatrizPlana {
   return filas
 }
 
-/**
- * Exporta el documento del día a un .xlsx con el formato de Rafa.
- * `manualEnPantalla` = datos manuales del estado local de la pantalla (lo que Rafa ve,
- * aunque no haya sacado el foco de un campo).
- */
-export function exportarDocumentoRuta(doc: DocumentoDia, manualEnPantalla: Map<string, DatosManuales>): void {
-  const wb = XLSX.utils.book_new()
+/** Escribe UN documento (una fecha de entrega) como una hoja del libro. */
+function agregarHojaDocumento(
+  wb: XLSX.WorkBook,
+  doc: DocumentoDia,
+  manualEnPantalla: Map<string, DatosManuales>
+): void {
   const h = new Hoja()
 
-  // Fecha de ENTREGA (despacho + 1) calculada UNA sola vez; el mismo texto va a todos los
+  // Fecha de ENTREGA del documento, formateada UNA sola vez; el mismo texto va a todos los
   // bloques y al nombre de hoja. Ningún bloque la recalcula ni usa la fecha de despacho.
-  const entrega = fechaEntrega(doc.fecha)
+  const entrega = comoFecha(doc.fechaEntrega)
   const textoFecha = textoLineaFecha(entrega)
 
   // Bloques lado a lado con ANCHO VARIABLE: el de Nacional lleva una columna extra a la
@@ -297,7 +295,7 @@ export function exportarDocumentoRuta(doc: DocumentoDia, manualEnPantalla: Map<s
     const llevaDireccion = [...b.bovinos.filas, ...b.porcinos.filas].some(f => f.direccion)
     const ancho = llevaDireccion ? COLS_TABLA + 1 : COLS_TABLA
 
-    escribirBloque(h, b, c, textoFecha, manualEnPantalla.get(b.carroId ? `${b.ruta}|${b.carroId}` : b.ruta) ?? b.manual ?? null, b.ruta === 'Externo', ancho)
+    escribirBloque(h, b, c, textoFecha, manualEnPantalla.get(claveBloque(doc.fechaEntrega, b)) ?? b.manual ?? null, b.ruta === 'Externo', ancho)
 
     for (const w of ANCHOS_BLOQUE) cols.push({ wch: w })
     if (llevaDireccion) cols.push({ wch: ANCHO_DIRECCION })
@@ -306,13 +304,35 @@ export function exportarDocumentoRuta(doc: DocumentoDia, manualEnPantalla: Map<s
   }
 
   XLSX.utils.book_append_sheet(wb, h.toSheet(cols), textoNombreHoja(entrega))
+}
 
-  if (doc.sinRuta.length > 0) {
+/**
+ * Exporta la jornada a un .xlsx con el formato de Rafa: UNA hoja por fecha de entrega.
+ * En un día normal `docs` trae un solo documento y el libro sale idéntico a antes; en
+ * víspera de festivo salen dos hojas, "7 AGOSTO" y "8 AGOSTO", cada una con sus bloques.
+ *
+ * `manualEnPantalla` = datos manuales del estado local de la pantalla (lo que Rafa ve,
+ * aunque no haya sacado el foco de un campo), por clave de bloque (ver claveBloque).
+ */
+export function exportarDocumentoRuta(docs: DocumentoDia[], manualEnPantalla: Map<string, DatosManuales>): void {
+  if (docs.length === 0) return
+  const wb = XLSX.utils.book_new()
+
+  for (const doc of docs) agregarHojaDocumento(wb, doc, manualEnPantalla)
+
+  // "Sin ruta" también es POR documento. Con una sola fecha de entrega la hoja se sigue
+  // llamando 'Sin ruta' (igual que siempre); con varias se le agrega el día para que los
+  // nombres no choquen —Excel no admite dos hojas con el mismo nombre—.
+  for (const doc of docs) {
+    if (doc.sinRuta.length === 0) continue
     const matSin = hojaSinRuta(doc.sinRuta)
     const wsSin = XLSX.utils.aoa_to_sheet(matSin)
     wsSin['!cols'] = anchosColumnas(matSin)
-    XLSX.utils.book_append_sheet(wb, wsSin, 'Sin ruta')
+    const nombre = docs.length === 1 ? 'Sin ruta' : `Sin ruta ${textoNombreHoja(comoFecha(doc.fechaEntrega))}`
+    XLSX.utils.book_append_sheet(wb, wsSin, nombre.slice(0, 31))
   }
 
-  XLSX.writeFile(wb, `Documento de ruta ${doc.fecha}.xlsx`)
+  // El nombre del archivo sigue siendo el de la JORNADA (la fecha del selector): es un
+  // solo libro con todo lo despachado ese día, aunque adentro lleve dos entregas.
+  XLSX.writeFile(wb, `Documento de ruta ${docs[0].fecha}.xlsx`)
 }

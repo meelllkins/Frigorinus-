@@ -268,6 +268,7 @@ VITE_SUPABASE_ANON_KEY=tu_anon_public_key
 | `migracion_secuencia_entrega.sql` | ✅ para el orden | El documento sale con el orden viejo, sin romperse. |
 | `migracion_gomez_plata.sql` | ✅ para esa ruta | Despachar a Gómez Plata falla por el `CHECK` de `ruta`. |
 | `migracion_externo_por_carro.sql` | ⏸ opcional / futura | Habilita `carro_id` para conductor/placa por carro. No consumida aún. |
+| `migracion_fecha_entrega.sql` | ✅ antes de desplegar | El despacho falla (el insert escribe `fecha_entrega`) y el encabezado del documento no guarda (el `onConflict` nombra `fecha_entrega`). |
 
 **Regla de despliegue:** correr las migraciones **antes** de desplegar. Varias rompen una pantalla entera si la columna no existe cuando el frontend ya la pide.
 

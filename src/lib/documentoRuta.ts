@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import { RUTAS } from './rutas'
+import { fechaEntregaDe } from './fechaEntrega'
 
 // ════════════════════════════════════════════════════════════════
 // TIPOS EXPORTADOS
@@ -50,13 +51,31 @@ export type BloqueRuta = {
 }
 
 export type DocumentoDia = {
-  fecha: string            // 'YYYY-MM-DD'
+  fecha: string            // 'YYYY-MM-DD' — fecha de DESPACHO (la jornada, la del selector)
+  // Fecha PARA LA QUE se entrega este documento. Es lo que lo identifica: una misma
+  // jornada puede producir VARIOS DocumentoDia, uno por fecha de entrega, y cada uno
+  // lleva su propio encabezado (conductor/placa) y su propio día de Cimitarra.
+  fechaEntrega: string     // 'YYYY-MM-DD'
   bloques: BloqueRuta[]
   sinRuta: FilaDocumento[] // despachos del día con ruta NULL
   avisos: string[]         // problemas de datos detectados
 }
 
 export const UMBRAL_RANGO = 8
+
+/**
+ * Identidad de un bloque DENTRO de la jornada. Es la clave con la que se guardan y se
+ * leen los datos manuales del encabezado (conductor/auxiliar/placa/hora/observación).
+ *
+ * Lleva la fecha de entrega porque una jornada puede producir varios documentos: sin
+ * ella, la Cimitarra que se entrega mañana y la que se entrega pasado —las dos con
+ * carroId null— colapsarían en la misma clave y compartirían conductor y placa.
+ *
+ * La usan la pantalla y el export, para que no puedan discrepar.
+ */
+export function claveBloque(fechaEntrega: string, b: { ruta: string; carroId: string | null }): string {
+  return `${fechaEntrega}|${b.ruta}|${b.carroId ?? ''}`
+}
 
 // ════════════════════════════════════════════════════════════════
 // PARTE PURA — FORMATO DE LA CELDA COD
@@ -124,6 +143,10 @@ export type DespachoRow = {
   fraccion: number | string | null
   // Dirección de entrega. Solo la llevan los despachos a 'Nacional'.
   direccion: string | null
+  // Día PARA EL QUE se entrega esta fila, distinto de fecha_despacho. Es lo que separa
+  // los documentos de una misma jornada. NULL en las filas anteriores a la migración:
+  // ahí se cae al default de siempre (despacho + 1). Ver fechaEntrega.ts.
+  fecha_entrega: string | null
   // Marca del acto de despacho. Todas las filas insertadas en la MISMA sentencia comparten
   // este valor (Postgres usa la hora de la transacción), así que sirve para identificar
   // "este carro" en Externo. Ver eventoExternoDe().
@@ -140,6 +163,10 @@ export type DespachoRow = {
 export type ManualRow = {
   ruta: string
   carro_id: string // '' para rutas con nombre; el id del carro en Externo
+  // A qué documento pertenece esta fila. Sin esto, dos documentos de la MISMA jornada y
+  // la MISMA ruta con nombre (carro_id '') compartirían conductor y placa. NULL en las
+  // filas anteriores a la migración -> se resuelve al default (despacho + 1).
+  fecha_entrega: string | null
   conductor: string | null
   auxiliar: string | null
   placa: string | null
@@ -311,9 +338,17 @@ function seccionDe(filas: FilaDocumento[], ruta: string | null, secuenciaDe?: Re
   return { filas: ordenadas, totales }
 }
 
-/** Núcleo puro: recibe las filas ya consultadas y arma el documento completo. */
+/**
+ * Núcleo puro: recibe las filas ya consultadas y arma UN documento completo.
+ *
+ * `fecha` es la jornada (fecha de despacho) y `fechaEntrega` el día para el que se
+ * entrega ESTE documento. `despachos` y `manuales` tienen que venir ya filtrados a esa
+ * fecha de entrega — de eso se encarga construirDocumentosDia(), que es quien parte la
+ * jornada en documentos.
+ */
 export function armarDocumento(
   fecha: string,
+  fechaEntrega: string,
   despachos: DespachoRow[],
   manuales: ManualRow[],
   secuenciaDe?: ResolverSecuencia
@@ -551,7 +586,7 @@ export function armarDocumento(
     .map(it => it.fila)
     .sort(compararFila)
 
-  return { fecha, bloques, sinRuta, avisos }
+  return { fecha, fechaEntrega, bloques, sinRuta, avisos }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -559,18 +594,33 @@ export function armarDocumento(
 // ════════════════════════════════════════════════════════════════
 
 const SELECT_DESPACHOS =
-  'id, registro_id, viscera_id, tipo_despacho, ruta, codigo_destino, cabeza, patas, es_desposte, fraccion, direccion, created_at, carro_id, ' +
+  'id, registro_id, viscera_id, tipo_despacho, ruta, codigo_destino, cabeza, patas, es_desposte, fraccion, direccion, created_at, carro_id, fecha_entrega, ' +
   'registros_beneficio(codigo_cliente, numero_animal, tipo_carne), viscera:inventario_visceras(tipo)'
 
 /**
- * Construye el documento del día. `fecha` es un string 'YYYY-MM-DD' (fecha_despacho
- * es DATE, se compara directo). Si una consulta falla: console.error con prefijo
- * [documentoRuta] y devuelve un documento vacío pero válido (nunca lanza).
+ * El resolver de secuencia depende del DÍA DE ENTREGA (Cimitarra tiene un maestro para
+ * LUNES y otro para JUEVES), y una jornada puede producir documentos para días distintos.
+ * Por eso el llamador no pasa UN resolver sino una función que devuelve el resolver de la
+ * fecha de entrega que se le pida. Ver crearResolverSecuencia() en secuenciaEntrega.ts.
  */
-export async function construirDocumentoDia(
+export type ResolverPorEntrega = (fechaEntrega: string) => ResolverSecuencia | undefined
+
+/**
+ * Construye los documentos de una JORNADA. `fecha` es un string 'YYYY-MM-DD'
+ * (fecha_despacho es DATE, se compara directo).
+ *
+ * Devuelve UN documento por fecha de entrega presente en la jornada, ordenados de la
+ * entrega más próxima a la más lejana. En el día normal eso es un solo documento, exacto
+ * como antes; en víspera de festivo salen dos, cada uno con sus propios bloques,
+ * encabezados y orden de entrega.
+ *
+ * Si una consulta falla: console.error con prefijo [documentoRuta] y devuelve un
+ * documento vacío pero válido (nunca lanza).
+ */
+export async function construirDocumentosDia(
   fecha: string,
-  secuenciaDe?: ResolverSecuencia
-): Promise<DocumentoDia> {
+  resolverPara?: ResolverPorEntrega
+): Promise<DocumentoDia[]> {
   const avisosConsulta: string[] = []
 
   // Consulta 1: despachos del día con los joins anidados.
@@ -594,7 +644,7 @@ export async function construirDocumentoDia(
   // Consulta 2: datos manuales de ruta del día.
   const { data: manData, error: errMan } = await supabase
     .from('documentos_ruta')
-    .select('ruta, carro_id, conductor, auxiliar, placa, hora_programada, observacion')
+    .select('ruta, carro_id, fecha_entrega, conductor, auxiliar, placa, hora_programada, observacion')
     .eq('fecha', fecha)
 
   if (errMan) {
@@ -602,14 +652,43 @@ export async function construirDocumentoDia(
     avisosConsulta.push('No se pudieron cargar los datos manuales de ruta.')
   }
 
-  const doc = armarDocumento(
-    fecha,
-    (despData ?? []) as unknown as DespachoRow[],
-    (manData ?? []) as unknown as ManualRow[],
-    secuenciaDe
-  )
-  doc.avisos.unshift(...avisosConsulta)
-  return doc
+  const despachos = (despData ?? []) as unknown as DespachoRow[]
+  const manuales = (manData ?? []) as unknown as ManualRow[]
+
+  // ── PARTIR LA JORNADA POR FECHA DE ENTREGA ──────────────────────────────────
+  // Todo lo de abajo (agrupación, bloques, carros, secuencia) sigue igual que siempre:
+  // lo único nuevo es que corre una vez POR fecha de entrega en vez de una vez por día.
+  const porEntrega = new Map<string, DespachoRow[]>()
+  for (const d of despachos) {
+    const fe = fechaEntregaDe(d.fecha_entrega, fecha)
+    const lista = porEntrega.get(fe)
+    if (lista) lista.push(d)
+    else porEntrega.set(fe, [d])
+  }
+
+  // Sin despachos igual se devuelve UN documento (vacío pero válido) para la entrega por
+  // defecto: la pantalla necesita algo que dibujar y los avisos de consulta tienen que
+  // llegar a alguna parte. Es el comportamiento de antes cuando el día no tenía nada.
+  if (porEntrega.size === 0) {
+    const doc = armarDocumento(fecha, fechaEntregaDe(null, fecha), [], manuales, undefined)
+    doc.avisos.unshift(...avisosConsulta)
+    return [doc]
+  }
+
+  // Orden cronológico: primero lo que se entrega antes. Como son 'YYYY-MM-DD', el orden
+  // alfabético YA es el cronológico.
+  const fechasEntrega = [...porEntrega.keys()].sort()
+
+  return fechasEntrega.map((fe, i) => {
+    // Los datos manuales viejos vienen con fecha_entrega NULL: se resuelven al default,
+    // así siguen apareciendo en el documento de siempre y no se pierden.
+    const manualesDeEntrega = manuales.filter(m => fechaEntregaDe(m.fecha_entrega, fecha) === fe)
+    const doc = armarDocumento(fecha, fe, porEntrega.get(fe) ?? [], manualesDeEntrega, resolverPara?.(fe))
+    // Los avisos de consulta son de la jornada entera, no de un documento: se ponen solo
+    // en el primero para no repetirlos N veces en pantalla.
+    if (i === 0) doc.avisos.unshift(...avisosConsulta)
+    return doc
+  })
 }
 
 /**
@@ -619,20 +698,24 @@ export async function construirDocumentoDia(
 export type ResultadoGuardado = { ok: true } | { ok: false; mensaje: string }
 
 /**
- * Upsert de los datos manuales de una ruta en `documentos_ruta` (onConflict fecha,ruta).
+ * Upsert de los datos manuales de una ruta en `documentos_ruta`
+ * (onConflict fecha,ruta,carro_id,fecha_entrega).
  * `datos` es parcial: solo se escriben las columnas presentes. OJO con el nombre:
  * en la BD es `hora_programada`, en DatosManuales es `horaProgramada`.
  * Nunca lanza: el fallo vuelve en el resultado para que la pantalla pueda mostrarlo.
  */
 export async function guardarDatosManuales(
   fecha: string,
+  fechaEntrega: string,
   ruta: string,
   datos: Partial<DatosManuales>,
   carroId: string | null = null
 ): Promise<ResultadoGuardado> {
-  // carro_id '' = ruta con nombre (una sola fila por fecha+ruta, como siempre).
-  // En Externo cada carro guarda la suya, así dos carros del mismo día no se pisan.
-  const fila: Record<string, string | null> = { fecha, ruta, carro_id: carroId ?? '' }
+  // carro_id '' = ruta con nombre. fecha_entrega es lo que separa dos documentos de la
+  // MISMA jornada: sin ella, la Cimitarra de mañana y la de pasado compartirían conductor
+  // y placa (Externo ya se separaba por carro_id, las rutas con nombre no).
+  // En una jornada normal hay una sola fecha de entrega -> una fila por ruta, como siempre.
+  const fila: Record<string, string | null> = { fecha, fecha_entrega: fechaEntrega, ruta, carro_id: carroId ?? '' }
   if ('conductor' in datos) fila.conductor = datos.conductor ?? null
   if ('auxiliar' in datos) fila.auxiliar = datos.auxiliar ?? null
   if ('placa' in datos) fila.placa = datos.placa ?? null
@@ -641,7 +724,7 @@ export async function guardarDatosManuales(
 
   const { error } = await supabase
     .from('documentos_ruta')
-    .upsert(fila, { onConflict: 'fecha,ruta,carro_id' })
+    .upsert(fila, { onConflict: 'fecha,ruta,carro_id,fecha_entrega' })
 
   if (error) {
     console.error('[documentoRuta] Error guardando datos manuales:', error)

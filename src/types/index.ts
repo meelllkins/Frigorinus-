@@ -28,6 +28,10 @@ export interface Despacho {
   viscera_id?: string | null
   tipo_despacho: 'canal' | 'viscera'
   fecha_despacho: string
+  // Día PARA EL QUE se entrega, distinto de fecha_despacho: es lo que agrupa el documento
+  // de ruta. Opcional porque las filas anteriores a la migración lo tienen en NULL y ahí
+  // vale el default de siempre (despacho + 1). Ver src/lib/fechaEntrega.ts.
+  fecha_entrega?: string | null
   // Cuánto del canal salió en este despacho: 1 = entero, 0.5 = media canal.
   fraccion?: number | string | null
   notas?: string

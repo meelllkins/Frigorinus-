@@ -75,7 +75,7 @@ export type HojaSecuencia = {
 
 export type SecuenciaDia = {
   fecha: string            // fecha de DESPACHO (la que se elige en pantalla)
-  diaEntrega: string       // 'LUNES', 'MARTES'... del día de ENTREGA
+  diaEntrega: string       // 'LUNES', 'MARTES'... del día de ENTREGA del documento
   hojas: HojaSecuencia[]
   avisos: string[]
 }
@@ -86,15 +86,20 @@ function sinTildes(s: string): string {
 }
 
 /**
- * Día de la ENTREGA en mayúscula ('LUNES'). Se usa la fecha de despacho + 1
- * porque lo despachado un día se entrega al siguiente, y los días del maestro
- * de Cimitarra (LUNES/JUEVES) son días de ENTREGA, no de despacho.
- * ⚠️ A CONFIRMAR CON RAFA: si el maestro se refiere al día en que se DESPACHA,
- * hay que quitar el +1 de acá.
+ * Día de la semana en mayúscula sin tildes ('LUNES') de una fecha 'YYYY-MM-DD'.
+ *
+ * Se le pasa la fecha de ENTREGA, no la de despacho: los días del maestro de Cimitarra
+ * (LUNES/JUEVES) son días de ENTREGA. Antes esta función recibía la fecha de DESPACHO y
+ * le sumaba 1 para deducir la entrega; ahora la entrega es un dato explícito
+ * (`despachos.fecha_entrega`) y ese +1 vive en un solo lugar, fechaEntrega.ts, como
+ * DEFAULT de la columna. Sin el cambio, despachar un martes para el jueves daría
+ * MIÉRCOLES y no encontraría el maestro de JUEVES.
+ *
+ * Para un despacho que no elige fecha, entrega = despacho + 1, así que el día que sale
+ * de acá es idéntico al de antes.
  */
-export function diaEntregaDe(fecha: string): string {
+export function diaSemanaDe(fecha: string): string {
   const d = new Date(fecha + 'T00:00:00')
-  d.setDate(d.getDate() + 1)
   return sinTildes(d.toLocaleDateString('es', { weekday: 'long' })).toUpperCase()
 }
 

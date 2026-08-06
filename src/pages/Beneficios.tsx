@@ -13,6 +13,7 @@ import {
   guardarDireccion,
   type DireccionNacional,
 } from '../lib/direccionesNacional'
+import { entregaPorDefecto } from '../lib/fechaEntrega'
 import type { RegistroBeneficio } from '../types'
 
 function addDays(dateStr: string, days: number): string {
@@ -166,8 +167,12 @@ export default function Beneficio() {
   // Reparto por raya (caso 355): qué códigos reparten, y la dirección de cada raya.
   const [despRepartirPorCodigo, setDespRepartirPorCodigo] = useState<Record<string, boolean>>({})
   const [despDireccionPorRegistro, setDespDireccionPorRegistro] = useState<Record<string, string>>({})
+  // Fecha PARA LA QUE se entrega este despacho. Arranca en la de siempre (despacho + 1);
+  // Rafa la cambia cuando en una jornada deja listo también lo del día siguiente hábil.
+  // Ver src/lib/fechaEntrega.ts.
+  const [despFechaEntrega, setDespFechaEntrega] = useState(entregaPorDefecto(localToday()))
   // Ruta+código destino del lote múltiple, para reusarlos en el paso de vísceras
-  const [despMultiCtx, setDespMultiCtx] = useState<{ ruta: string; codigo_destino: string | null; carro_id: string | null } | null>(null)
+  const [despMultiCtx, setDespMultiCtx] = useState<{ ruta: string; codigo_destino: string | null; carro_id: string | null; fecha_entrega: string } | null>(null)
   // Desposte es POR ANIMAL: booleano en individual, set de ids marcados en múltiple.
   const [despDesposte, setDespDesposte] = useState(false)
   const [despDesposteIds, setDespDesposteIds] = useState<Set<string>>(new Set())
@@ -474,6 +479,10 @@ export default function Beneficio() {
 
   function resetDespFields() {
     setDespRuta('')
+    // Vuelve SIEMPRE a la entrega normal: un despacho para un día distinto es la excepción
+    // y no se debe arrastrar al siguiente. Sin este reset, después de despachar para el
+    // post-festivo todo lo demás saldría con esa fecha.
+    setDespFechaEntrega(entregaPorDefecto(localToday()))
     setDespOtroCodigo(false)
     setDespCodigoDestino('')
     setDespCabeza('')
@@ -506,6 +515,15 @@ export default function Beneficio() {
    */
   function nuevoCarroId(): string | null {
     return despRuta === 'Externo' ? crypto.randomUUID() : null
+  }
+
+  /**
+   * Fecha de entrega que se escribe en `despachos`. Es lo que Rafa eligió, y si vació el
+   * campo (un <input type="date"> se puede dejar en blanco) se cae a la entrega normal:
+   * mejor el comportamiento de siempre que una fila sin fecha de entrega.
+   */
+  function fechaEntregaAEscribir(hoy: string): string {
+    return despFechaEntrega.trim() === '' ? entregaPorDefecto(hoy) : despFechaEntrega
   }
 
   /** Rayas (animales) de un código dentro del lote seleccionado. Una raya = un registro. */
@@ -631,12 +649,14 @@ export default function Beneficio() {
     const esRes = r.tipo_carne === 'res'
     const { fraccion, registroUpdate } = despachoDeCanal(r, despMediaCanal)
     const carroId = nuevoCarroId() // un carro por acto de despacho (solo Externo)
+    const fechaEntrega = fechaEntregaAEscribir(hoy)
     await persistirDirecciones([{ registroId: r.id, codigo: r.codigo_cliente }])
     await supabase.from('registros_beneficio').update(registroUpdate).eq('id', r.id)
     await supabase.from('despachos').insert({
       registro_id: r.id,
       tipo_despacho: 'canal',
       fecha_despacho: hoy,
+      fecha_entrega: fechaEntrega,
       ruta: despRuta,
       codigo_destino: codigoDestinoFinal,
       cabeza: esRes ? toIntOrZero(despCabeza) : null,
@@ -662,12 +682,14 @@ export default function Beneficio() {
     const esRes = r.tipo_carne === 'res'
     const { fraccion, registroUpdate } = despachoDeCanal(r, despMediaCanal)
     const carroId = nuevoCarroId() // un carro por acto de despacho (solo Externo)
+    const fechaEntrega = fechaEntregaAEscribir(hoy)
     await persistirDirecciones([{ registroId: r.id, codigo: r.codigo_cliente }])
     await supabase.from('registros_beneficio').update(registroUpdate).eq('id', r.id)
     await supabase.from('despachos').insert({
       registro_id: r.id,
       tipo_despacho: 'canal',
       fecha_despacho: hoy,
+      fecha_entrega: fechaEntrega,
       ruta: despRuta,
       codigo_destino: codigoDestinoFinal,
       cabeza: esRes ? toIntOrZero(despCabeza) : null,
@@ -690,7 +712,10 @@ export default function Beneficio() {
           viscera_id: v.id,
           tipo_despacho: 'viscera',
           fecha_despacho: hoy,
-          // Misma ruta, código destino y CARRO que el canal (sin cabeza/patas).
+          // Misma ruta, código destino, CARRO y FECHA DE ENTREGA que el canal (sin
+          // cabeza/patas): las vísceras viajan con él, así que tienen que caer en el mismo
+          // documento. Es la misma herencia que ya se hacía con ruta/destino/dirección.
+          fecha_entrega: fechaEntrega,
           ruta: despRuta,
           codigo_destino: codigoDestinoFinal,
           carro_id: carroId,
@@ -801,6 +826,11 @@ export default function Beneficio() {
         codigo_destino: despMultiCtx?.codigo_destino ?? null,
         // Mismo carro que los canales del lote: las vísceras viajan en ese camión.
         carro_id: despMultiCtx?.carro_id ?? null,
+        // Y la misma FECHA DE ENTREGA, por lo mismo: si el lote salió para el día después
+        // del festivo, sus vísceras tienen que caer en ESE documento, no en el de mañana.
+        // Mismo patrón de herencia que ruta/destino/carro; el ?? cubre el caso raro de
+        // llegar acá sin contexto de lote (ahí manda lo que esté puesto en el modal).
+        fecha_entrega: despMultiCtx?.fecha_entrega ?? fechaEntregaAEscribir(hoy),
         // Misma dirección que el canal de SU código (direccionDeRaya lee el estado que
         // quedó de cuando se despachó el canal del lote; no se resetea hasta el próximo
         // despacho). Escrita acá para que sobreviva al archivado, no solo al fallback de
@@ -860,6 +890,7 @@ export default function Beneficio() {
 
     const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
     const carroId = nuevoCarroId() // todo el lote viaja en el MISMO carro
+    const fechaEntrega = fechaEntregaAEscribir(hoy) // ...y para el MISMO día de entrega
     await persistirDirecciones(idsADespachar.map(id => ({ registroId: id, codigo: regById.get(id)?.codigo_cliente ?? '' })))
 
     // Cabeza/Patas: un total POR CÓDIGO de cliente, escrito solo en la PRIMERA fila
@@ -881,6 +912,7 @@ export default function Beneficio() {
           registro_id: id,
           tipo_despacho: 'canal',
           fecha_despacho: hoy,
+          fecha_entrega: fechaEntrega,
           ruta: despRuta,
           codigo_destino: codigoDestinoFinal,
           // Desposte es POR ANIMAL: cada fila guarda lo marcado para ese id puntual.
@@ -896,7 +928,7 @@ export default function Beneficio() {
         }
       })
     )
-    setDespMultiCtx({ ruta: despRuta, codigo_destino: codigoDestinoFinal, carro_id: carroId })
+    setDespMultiCtx({ ruta: despRuta, codigo_destino: codigoDestinoFinal, carro_id: carroId, fecha_entrega: fechaEntrega })
 
     // Solo se ofrecen vísceras de los animales que efectivamente salieron.
     const resIds = registros
@@ -974,6 +1006,9 @@ export default function Beneficio() {
               onOtroCodigo={setDespOtroCodigo}
               codigoDestino={despCodigoDestino}
               onCodigoDestino={setDespCodigoDestino}
+              fechaEntrega={despFechaEntrega}
+              onFechaEntrega={setDespFechaEntrega}
+              fechaEntregaPorDefecto={entregaPorDefecto(localToday())}
             />
             {despRuta === RUTA_NACIONAL && codigosEnLote.map(cod => {
               const guardadas = direccionesGuardadas[cod] ?? []
@@ -1142,6 +1177,9 @@ export default function Beneficio() {
               onOtroCodigo={setDespOtroCodigo}
               codigoDestino={despCodigoDestino}
               onCodigoDestino={setDespCodigoDestino}
+              fechaEntrega={despFechaEntrega}
+              onFechaEntrega={setDespFechaEntrega}
+              fechaEntregaPorDefecto={entregaPorDefecto(localToday())}
             />
             {despRuta === RUTA_NACIONAL && (
               <DireccionNacionalField

@@ -85,7 +85,7 @@ export default function Despachos() {
 
     const { data: viejos } = await supabase
       .from('despachos')
-      .select('id, registro_id, viscera_id, tipo_despacho, fecha_despacho, notas, created_at, ruta, cabeza, patas, codigo_destino, es_desposte, fraccion, carro_id')
+      .select('id, registro_id, viscera_id, tipo_despacho, fecha_despacho, fecha_entrega, notas, created_at, ruta, cabeza, patas, codigo_destino, es_desposte, fraccion, carro_id')
       .lt('fecha_despacho', cutoffStr)
 
     if (viejos && viejos.length > 0) {
@@ -96,6 +96,9 @@ export default function Despachos() {
         viscera_id: v.viscera_id,
         tipo_despacho: v.tipo_despacho,
         fecha_despacho: v.fecha_despacho,
+        // Se copia igual que las demás columnas de ruta: sin esto el archivado perdería
+        // para qué día se entregó (ver migracion_fecha_entrega.sql).
+        fecha_entrega: v.fecha_entrega,
         notas: v.notas,
         created_at: v.created_at,
         ruta: v.ruta,
