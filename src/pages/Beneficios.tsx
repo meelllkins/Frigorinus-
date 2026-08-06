@@ -14,6 +14,7 @@ import {
   type DireccionNacional,
 } from '../lib/direccionesNacional'
 import { entregaPorDefecto } from '../lib/fechaEntrega'
+import { enTramoPrevioAFestivo } from '../lib/festivos'
 import type { RegistroBeneficio } from '../types'
 
 function addDays(dateStr: string, days: number): string {
@@ -526,6 +527,19 @@ export default function Beneficio() {
     return despFechaEntrega.trim() === '' ? entregaPorDefecto(hoy) : despFechaEntrega
   }
 
+  /**
+   * ¿Se ofrece elegir la fecha de entrega en este despacho?
+   *
+   * Solo en el tramo desde el que Rafa adelanta el trabajo de un festivo (ver festivos.ts):
+   * es el único momento en que hace falta despachar para dos días distintos. El resto del
+   * año el campo no aparece y el despacho se comporta igual que antes de que existiera:
+   * `despFechaEntrega` sigue valiendo la entrega normal y es lo que se escribe.
+   *
+   * Se evalúa en cada render y no una sola vez al montar, para que la pantalla no se quede
+   * con el criterio de ayer si queda abierta pasada la medianoche.
+   */
+  const mostrarFechaEntrega = enTramoPrevioAFestivo(localToday())
+
   /** Rayas (animales) de un código dentro del lote seleccionado. Una raya = un registro. */
   function rayasDelCodigo(codigo: string): RegistroBeneficio[] {
     return registros.filter(r => selected.has(r.id) && r.codigo_cliente === codigo)
@@ -1006,8 +1020,8 @@ export default function Beneficio() {
               onOtroCodigo={setDespOtroCodigo}
               codigoDestino={despCodigoDestino}
               onCodigoDestino={setDespCodigoDestino}
-              fechaEntrega={despFechaEntrega}
-              onFechaEntrega={setDespFechaEntrega}
+              fechaEntrega={mostrarFechaEntrega ? despFechaEntrega : undefined}
+              onFechaEntrega={mostrarFechaEntrega ? setDespFechaEntrega : undefined}
               fechaEntregaPorDefecto={entregaPorDefecto(localToday())}
             />
             {despRuta === RUTA_NACIONAL && codigosEnLote.map(cod => {
@@ -1177,8 +1191,8 @@ export default function Beneficio() {
               onOtroCodigo={setDespOtroCodigo}
               codigoDestino={despCodigoDestino}
               onCodigoDestino={setDespCodigoDestino}
-              fechaEntrega={despFechaEntrega}
-              onFechaEntrega={setDespFechaEntrega}
+              fechaEntrega={mostrarFechaEntrega ? despFechaEntrega : undefined}
+              onFechaEntrega={mostrarFechaEntrega ? setDespFechaEntrega : undefined}
               fechaEntregaPorDefecto={entregaPorDefecto(localToday())}
             />
             {despRuta === RUTA_NACIONAL && (

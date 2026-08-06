@@ -6,9 +6,11 @@ import { RUTAS } from '../lib/rutas'
  * Cabeza/Patas NO van aquí (son solo del canal de res, en Beneficios).
  *
  * La FECHA DE ENTREGA es opcional: solo se dibuja si el padre pasa el par
- * fechaEntrega/onFechaEntrega. Hoy la pasa Beneficios (donde salen las canales, que es
- * lo que arma el documento de ruta); Inventario no, y sus vísceras siguen saliendo con la
- * entrega por defecto de siempre.
+ * fechaEntrega/onFechaEntrega. Quién lo pasa y cuándo:
+ *   · Beneficios (donde salen las canales, que es lo que arma el documento de ruta) lo pasa
+ *     SOLO en el tramo desde el que se adelanta un festivo — ver enTramoPrevioAFestivo()
+ *     en lib/festivos.ts. El resto del año manda undefined y el campo no aparece.
+ *   · Inventario nunca lo pasa; sus vísceras salen con la entrega por defecto de siempre.
  */
 interface Props {
   ruta: string
