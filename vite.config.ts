@@ -9,6 +9,14 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.png', 'icon-192.png', 'icon-512.png'],
+      workbox: {
+        // El bundle de la app pasó los 2 MiB que workbox precachea por defecto, y ante eso
+        // el plugin no avisa: aborta el build (así se cayó el deploy en Vercel).
+        // Se sube a 3 MiB para que el chunk actual (~2.1 MB) entre en el precache.
+        // OJO: es un techo, no una solución de tamaño. Si el bundle vuelve a acercarse,
+        // lo que corresponde es partirlo, no seguir subiendo este número.
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
+      },
       manifest: {
         name: 'Frigorinus Logística',
         short_name: 'Frigorinus',
