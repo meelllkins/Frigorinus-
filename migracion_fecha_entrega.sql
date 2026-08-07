@@ -18,8 +18,13 @@
 -- distintos, cada uno con su carro, su conductor y su placa.
 --
 -- Con `fecha_entrega` el día de entrega pasa a ser un dato explícito y el documento
--- se agrupa por él. NO se activa solo en festivos: el selector está siempre, porque
--- los festivos no caen en un patrón fijo.
+-- se agrupa por él. El SELECTOR, en cambio, no está siempre: solo aparece en el tramo
+-- previo a un festivo, que es el único momento en que hace falta despachar para dos
+-- días distintos. El criterio vive en src/lib/festivos.ts.
+--
+-- ⚠️ Que el selector esté oculto NO vuelve opcional esta migración: la app escribe
+--    `fecha_entrega` en TODOS los despachos, con la entrega normal (despacho + 1)
+--    cuando no hay nada que elegir. Las columnas hacen falta el año entero.
 --
 -- ── COMPATIBILIDAD: NADA CAMBIA SI NO SE ELIGE FECHA ────────────────────────
 -- La entrega por defecto sigue siendo despacho + 1. Vive en tres capas, y las tres
