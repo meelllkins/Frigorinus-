@@ -10,7 +10,6 @@ import {
   type SeccionDocumento,
   type FilaDocumento,
   type DatosManuales,
-  type ResolverSecuencia,
 } from '../lib/documentoRuta'
 import { exportarDocumentoRuta } from '../lib/exportarDocumentoRuta'
 import {
@@ -21,6 +20,7 @@ import {
   guardarSecuencia,
   type MaestroRow,
 } from '../lib/secuenciaEntrega'
+import { entregaPorDefecto } from '../lib/fechaEntrega'
 
 // Fecha local de hoy (mismo patrón que el resto del proyecto: YYYY-MM-DD local, sin new Date() suelto).
 function hoyLocal(): string {
@@ -28,18 +28,11 @@ function hoyLocal(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-// Fecha con día de la semana en español, desde una fecha DATE.
-// Se le pasa la fecha de ENTREGA del documento, que es un dato explícito. El selector de
-// arriba sigue siendo la fecha de DESPACHO (la jornada) y la consulta no cambia.
+// Fecha con día de la semana en español, desde una fecha DATE. Se le pasa la fecha de
+// ENTREGA, que es lo que el selector de arriba elige y lo que identifica al documento.
 function fechaLarga(fecha: string): string {
   const d = new Date(fecha + 'T00:00:00')
   return d.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-}
-
-// Etiqueta compacta de entrega para una fila que NO se entrega el día normal: "8 ago".
-function fechaCorta(fecha: string): string {
-  const d = new Date(fecha + 'T00:00:00')
-  return d.toLocaleDateString('es', { day: 'numeric', month: 'short' })
 }
 
 function manualVacio(): DatosManuales {
@@ -55,7 +48,7 @@ const GUARDADO_MS = 1000
 /** Una escritura pendiente: se acumula por BLOQUE, así varios campos del mismo
  *  encabezado salen en un solo upsert en vez de uno por campo. */
 type EscrituraPendiente = {
-  fecha: string
+  fechaEntrega: string
   ruta: string
   carroId: string | null
   datos: Partial<DatosManuales>
@@ -74,35 +67,20 @@ const cellInputCls =
   'w-20 border border-gray-200 rounded-md px-2 py-1 text-sm text-right focus:outline-none focus:border-green-700 focus:ring-1 focus:ring-green-700 disabled:bg-gray-50 disabled:text-gray-400'
 
 /**
- * Resolver de secuencia que elige el maestro por la fecha de entrega DE CADA FILA.
+ * Trae el maestro de secuencia y arma EL documento de una fecha de entrega. Va fuera del
+ * componente porque no depende de ningún estado. Si el maestro no se puede leer (tabla sin
+ * crear, sin permisos), el documento sale con su orden de siempre — nunca rompe la pantalla.
  *
- * Cimitarra tiene un maestro para LUNES y otro para JUEVES, y ahora una jornada puede
- * llevar filas que se entregan días distintos DENTRO del mismo documento. Por eso el día
- * no se fija una vez para toda la pantalla: sale de `fila.fechaEntrega`. Los resolvers ya
- * armados se cachean, así que en la jornada normal —todas las filas con la misma entrega—
- * se construye uno solo, igual que antes.
+ * El resolver se arma con el día de semana de la ENTREGA, que es el que usa el maestro de
+ * Cimitarra (LUNES/JUEVES). Como el documento entero es una sola fecha de entrega, alcanza
+ * con uno para toda la pantalla.
  */
-function resolverPorFila(maestro: MaestroRow[]): ResolverSecuencia | undefined {
-  if (maestro.length === 0) return undefined
-  const cache = new Map<string, ResolverSecuencia>()
-  return (ruta, fila) => {
-    let r = cache.get(fila.fechaEntrega)
-    if (!r) {
-      r = crearResolverSecuencia(maestro, diaSemanaDe(fila.fechaEntrega))
-      cache.set(fila.fechaEntrega, r)
-    }
-    return r(ruta, fila)
-  }
-}
-
-/**
- * Trae el maestro de secuencia y arma EL documento de la jornada. Va fuera del componente
- * porque no depende de ningún estado. Si el maestro no se puede leer (tabla sin crear, sin
- * permisos), el documento sale con su orden de siempre — nunca rompe la pantalla.
- */
-async function cargarDocumento(fecha: string): Promise<{ doc: DocumentoDia; maestro: MaestroRow[] }> {
+async function cargarDocumento(fechaEntrega: string): Promise<{ doc: DocumentoDia; maestro: MaestroRow[] }> {
   const maestro = await fetchMaestroSecuencia()
-  const doc = await construirDocumentoDia(fecha, resolverPorFila(maestro))
+  const resolver = maestro.length > 0
+    ? crearResolverSecuencia(maestro, diaSemanaDe(fechaEntrega))
+    : undefined
+  const doc = await construirDocumentoDia(fechaEntrega, resolver)
 
   // Sin maestro el documento igual se arma, pero las rutas regionales salen SIN el orden de
   // entrega (queda el orden por código). Antes esto pasaba en SILENCIO y era indistinguible
@@ -132,9 +110,11 @@ async function cargarDocumento(fecha: string): Promise<{ doc: DocumentoDia; maes
 }
 
 export default function DocumentoRuta() {
-  const [fecha, setFecha] = useState(hoyLocal())
-  // UN documento por JORNADA. Todo lo despachado ese día entra acá, se entregue cuando se
-  // entregue; lo que sale otro día se distingue por su etiqueta, no por documento aparte.
+  // El selector elige la fecha de ENTREGA, no la jornada: la "tabla del 8" es una sola.
+  // Arranca en la entrega normal de hoy (hoy + 1), que es la que Rafa está armando.
+  const [fecha, setFecha] = useState(entregaPorDefecto(hoyLocal()))
+  // UN documento por FECHA DE ENTREGA. Entra todo lo que se entrega ese día, se haya
+  // despachado el día anterior o tres días antes.
   const [doc, setDoc] = useState<DocumentoDia | null>(null)
   const [showAvisos, setShowAvisos] = useState(false)
   // Campos manuales en estado local (un refresco NO debe borrar lo que Rafa escribe).
@@ -219,7 +199,7 @@ export default function DocumentoRuta() {
 
     const fallas: string[] = []
     for (const p of lote) {
-      const r = await guardarDatosManuales(p.fecha, p.ruta, p.datos, p.carroId)
+      const r = await guardarDatosManuales(p.fechaEntrega, p.ruta, p.datos, p.carroId)
       if (!r.ok) fallas.push(`${p.ruta}: ${r.mensaje}`)
     }
     setErrorGuardado(fallas.length > 0 ? fallas.join(' · ') : null)
@@ -231,9 +211,9 @@ export default function DocumentoRuta() {
     const k = claveBloque(b)
     const previo = pendientesRef.current.get(k)
     pendientesRef.current.set(k, {
-      // La fecha viaja con la escritura: si se mueve el selector, lo pendiente se guarda
-      // en el día en el que se escribió.
-      fecha,
+      // La fecha de entrega viaja con la escritura: si se mueve el selector, lo pendiente
+      // se guarda en la tabla en la que se escribió.
+      fechaEntrega: fecha,
       ruta: b.ruta,
       carroId: b.carroId, // el carro va en la clave: dos externos del mismo día no se pisan
       datos: { ...previo?.datos, [key]: valor.trim() === '' ? null : valor } as Partial<DatosManuales>,
@@ -311,15 +291,15 @@ export default function DocumentoRuta() {
 
   // ── Secuencia de entrega (solo rutas regionales) ───────────────
   // Rafa asigna el número que corresponde; se guarda tal cual, sin correr las demás.
-  // El DÍA con el que se guarda es el de la entrega DE LA FILA (Cimitarra guarda un maestro
-  // por día). Sale de la fila y no del documento: en una misma jornada puede haber códigos
-  // que se entregan días distintos, y cada uno tiene que escribirse en SU día del maestro.
+  // El DÍA con el que se guarda es el de la ENTREGA del documento (Cimitarra guarda un
+  // maestro por día, y sus LUNES/JUEVES siempre fueron días de entrega). Como el documento
+  // entero es una sola fecha de entrega, sale del selector.
   async function guardarSec(ruta: string, f: FilaDocumento, valor: string) {
     setEditSec(null)
     const n = Number(valor.trim())
     if (valor.trim() === '' || !Number.isFinite(n)) return
     if (n === f.secuencia) return // sin cambios
-    const ok = await guardarSecuencia(maestro, ruta, f.codigoCliente, n, diaSemanaDe(f.fechaEntrega))
+    const ok = await guardarSecuencia(maestro, ruta, f.codigoCliente, n, diaSemanaDe(fecha))
     if (ok) await cargar() // recarga: el documento se reordena con la secuencia nueva
   }
 
@@ -378,16 +358,6 @@ export default function DocumentoRuta() {
                     <tr className={i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}>
                       <td className="px-4 py-2.5 font-mono font-semibold text-gray-900">
                         {f.cod}
-                        {/* Entrega fuera de lo normal: la fila se queda en el documento de su
-                            jornada y solo se marca acá. En un día común no aparece ninguna. */}
-                        {f.etiquetaEntrega && (
-                          <span
-                            title={`Se entrega el ${fechaLarga(f.etiquetaEntrega)}, no con el resto del documento`}
-                            className="ml-2 px-1.5 py-0.5 rounded text-[11px] font-sans font-semibold text-blue-700 bg-blue-100 whitespace-nowrap"
-                          >
-                            entrega {fechaCorta(f.etiquetaEntrega)}
-                          </span>
-                        )}
                         {rutaSec && (
                           editando ? (
                             <input
@@ -470,13 +440,6 @@ export default function DocumentoRuta() {
       }
     : null
 
-  // Cuántas filas del documento se entregan fuera del día normal. Solo para el aviso de
-  // arriba: no parte nada, cada una ya lleva su etiqueta en la tabla.
-  const filasOtraEntrega = doc
-    ? [...doc.bloques.flatMap(b => [...b.bovinos.filas, ...b.porcinos.filas]), ...doc.sinRuta]
-        .filter(f => f.etiquetaEntrega != null).length
-    : 0
-
   // Direcciones de entrega: SOLO la ruta Nacional las lleva. Se listan por código
   // (un mismo bloque puede llevar varios clientes, cada uno a su punto de entrega).
   // Es POR LÍNEA, no por código: un código repartido entre 3 direcciones (caso 355) ya
@@ -493,10 +456,13 @@ export default function DocumentoRuta() {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-xl font-bold text-gray-900">Documento de ruta</h2>
         <div className="flex items-center gap-2">
+          {/* Elige la fecha de ENTREGA, no la jornada: es lo que identifica al documento. */}
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Entrega</label>
           <input
             type="date"
             value={fecha}
             onChange={e => setFecha(e.target.value)}
+            title="Fecha de entrega del documento"
             className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 bg-white"
           />
           <button
@@ -523,16 +489,6 @@ export default function DocumentoRuta() {
         </p>
       )}
 
-      {/* La jornada NO se parte: lo que se entrega otro día sigue en este documento y solo
-          lleva su etiqueta. Esto es el resumen, para no tener que buscarlas a ojo. */}
-      {filasOtraEntrega > 0 && (
-        <p className="text-xs text-gray-500 -mt-3">
-          {filasOtraEntrega === 1
-            ? 'Hay 1 código que se entrega otro día'
-            : `Hay ${filasOtraEntrega} códigos que se entregan otro día`}: van en este mismo
-          documento, marcados con su fecha de entrega al lado.
-        </p>
-      )}
 
       {errorGuardado && (
         <div className="border border-red-300 bg-red-50 rounded-xl px-4 py-3 flex items-start gap-2">
@@ -575,7 +531,10 @@ export default function DocumentoRuta() {
             <section key={`${b.ruta}-${i}`} className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5 space-y-4">
               <div>
                 <h3 className="text-lg font-bold text-gray-900">{b.ruta}</h3>
-                <p className="text-sm text-gray-500 capitalize">{fechaLarga(doc.fechaEntrega)}</p>
+                {/* La tabla ES una fecha de entrega: va acá, en el encabezado, y no repetida
+                    por fila. Todo lo de abajo se entrega este día, se haya despachado cuando
+                    se haya despachado. */}
+                <p className="text-sm text-gray-500 first-letter:uppercase">Entrega {fechaLarga(doc.fechaEntrega)}</p>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

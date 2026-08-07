@@ -38,18 +38,6 @@ function textoNombreHoja(d: Date): string {
   return `${d.getDate()} ${mes}`
 }
 
-/**
- * Texto de la celda COD. Cuando la fila se entrega un día distinto al del documento se le
- * agrega la etiqueta: "155-2 (ENTREGA 8 AGOSTO)". La DECISIÓN de etiquetar no se toma acá
- * —viene resuelta en `etiquetaEntrega`, ver documentoRuta.ts—, así que la pantalla y el
- * Excel marcan exactamente las mismas filas. En una jornada normal no marca ninguna y el
- * texto queda idéntico al de siempre.
- */
-function textoCod(f: FilaDocumento): string {
-  if (f.etiquetaEntrega == null) return f.cod
-  return `${f.cod} (ENTREGA ${textoNombreHoja(comoFecha(f.etiquetaEntrega))})`
-}
-
 // ── Estilos (bordes finos + centrado por defecto; colores sin "#") ──
 const BORDE = { style: 'thin', color: { rgb: '000000' } }
 const BORDES = { top: BORDE, bottom: BORDE, left: BORDE, right: BORDE }
@@ -161,7 +149,7 @@ function escribirBovinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: number
   // Los códigos sin orden de entrega igual salen al final (los ordena seccionDe), pero en el
   // Excel van SIN separador ni aviso: Rafa lo quiere limpio. El aviso queda solo en pantalla.
   for (const f of sec.filas) {
-    h.celda(r, c, { v: textoCod(f), t: 's', s: ss.datos })
+    h.celda(r, c, { v: f.cod, t: 's', s: ss.datos })
     h.celda(r, c + 1, { v: f.cant, t: 'n', s: ss.datos })
     h.celda(r, c + 2, { v: f.vb, t: 'n', s: ss.datos })
     h.celda(r, c + 3, { v: f.vr, t: 'n', s: ss.datos })
@@ -194,7 +182,7 @@ function escribirPorcinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: numbe
 
   const first = r
   for (const f of sec.filas) {
-    h.combinada(r, c, c + 2, { v: textoCod(f), t: 's', s: ss.datos })
+    h.combinada(r, c, c + 2, { v: f.cod, t: 's', s: ss.datos })
     h.celda(r, c + 3, { v: f.cant, t: 'n', s: ss.datos })
     h.celda(r, c + 4, { v: f.vb, t: 'n', s: ss.datos })
     h.celda(r, c + 5, { v: f.vr, t: 'n', s: ss.datos })
@@ -281,11 +269,11 @@ function anchosColumnas(matriz: MatrizPlana): { wch: number }[] {
 
 function hojaSinRuta(sinRuta: FilaDocumento[]): MatrizPlana {
   const filas: MatrizPlana = [['COD', 'CANT', 'V/B', 'V/R', 'CABEZA', 'PATAS']]
-  for (const f of sinRuta) filas.push([textoCod(f), f.cant, f.vb, f.vr, f.cabeza, f.patas])
+  for (const f of sinRuta) filas.push([f.cod, f.cant, f.vb, f.vr, f.cabeza, f.patas])
   return filas
 }
 
-/** Escribe el documento de la jornada como la hoja del libro. */
+/** Escribe el documento de la fecha de entrega como la hoja del libro. */
 function agregarHojaDocumento(
   wb: XLSX.WorkBook,
   doc: DocumentoDia,
@@ -293,9 +281,9 @@ function agregarHojaDocumento(
 ): void {
   const h = new Hoja()
 
-  // Entrega NOMINAL de la jornada, formateada UNA sola vez; el mismo texto va a todos los
-  // bloques y al nombre de hoja. Las filas que se entregan otro día no abren hoja aparte:
-  // se quedan acá con su etiqueta al lado del código (ver textoCod).
+  // Fecha de ENTREGA del documento, formateada UNA sola vez; el mismo texto va a todos los
+  // bloques y al nombre de hoja. Todo lo que hay adentro se entrega ese día, se haya
+  // despachado en la jornada que se haya despachado.
   const entrega = comoFecha(doc.fechaEntrega)
   const textoFecha = textoLineaFecha(entrega)
 
@@ -320,9 +308,8 @@ function agregarHojaDocumento(
 }
 
 /**
- * Exporta la jornada a un .xlsx con el formato de Rafa: UNA hoja con todo lo despachado
- * ese día, se entregue cuando se entregue. Los códigos que salen otro día van en esa misma
- * hoja, con la etiqueta de entrega al lado del código.
+ * Exporta la tabla de una FECHA DE ENTREGA a un .xlsx con el formato de Rafa: UNA hoja con
+ * todo lo que se entrega ese día, sin importar en qué jornada se cargó cada despacho.
  *
  * `manualEnPantalla` = datos manuales del estado local de la pantalla (lo que Rafa ve,
  * aunque no haya sacado el foco de un campo), por clave de bloque (ver claveBloque).
@@ -339,6 +326,8 @@ export function exportarDocumentoRuta(doc: DocumentoDia, manualEnPantalla: Map<s
     XLSX.utils.book_append_sheet(wb, wsSin, 'Sin ruta')
   }
 
-  // El nombre del archivo es el de la JORNADA (la fecha del selector).
-  XLSX.writeFile(wb, `Documento de ruta ${doc.fecha}.xlsx`)
+  // El nombre del archivo es el de la ENTREGA (la fecha del selector, y la identidad del
+  // documento). Antes era la jornada; con la agrupación por entrega, dos exports del mismo
+  // día de entrega hechos en jornadas distintas tienen que llamarse igual.
+  XLSX.writeFile(wb, `Documento de ruta ${doc.fechaEntrega}.xlsx`)
 }

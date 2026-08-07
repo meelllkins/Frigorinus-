@@ -74,7 +74,7 @@ export type HojaSecuencia = {
 }
 
 export type SecuenciaDia = {
-  fecha: string            // fecha de DESPACHO (la que se elige en pantalla)
+  fecha: string            // fecha de ENTREGA (la que se elige en pantalla e identifica al documento)
   diaEntrega: string       // 'LUNES', 'MARTES'... del día de ENTREGA del documento
   hojas: HojaSecuencia[]
   avisos: string[]
@@ -261,7 +261,7 @@ export function armarSecuencia(doc: DocumentoDia, maestro: MaestroRow[], diaEntr
     hojas.push({ ruta: bloque.ruta, dia, reordena, maestro: maestroRuta, filas })
   }
 
-  return { fecha: doc.fecha, diaEntrega, hojas, avisos }
+  return { fecha: doc.fechaEntrega, diaEntrega, hojas, avisos }
 }
 
 // ── Consulta del maestro ─────────────────────────────────────────────────────

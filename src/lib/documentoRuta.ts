@@ -1,6 +1,6 @@
 import { supabase } from './supabase'
 import { RUTAS } from './rutas'
-import { fechaEntregaDe, entregaPorDefecto } from './fechaEntrega'
+import { sumarDias, DIAS_HASTA_ENTREGA } from './fechaEntrega'
 
 // ════════════════════════════════════════════════════════════════
 // TIPOS EXPORTADOS
@@ -22,15 +22,6 @@ export type FilaDocumento = {
   despachoIds: string[]      // ids de TODAS las filas de `despachos` del grupo
   despachoIdsCanal: string[] // ids de las filas de CANAL del grupo, ordenados (para corregir cabeza/patas)
   direccion: string | null   // solo ruta Nacional: punto de entrega elegido al despachar
-  // Día PARA EL QUE se entrega esta fila. Entra en la clave de grupo, así que todas las
-  // rayas de la fila comparten exactamente este día. En el histórico sin columna vale
-  // despacho + 1, o sea lo mismo que se asumía antes de que existiera.
-  fechaEntrega: string
-  // La misma fecha, pero SOLO cuando difiere de la entrega normal de la jornada
-  // (despacho + 1); null cuando coincide. La decisión de mostrarla se toma acá una sola
-  // vez para que la pantalla y el Excel no puedan discrepar. En una jornada común todas
-  // las filas coinciden -> ninguna etiqueta, ni una marca de más respecto de antes.
-  etiquetaEntrega: string | null
   // Orden de entrega resuelto contra el maestro. null = la ruta no usa secuencia, o el
   // código todavía no tiene orden asignado (esas filas caen al final del bloque).
   secuencia: number | null
@@ -60,14 +51,30 @@ export type BloqueRuta = {
 }
 
 export type DocumentoDia = {
-  fecha: string            // 'YYYY-MM-DD' — fecha de DESPACHO (la jornada, la del selector)
-  // Entrega NOMINAL de la jornada (despacho + 1). Encabeza el documento y nombra la hoja
-  // del Excel, pero NO lo parte: una jornada produce UN documento y punto. Las filas que
-  // se entregan otro día viajan adentro con su etiqueta (ver FilaDocumento.etiquetaEntrega).
-  fechaEntrega: string     // 'YYYY-MM-DD'
+  // 'YYYY-MM-DD' — el día PARA EL QUE se entrega. Es LA identidad del documento y lo que
+  // elige el selector de la pantalla: la "tabla del 8" es una sola, la hayan armado el 6,
+  // el 7 o los dos. La fecha de despacho no participa de la agrupación.
+  fechaEntrega: string
   bloques: BloqueRuta[]
-  sinRuta: FilaDocumento[] // despachos del día con ruta NULL
+  sinRuta: FilaDocumento[] // despachos de la entrega con ruta NULL
   avisos: string[]         // problemas de datos detectados
+}
+
+/**
+ * Jornada CANÓNICA de una fecha de entrega: el día en que se despacha "normalmente" para
+ * entregar ese día (entrega − 1).
+ *
+ * Existe solo por `documentos_ruta`: su UNIQUE es (fecha, ruta, carro_id, fecha_entrega) e
+ * incluye `fecha`, la jornada. Si cada encabezado se guardara con la jornada REAL en que se
+ * escribió, la tabla del 8 tendría un encabezado por cada día en que Rafa le fue agregando
+ * despachos. Escribiendo siempre esta fecha canónica, todas las escrituras de una entrega
+ * chocan contra la MISMA fila y el encabezado queda uno solo.
+ *
+ * Coincide con lo que ya hay guardado: el backfill de la migración puso
+ * fecha_entrega = fecha + 1, o sea fecha = fecha_entrega − 1.
+ */
+export function jornadaCanonica(fechaEntrega: string): string {
+  return sumarDias(fechaEntrega, -DIAS_HASTA_ENTREGA)
 }
 
 export const UMBRAL_RANGO = 8
@@ -172,9 +179,11 @@ export type DespachoRow = {
 export type ManualRow = {
   ruta: string
   carro_id: string // '' para rutas con nombre; el id del carro en Externo
-  // A qué documento pertenece esta fila. Sin esto, dos documentos de la MISMA jornada y
-  // la MISMA ruta con nombre (carro_id '') compartirían conductor y placa. NULL en las
-  // filas anteriores a la migración -> se resuelve al default (despacho + 1).
+  // Jornada con la que se guardó la fila. NO agrupa nada —el documento es la entrega—, pero
+  // entra en el UNIQUE de la tabla, así que sirve de desempate cuando una misma entrega
+  // tiene encabezados guardados con jornadas distintas. Ver jornadaCanonica().
+  fecha: string
+  // A qué documento pertenece esta fila: es la fecha de entrega, la identidad del documento.
   fecha_entrega: string | null
   conductor: string | null
   auxiliar: string | null
@@ -243,10 +252,6 @@ type Grupo = {
   // Dirección de las rayas de este grupo (solo Nacional). Entra en la clave, así que
   // todas las filas del grupo comparten exactamente esta dirección.
   direccion: string | null
-  // Día de entrega de las rayas de este grupo. También entra en la clave: si no, un
-  // código con una raya para mañana y otra para pasado colapsaría en UNA fila y la
-  // etiqueta no podría decir la verdad sobre ninguna de las dos.
-  fechaEntrega: string
   // SOLO animales con canal despachada: es la fuente del texto COD (ver grupoAFila).
   // Los animales que solo aportaron víscera adelantada NO entran acá a propósito.
   animalesCanal: Set<number>
@@ -272,8 +277,7 @@ function claveGrupo(
   codigoDestino: string | null,
   evento: string,
   esMediaCanal: boolean,
-  direccion: string | null,
-  fechaEntrega: string
+  direccion: string | null
 ): string {
   return [
     ruta ?? ' SIN_RUTA', tipoCarne, codigoCliente,
@@ -285,15 +289,10 @@ function claveGrupo(
     // rayas del mismo codigo con direcciones distintas dejan de agruparse.
     // Sin direccion (todo lo que no es Nacional) la clave no cambia -> igual que antes.
     direccion ?? '',
-    // En una jornada normal TODAS las filas traen la misma fecha de entrega, así que este
-    // componente es constante y la agrupación queda idéntica a la de siempre. Solo separa
-    // cuando Rafa usó el selector de festivo para mandar parte del código a otro día.
-    fechaEntrega,
   ].join('|')
 }
 
-/** `entregaNormal` = entrega por defecto de la jornada; lo que difiera de eso se etiqueta. */
-function grupoAFila(g: Grupo, entregaNormal: string): FilaDocumento {
+function grupoAFila(g: Grupo): FilaDocumento {
   // REGLA DE NEGOCIO (Rafa, inquebrantable): por el "adelanto de vísceras", un código puede
   // tener MÁS vísceras despachadas que canales. COD y CANT cuentan SOLO canales; V/B, V/R,
   // CABEZA y PATAS suman todo lo del grupo, lleve canal o no.
@@ -304,7 +303,7 @@ function grupoAFila(g: Grupo, entregaNormal: string): FilaDocumento {
   const animales = [...g.animalesCanal].sort((a, b) => a - b)
   const esBovino = g.tipoCarne === 'res'
   return {
-    key: claveGrupo(g.ruta, g.tipoCarne, g.codigoCliente, g.esDesposte, g.codigoDestino, g.evento, g.esMediaCanal, g.direccion, g.fechaEntrega),
+    key: claveGrupo(g.ruta, g.tipoCarne, g.codigoCliente, g.esDesposte, g.codigoDestino, g.evento, g.esMediaCanal, g.direccion),
     cod: formatearCod(g.codigoCliente, animales, g.codigoDestino, g.esDesposte, g.esMediaCanal, g.tipoCarne),
     codigoCliente: g.codigoCliente,
     animales,
@@ -319,8 +318,6 @@ function grupoAFila(g: Grupo, entregaNormal: string): FilaDocumento {
     despachoIds: g.despachoIds,
     despachoIdsCanal: [...g.despachoIdsCanal].sort(), // ordenado por id -> estable entre refrescos
     direccion: g.direccion,
-    fechaEntrega: g.fechaEntrega,
-    etiquetaEntrega: g.fechaEntrega === entregaNormal ? null : g.fechaEntrega,
     secuencia: null, // la resuelve seccionDe(), que es quien tiene el maestro
   }
 }
@@ -360,23 +357,20 @@ function seccionDe(filas: FilaDocumento[], ruta: string | null, secuenciaDe?: Re
 }
 
 /**
- * Núcleo puro: recibe las filas ya consultadas y arma EL documento de la jornada.
+ * Núcleo puro: recibe las filas ya consultadas y arma EL documento de una fecha de entrega.
  *
- * `fecha` es la jornada (fecha de despacho) y es el ÚNICO criterio de qué entra: todo lo
- * despachado ese día cae acá, se entregue cuando se entregue. La fecha de entrega no
- * parte nada — baja a cada fila y solo se etiqueta cuando difiere de la normal.
+ * `fechaEntrega` es el ÚNICO criterio de qué entra: todo lo que se entrega ese día cae acá,
+ * se haya despachado el día anterior o tres días antes. `despachos` y `manuales` tienen que
+ * venir ya filtrados a esa entrega — de eso se encarga construirDocumentoDia().
  */
 export function armarDocumento(
-  fecha: string,
+  fechaEntrega: string,
   despachos: DespachoRow[],
   manuales: ManualRow[],
   secuenciaDe?: ResolverSecuencia
 ): DocumentoDia {
   const avisos: string[] = []
   const grupos = new Map<string, Grupo>()
-  // Entrega normal de la jornada. Es el encabezado del documento y la vara contra la que
-  // se decide si una fila necesita etiqueta.
-  const entregaNormal = entregaPorDefecto(fecha)
 
   // es_desposte solo se captura en el CANAL (Inventario no tiene esa casilla).
   // Mapeamos registro_id -> desposte del canal para que las vísceras del mismo
@@ -416,18 +410,6 @@ export function armarDocumento(
   for (const d of despachos) {
     if (d.tipo_despacho === 'canal' && d.registro_id != null && d.direccion != null && d.direccion.trim() !== '') {
       direccionPorRegistro.set(d.registro_id, d.direccion.trim())
-    }
-  }
-
-  // La fecha de entrega también se hereda del canal, por el mismo motivo que la dirección:
-  // entra en la clave de grupo, así que una víscera con otra fecha se separaría de su canal
-  // y el código saldría en dos líneas. Hace falta de verdad: el adelanto de vísceras desde
-  // Inventario NO escribe fecha_entrega (esas filas toman el DEFAULT de la columna), así que
-  // sin esto una víscera adelantada se despegaría de un canal despachado para otro día.
-  const entregaPorRegistro = new Map<string, string>()
-  for (const d of despachos) {
-    if (d.tipo_despacho === 'canal' && d.registro_id != null) {
-      entregaPorRegistro.set(d.registro_id, fechaEntregaDe(d.fecha_entrega, fecha))
     }
   }
 
@@ -501,22 +483,12 @@ export function armarDocumento(
       (d.tipo_despacho !== 'canal' && d.registro_id != null
         ? direccionPorRegistro.get(d.registro_id) ?? null
         : null)
-    // Entrega de ESTA raya. La del canal manda; la víscera hereda la de su animal y, si es
-    // un adelanto sin canal en la jornada, vale la suya (o el default para lo histórico).
-    const entregaFila =
-      d.tipo_despacho === 'canal'
-        ? fechaEntregaDe(d.fecha_entrega, fecha)
-        : d.registro_id != null
-          ? entregaPorRegistro.get(d.registro_id) ?? fechaEntregaDe(d.fecha_entrega, fecha)
-          : fechaEntregaDe(d.fecha_entrega, fecha)
-
-    const key = claveGrupo(ruta, tipoCarne, codigoCliente, esDesposte, codigoDestino, evento, esMediaCanal, direccionFila, entregaFila)
+    const key = claveGrupo(ruta, tipoCarne, codigoCliente, esDesposte, codigoDestino, evento, esMediaCanal, direccionFila)
     let g = grupos.get(key)
     if (!g) {
       g = {
         ruta, tipoCarne, codigoCliente, esDesposte, codigoDestino, evento, esMediaCanal,
         direccion: direccionFila,
-        fechaEntrega: entregaFila,
         animalesCanal: new Set(),
         cant: 0, vb: 0, vr: 0, cabeza: null, patas: null, despachoIds: [], despachoIdsCanal: [],
       }
@@ -563,22 +535,21 @@ export function armarDocumento(
   }
 
   // Ítems con su ruta/tipoCarne para poder distribuirlos en bloques/secciones.
-  const items = [...grupos.values()].map(g => ({ ruta: g.ruta, tipoCarne: g.tipoCarne, evento: g.evento, fila: grupoAFila(g, entregaNormal) }))
+  const items = [...grupos.values()].map(g => ({ ruta: g.ruta, tipoCarne: g.tipoCarne, evento: g.evento, fila: grupoAFila(g) }))
 
-  // Datos manuales por (ruta + carro). Las rutas con nombre usan carro_id '' -> una sola
-  // fila por ruta, igual que antes. Cada carro externo tiene la suya.
+  // Datos manuales por (ruta + carro). `manuales` ya viene filtrado a ESTA fecha de entrega,
+  // así que la clave no la lleva. Las rutas con nombre usan carro_id '' -> una sola fila por
+  // ruta; cada carro externo tiene la suya.
   //
-  // `fecha_entrega` NO entra en la clave: el encabezado es de la jornada. La columna sigue
-  // en el UNIQUE de la tabla, así que pueden existir filas de más de una entrega para la
-  // misma ruta —las que dejó la etapa en que el documento se partía—. Se ordena para que la
-  // de la entrega normal quede ÚLTIMA y gane el Map: es la que la app escribe desde ahora.
+  // Puede haber más de una fila por ruta si alguna quedó guardada con una jornada distinta
+  // de la canónica (el UNIQUE incluye `fecha`). Se ordena para que la de la jornada canónica
+  // quede ÚLTIMA y gane el Map: es contra la que escribe la app, o sea la que Rafa edita.
   const claveManual = (ruta: string, carroId: string | null) => `${ruta}|${carroId ?? ''}`
   const manualPorClave = new Map<string, DatosManuales>()
-  const manualesOrdenados = [...manuales].sort((a, b) => {
-    const da = fechaEntregaDe(a.fecha_entrega, fecha) === entregaNormal ? 1 : 0
-    const db = fechaEntregaDe(b.fecha_entrega, fecha) === entregaNormal ? 1 : 0
-    return da - db
-  })
+  const jornada = jornadaCanonica(fechaEntrega)
+  const manualesOrdenados = [...manuales].sort(
+    (a, b) => (a.fecha === jornada ? 1 : 0) - (b.fecha === jornada ? 1 : 0)
+  )
   for (const m of manualesOrdenados) {
     manualPorClave.set(claveManual(m.ruta, m.carro_id ?? ''), {
       conductor: m.conductor ?? null,
@@ -640,7 +611,7 @@ export function armarDocumento(
     .map(it => it.fila)
     .sort(compararFila)
 
-  return { fecha, fechaEntrega: entregaNormal, bloques, sinRuta, avisos }
+  return { fechaEntrega, bloques, sinRuta, avisos }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -652,45 +623,57 @@ const SELECT_DESPACHOS =
   'registros_beneficio(codigo_cliente, numero_animal, tipo_carne), viscera:inventario_visceras(tipo)'
 
 /**
- * Construye EL documento de una JORNADA. `fecha` es un string 'YYYY-MM-DD'
- * (fecha_despacho es DATE, se compara directo).
+ * Construye EL documento de una FECHA DE ENTREGA. `fechaEntrega` es un string 'YYYY-MM-DD'.
  *
- * `fecha_despacho` es el ÚNICO criterio de qué despachos entran: todo lo cargado ese día
- * sale en un solo documento, aunque se entregue en días distintos. Las filas que se
- * entregan fuera de lo normal se distinguen por su etiqueta, no por documento aparte.
+ * La entrega es el ÚNICO criterio: todo lo que se entrega ese día entra, sin importar en
+ * qué jornada se despachó. Lo cargado el 6 para entregar el 8 y lo cargado el 7 para
+ * entregar el 8 son la MISMA tabla del 8.
  *
  * Si una consulta falla: console.error con prefijo [documentoRuta] y devuelve un
  * documento vacío pero válido (nunca lanza).
  */
 export async function construirDocumentoDia(
-  fecha: string,
+  fechaEntrega: string,
   secuenciaDe?: ResolverSecuencia
 ): Promise<DocumentoDia> {
   const avisosConsulta: string[] = []
+  const jornada = jornadaCanonica(fechaEntrega)
 
-  // Consulta 1: despachos del día con los joins anidados.
-  // El ORDER BY es OBLIGATORIO: sin él Postgres devuelve las filas en orden físico,
-  // que cambia cada vez que se hace UPDATE sobre una fila (editar cabeza/patas mueve
-  // el registro al final del heap). Ese orden se filtraba al documento y las filas
-  // "se revolvían" entre refrescos. Orden por created_at + id = el orden en que Rafa
-  // fue despachando, siempre igual.
+  // Consulta 1: despachos de ESTA entrega, con los joins anidados.
+  //
+  // El filtro va por fecha_entrega, NO por jornada. Son dos condiciones en OR porque la
+  // columna es nullable:
+  //   · fecha_entrega = la pedida            -> todo lo que eligió fecha al despachar
+  //   · fecha_entrega IS NULL Y fecha_despacho = la pedida − 1
+  //                                          -> el histórico anterior a la columna, que
+  //                                             siempre se entregó al día siguiente
+  // Es el mismo criterio que fechaEntregaDe() aplica en memoria, pero expresado en SQL para
+  // no traerse la tabla entera. Sin la segunda condición, el histórico desaparecería.
   const { data: despData, error: errDesp } = await supabase
     .from('despachos')
     .select(SELECT_DESPACHOS)
-    .eq('fecha_despacho', fecha)
+    .or(`fecha_entrega.eq.${fechaEntrega},and(fecha_entrega.is.null,fecha_despacho.eq.${jornada})`)
+    // El ORDER BY es OBLIGATORIO: sin él Postgres devuelve las filas en orden físico, que
+    // cambia cada vez que se hace UPDATE sobre una fila (editar cabeza/patas mueve el
+    // registro al final del heap). Ese orden se filtraba al documento y las filas "se
+    // revolvían" entre refrescos. Orden por created_at + id = el orden en que Rafa fue
+    // despachando, que ahora además encadena bien varias jornadas: lo del 6 antes que lo
+    // del 7 dentro de la misma tabla del 8.
     .order('created_at', { ascending: true })
     .order('id', { ascending: true })
 
   if (errDesp) {
     console.error('[documentoRuta] Error consultando despachos:', errDesp)
-    avisosConsulta.push('No se pudieron cargar los despachos del día.')
+    avisosConsulta.push('No se pudieron cargar los despachos de esta entrega.')
   }
 
-  // Consulta 2: datos manuales de ruta del día.
+  // Consulta 2: datos manuales de ESTA entrega. También por fecha_entrega y no por jornada:
+  // si no, el encabezado de la tabla del 8 se duplicaría entre el 6 y el 7. La columna es
+  // NOT NULL en esta tabla (la migración hizo backfill), así que acá alcanza un igual.
   const { data: manData, error: errMan } = await supabase
     .from('documentos_ruta')
-    .select('ruta, carro_id, fecha_entrega, conductor, auxiliar, placa, hora_programada, observacion')
-    .eq('fecha', fecha)
+    .select('fecha, ruta, carro_id, fecha_entrega, conductor, auxiliar, placa, hora_programada, observacion')
+    .eq('fecha_entrega', fechaEntrega)
 
   if (errMan) {
     console.error('[documentoRuta] Error consultando documentos_ruta:', errMan)
@@ -698,7 +681,7 @@ export async function construirDocumentoDia(
   }
 
   const doc = armarDocumento(
-    fecha,
+    fechaEntrega,
     (despData ?? []) as unknown as DespachoRow[],
     (manData ?? []) as unknown as ManualRow[],
     secuenciaDe
@@ -721,21 +704,20 @@ export type ResultadoGuardado = { ok: true } | { ok: false; mensaje: string }
  * Nunca lanza: el fallo vuelve en el resultado para que la pantalla pueda mostrarlo.
  */
 export async function guardarDatosManuales(
-  fecha: string,
+  fechaEntrega: string,
   ruta: string,
   datos: Partial<DatosManuales>,
   carroId: string | null = null
 ): Promise<ResultadoGuardado> {
-  // carro_id '' = ruta con nombre. El encabezado es de la JORNADA: una fila por ruta (y una
-  // por carro en Externo), sin importar para qué día se entregue cada código.
+  // El encabezado pertenece a la ENTREGA: una fila por ruta (y una por carro en Externo)
+  // para la tabla del 8, la haya empezado Rafa el 6 o el 7. carro_id '' = ruta con nombre.
   //
-  // `fecha_entrega` sigue en el UNIQUE de la tabla —no se revierte el esquema—, así que hay
-  // que mandar algo. Va SIEMPRE la entrega normal de la jornada: es un valor determinista,
-  // con lo que todas las escrituras de un día chocan contra la MISMA fila y el encabezado
-  // deja de partirse. El onConflict tiene que seguir nombrando las cuatro columnas del
-  // índice único, si no Postgres lo rechaza.
+  // `fecha` (la jornada) también está en el UNIQUE, así que hay que mandar algo: va SIEMPRE
+  // la jornada canónica (entrega − 1). Es determinista, con lo que dos escrituras de la
+  // misma entrega hechas en días distintos chocan contra la MISMA fila en vez de crear dos
+  // encabezados. El onConflict tiene que nombrar las cuatro columnas del índice único.
   const fila: Record<string, string | null> = {
-    fecha, fecha_entrega: entregaPorDefecto(fecha), ruta, carro_id: carroId ?? '',
+    fecha: jornadaCanonica(fechaEntrega), fecha_entrega: fechaEntrega, ruta, carro_id: carroId ?? '',
   }
   if ('conductor' in datos) fila.conductor = datos.conductor ?? null
   if ('auxiliar' in datos) fila.auxiliar = datos.auxiliar ?? null
