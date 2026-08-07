@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
 import { RefreshCw, AlertTriangle, ChevronDown, FileSpreadsheet } from 'lucide-react'
 import {
-  construirDocumentosDia,
+  construirDocumentoDia,
   guardarDatosManuales,
   actualizarCabezaPatas,
   claveBloque,
@@ -10,6 +10,7 @@ import {
   type SeccionDocumento,
   type FilaDocumento,
   type DatosManuales,
+  type ResolverSecuencia,
 } from '../lib/documentoRuta'
 import { exportarDocumentoRuta } from '../lib/exportarDocumentoRuta'
 import {
@@ -28,12 +29,17 @@ function hoyLocal(): string {
 }
 
 // Fecha con día de la semana en español, desde una fecha DATE.
-// Se le pasa la fecha de ENTREGA del documento, que ahora es un dato explícito: antes se
-// deducía acá sumándole 1 a la de despacho. El selector de arriba sigue siendo la fecha de
-// DESPACHO (la jornada) y la consulta no cambia.
+// Se le pasa la fecha de ENTREGA del documento, que es un dato explícito. El selector de
+// arriba sigue siendo la fecha de DESPACHO (la jornada) y la consulta no cambia.
 function fechaLarga(fecha: string): string {
   const d = new Date(fecha + 'T00:00:00')
   return d.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+}
+
+// Etiqueta compacta de entrega para una fila que NO se entrega el día normal: "8 ago".
+function fechaCorta(fecha: string): string {
+  const d = new Date(fecha + 'T00:00:00')
+  return d.toLocaleDateString('es', { day: 'numeric', month: 'short' })
 }
 
 function manualVacio(): DatosManuales {
@@ -50,7 +56,6 @@ const GUARDADO_MS = 1000
  *  encabezado salen en un solo upsert en vez de uno por campo. */
 type EscrituraPendiente = {
   fecha: string
-  fechaEntrega: string
   ruta: string
   carroId: string | null
   datos: Partial<DatosManuales>
@@ -69,28 +74,41 @@ const cellInputCls =
   'w-20 border border-gray-200 rounded-md px-2 py-1 text-sm text-right focus:outline-none focus:border-green-700 focus:ring-1 focus:ring-green-700 disabled:bg-gray-50 disabled:text-gray-400'
 
 /**
- * Trae el maestro de secuencia y arma los documentos de la jornada, cada uno ordenado por
- * el orden de ENTREGA de SU día. Va fuera del componente porque no depende de ningún estado.
- * Si el maestro no se puede leer (tabla sin crear, sin permisos), devuelve undefined y
- * los documentos salen con su orden de siempre — nunca rompe la pantalla.
+ * Resolver de secuencia que elige el maestro por la fecha de entrega DE CADA FILA.
  *
- * El resolver se arma POR fecha de entrega, no uno para toda la pantalla: Cimitarra tiene un
- * maestro para LUNES y otro para JUEVES, así que dos documentos de la misma jornada tienen
- * que resolver contra días distintos. Con una sola fecha de entrega —el caso normal— se arma
- * uno solo, igual que antes.
+ * Cimitarra tiene un maestro para LUNES y otro para JUEVES, y ahora una jornada puede
+ * llevar filas que se entregan días distintos DENTRO del mismo documento. Por eso el día
+ * no se fija una vez para toda la pantalla: sale de `fila.fechaEntrega`. Los resolvers ya
+ * armados se cachean, así que en la jornada normal —todas las filas con la misma entrega—
+ * se construye uno solo, igual que antes.
  */
-async function cargarDocumentos(fecha: string): Promise<{ docs: DocumentoDia[]; maestro: MaestroRow[] }> {
-  const maestro = await fetchMaestroSecuencia()
-  const resolverPara = maestro.length > 0
-    ? (fechaEntrega: string) => crearResolverSecuencia(maestro, diaSemanaDe(fechaEntrega))
-    : undefined
-  const docs = await construirDocumentosDia(fecha, resolverPara)
+function resolverPorFila(maestro: MaestroRow[]): ResolverSecuencia | undefined {
+  if (maestro.length === 0) return undefined
+  const cache = new Map<string, ResolverSecuencia>()
+  return (ruta, fila) => {
+    let r = cache.get(fila.fechaEntrega)
+    if (!r) {
+      r = crearResolverSecuencia(maestro, diaSemanaDe(fila.fechaEntrega))
+      cache.set(fila.fechaEntrega, r)
+    }
+    return r(ruta, fila)
+  }
+}
 
-  // Sin maestro los documentos igual se arman, pero las rutas regionales salen SIN el orden de
+/**
+ * Trae el maestro de secuencia y arma EL documento de la jornada. Va fuera del componente
+ * porque no depende de ningún estado. Si el maestro no se puede leer (tabla sin crear, sin
+ * permisos), el documento sale con su orden de siempre — nunca rompe la pantalla.
+ */
+async function cargarDocumento(fecha: string): Promise<{ doc: DocumentoDia; maestro: MaestroRow[] }> {
+  const maestro = await fetchMaestroSecuencia()
+  const doc = await construirDocumentoDia(fecha, resolverPorFila(maestro))
+
+  // Sin maestro el documento igual se arma, pero las rutas regionales salen SIN el orden de
   // entrega (queda el orden por código). Antes esto pasaba en SILENCIO y era indistinguible
   // de un bug de ordenamiento; ahora se avisa en pantalla.
-  if (maestro.length === 0 && docs.length > 0) {
-    docs[0].avisos.unshift(
+  if (maestro.length === 0) {
+    doc.avisos.unshift(
       'No se pudo leer el maestro de secuencia de entrega (tabla secuencia_entrega vacía o sin acceso): ' +
       'las rutas regionales salen ordenadas por código, no por orden de entrega. ' +
       '¿Falta correr migracion_secuencia_entrega.sql?'
@@ -99,31 +117,28 @@ async function cargarDocumentos(fecha: string): Promise<{ docs: DocumentoDia[]; 
 
   // Códigos sin orden asignado. SOLO en rutas regionales: en Nacional/Barbosa/Externo no
   // existe la secuencia, así que un código sin match ahí no es un problema y no se avisa.
-  for (const doc of docs) {
-    for (const b of doc.bloques) {
-      if (!rutaUsaSecuencia(b.ruta)) continue
-      const sinOrden = [...b.bovinos.filas, ...b.porcinos.filas].filter(f => f.secuencia == null)
-      if (sinOrden.length === 0) continue
-      const codigos = [...new Set(sinOrden.map(f => f.codigoCliente))].join(', ')
-      doc.avisos.push(
-        `${b.ruta}: ${sinOrden.length === 1 ? 'el código' : 'los códigos'} ${codigos} ` +
-        `no ${sinOrden.length === 1 ? 'tiene' : 'tienen'} orden de entrega asignado; ` +
-        `${sinOrden.length === 1 ? 'sale' : 'salen'} al final. Se puede asignar desde la tabla.`
-      )
-    }
+  for (const b of doc.bloques) {
+    if (!rutaUsaSecuencia(b.ruta)) continue
+    const sinOrden = [...b.bovinos.filas, ...b.porcinos.filas].filter(f => f.secuencia == null)
+    if (sinOrden.length === 0) continue
+    const codigos = [...new Set(sinOrden.map(f => f.codigoCliente))].join(', ')
+    doc.avisos.push(
+      `${b.ruta}: ${sinOrden.length === 1 ? 'el código' : 'los códigos'} ${codigos} ` +
+      `no ${sinOrden.length === 1 ? 'tiene' : 'tienen'} orden de entrega asignado; ` +
+      `${sinOrden.length === 1 ? 'sale' : 'salen'} al final. Se puede asignar desde la tabla.`
+    )
   }
-  return { docs, maestro }
+  return { doc, maestro }
 }
 
 export default function DocumentoRuta() {
   const [fecha, setFecha] = useState(hoyLocal())
-  // UN documento por fecha de entrega. En una jornada normal es uno solo; en víspera de
-  // festivo son dos (lo de mañana y lo del día hábil siguiente), cada uno con sus bloques.
-  const [docs, setDocs] = useState<DocumentoDia[] | null>(null)
+  // UN documento por JORNADA. Todo lo despachado ese día entra acá, se entregue cuando se
+  // entregue; lo que sale otro día se distingue por su etiqueta, no por documento aparte.
+  const [doc, setDoc] = useState<DocumentoDia | null>(null)
   const [showAvisos, setShowAvisos] = useState(false)
   // Campos manuales en estado local (un refresco NO debe borrar lo que Rafa escribe).
-  // Clave por BLOQUE (fecha de entrega + ruta + carro), no por ruta: cada carro de Externo
-  // y cada documento tienen sus propios datos manuales.
+  // Clave por BLOQUE (ruta + carro): cada carro de Externo tiene sus propios datos manuales.
   const [manualLocal, setManualLocal] = useState<Record<string, DatosManuales>>({})
   // Edición local de cabeza/patas por fila (se limpia con cada doc nuevo → refleja lo guardado).
   const [cpLocal, setCpLocal] = useState<Record<string, { cabeza: string; patas: string }>>({})
@@ -144,17 +159,15 @@ export default function DocumentoRuta() {
   // Refresco (botón "Actualizar" / pestaña visible): recarga SIN reiniciar los campos
   // manuales — conserva lo que Rafa esté escribiendo y solo agrega rutas nuevas.
   const cargar = useCallback(async () => {
-    const { docs: ds, maestro: m } = await cargarDocumentos(fecha)
-    setDocs(ds)
+    const { doc: d, maestro: m } = await cargarDocumento(fecha)
+    setDoc(d)
     setMaestro(m)
-    setCpLocal({}) // cabeza/patas se re-derivan de los docs recién cargados
+    setCpLocal({}) // cabeza/patas se re-derivan del doc recién cargado
     setManualLocal(prev => {
       const next = { ...prev }
-      for (const d of ds) {
-        for (const b of d.bloques) {
-          const k = claveBloque(d.fechaEntrega, b)
-          if (!(k in next)) next[k] = b.manual ?? manualVacio()
-        }
+      for (const b of d.bloques) {
+        const k = claveBloque(b)
+        if (!(k in next)) next[k] = b.manual ?? manualVacio()
       }
       return next
     })
@@ -165,15 +178,13 @@ export default function DocumentoRuta() {
   useEffect(() => {
     let vigente = true
     void (async () => {
-      const { docs: ds, maestro: m } = await cargarDocumentos(fecha)
+      const { doc: d, maestro: m } = await cargarDocumento(fecha)
       if (!vigente) return
-      setDocs(ds)
+      setDoc(d)
       setMaestro(m)
       setCpLocal({})
       const manual: Record<string, DatosManuales> = {}
-      for (const d of ds) {
-        for (const b of d.bloques) manual[claveBloque(d.fechaEntrega, b)] = b.manual ?? manualVacio()
-      }
+      for (const b of d.bloques) manual[claveBloque(b)] = b.manual ?? manualVacio()
       setManualLocal(manual)
     })()
     return () => { vigente = false }
@@ -208,7 +219,7 @@ export default function DocumentoRuta() {
 
     const fallas: string[] = []
     for (const p of lote) {
-      const r = await guardarDatosManuales(p.fecha, p.fechaEntrega, p.ruta, p.datos, p.carroId)
+      const r = await guardarDatosManuales(p.fecha, p.ruta, p.datos, p.carroId)
       if (!r.ok) fallas.push(`${p.ruta}: ${r.mensaje}`)
     }
     setErrorGuardado(fallas.length > 0 ? fallas.join(' · ') : null)
@@ -216,16 +227,13 @@ export default function DocumentoRuta() {
 
   /** Agenda el guardado de un campo, acumulando por bloque: si varios campos del mismo
    *  encabezado quedan sucios a la vez (sin blur de por medio), salen en un solo upsert. */
-  function encolarManual(fechaEntrega: string, b: BloqueRuta, key: keyof DatosManuales, valor: string) {
-    const k = claveBloque(fechaEntrega, b)
+  function encolarManual(b: BloqueRuta, key: keyof DatosManuales, valor: string) {
+    const k = claveBloque(b)
     const previo = pendientesRef.current.get(k)
     pendientesRef.current.set(k, {
       // La fecha viaja con la escritura: si se mueve el selector, lo pendiente se guarda
       // en el día en el que se escribió.
       fecha,
-      // Y la de ENTREGA también: es lo que separa el encabezado de un documento del otro
-      // cuando la jornada produce dos (misma ruta con nombre, mismo carro_id '').
-      fechaEntrega,
       ruta: b.ruta,
       carroId: b.carroId, // el carro va en la clave: dos externos del mismo día no se pisan
       datos: { ...previo?.datos, [key]: valor.trim() === '' ? null : valor } as Partial<DatosManuales>,
@@ -234,17 +242,17 @@ export default function DocumentoRuta() {
     timerRef.current = setTimeout(() => { void flushManual() }, GUARDADO_MS)
   }
 
-  function setCampoManual(fechaEntrega: string, b: BloqueRuta, key: keyof DatosManuales, valor: string) {
-    const k = claveBloque(fechaEntrega, b)
+  function setCampoManual(b: BloqueRuta, key: keyof DatosManuales, valor: string) {
+    const k = claveBloque(b)
     setManualLocal(prev => ({
       ...prev,
       [k]: { ...(prev[k] ?? manualVacio()), [key]: valor === '' ? null : valor } as DatosManuales,
     }))
-    encolarManual(fechaEntrega, b, key, valor)
+    encolarManual(b, key, valor)
   }
 
-  function guardarCampoManual(fechaEntrega: string, b: BloqueRuta, key: keyof DatosManuales, valor: string) {
-    encolarManual(fechaEntrega, b, key, valor)
+  function guardarCampoManual(b: BloqueRuta, key: keyof DatosManuales, valor: string) {
+    encolarManual(b, key, valor)
     void flushManual()
   }
 
@@ -264,15 +272,15 @@ export default function DocumentoRuta() {
     }
   }, [flushManual])
 
-  function campoManual(fechaEntrega: string, b: BloqueRuta, campo: keyof DatosManuales, label: string) {
+  function campoManual(b: BloqueRuta, campo: keyof DatosManuales, label: string) {
     return (
       <div>
         <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{label}</label>
         <input
           type="text"
-          value={manualLocal[claveBloque(fechaEntrega, b)]?.[campo] ?? ''}
-          onChange={e => setCampoManual(fechaEntrega, b, campo, e.target.value)}
-          onBlur={e => guardarCampoManual(fechaEntrega, b, campo, e.target.value)}
+          value={manualLocal[claveBloque(b)]?.[campo] ?? ''}
+          onChange={e => setCampoManual(b, campo, e.target.value)}
+          onBlur={e => guardarCampoManual(b, campo, e.target.value)}
           className={inputCls}
         />
       </div>
@@ -303,37 +311,30 @@ export default function DocumentoRuta() {
 
   // ── Secuencia de entrega (solo rutas regionales) ───────────────
   // Rafa asigna el número que corresponde; se guarda tal cual, sin correr las demás.
-  // El DÍA con el que se guarda es el de la fecha de ENTREGA de ESTE documento (Cimitarra
-  // guarda un maestro por día). Antes salía de la fecha de despacho + 1; con dos documentos
-  // en la misma jornada eso escribiría la fila en el día equivocado.
-  async function guardarSec(fechaEntrega: string, ruta: string, f: FilaDocumento, valor: string) {
+  // El DÍA con el que se guarda es el de la entrega DE LA FILA (Cimitarra guarda un maestro
+  // por día). Sale de la fila y no del documento: en una misma jornada puede haber códigos
+  // que se entregan días distintos, y cada uno tiene que escribirse en SU día del maestro.
+  async function guardarSec(ruta: string, f: FilaDocumento, valor: string) {
     setEditSec(null)
     const n = Number(valor.trim())
     if (valor.trim() === '' || !Number.isFinite(n)) return
     if (n === f.secuencia) return // sin cambios
-    const ok = await guardarSecuencia(maestro, ruta, f.codigoCliente, n, diaSemanaDe(fechaEntrega))
+    const ok = await guardarSecuencia(maestro, ruta, f.codigoCliente, n, diaSemanaDe(f.fechaEntrega))
     if (ok) await cargar() // recarga: el documento se reordena con la secuencia nueva
   }
 
   // ── Exportar a Excel ───────────────────────────────────────────
   // Usa los datos manuales del ESTADO LOCAL (lo que Rafa ve, aunque no haya sacado el foco).
-  // Va TODA la jornada en un solo libro: una hoja por fecha de entrega.
   function exportar() {
-    if (!docs || docs.length === 0) return
-    exportarDocumentoRuta(docs, new Map(Object.entries(manualLocal)))
+    if (!doc) return
+    exportarDocumentoRuta(doc, new Map(Object.entries(manualLocal)))
   }
 
   // ── Render de una tabla de sección ─────────────────────────────
-  function tabla(titulo: string, seccion: SeccionDocumento, conCP: boolean, editable: boolean, ruta: string | null = null, fechaEntrega: string | null = null) {
-    // Para editar la secuencia hace falta saber a qué DÍA de entrega pertenece la fila: el
-    // maestro de Cimitarra es por día. Sin fechaEntrega no se dibuja el control (hoy solo
-    // pasa en la tabla de "sin ruta", que además nunca lleva secuencia).
-    // Se guardan juntos en un objeto para poder usarlos dentro del onBlur sin depender de
-    // que TypeScript arrastre el estrechamiento hasta el callback.
-    const sec = ruta != null && fechaEntrega != null && rutaUsaSecuencia(ruta)
-      ? { ruta, fechaEntrega }
-      : null
-    const conSecuencia = sec != null
+  function tabla(titulo: string, seccion: SeccionDocumento, conCP: boolean, editable: boolean, ruta: string | null = null) {
+    // Se guarda en una const para que TypeScript arrastre el estrechamiento hasta el onBlur.
+    const rutaSec = ruta != null && rutaUsaSecuencia(ruta) ? ruta : null
+    const conSecuencia = rutaSec != null
     const thCls = 'text-left px-4 py-2.5 font-semibold text-white text-xs uppercase tracking-wider'
     const tdNum = 'px-4 py-2.5 text-gray-700 text-right'
     return (
@@ -377,13 +378,23 @@ export default function DocumentoRuta() {
                     <tr className={i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}>
                       <td className="px-4 py-2.5 font-mono font-semibold text-gray-900">
                         {f.cod}
-                        {sec && (
+                        {/* Entrega fuera de lo normal: la fila se queda en el documento de su
+                            jornada y solo se marca acá. En un día común no aparece ninguna. */}
+                        {f.etiquetaEntrega && (
+                          <span
+                            title={`Se entrega el ${fechaLarga(f.etiquetaEntrega)}, no con el resto del documento`}
+                            className="ml-2 px-1.5 py-0.5 rounded text-[11px] font-sans font-semibold text-blue-700 bg-blue-100 whitespace-nowrap"
+                          >
+                            entrega {fechaCorta(f.etiquetaEntrega)}
+                          </span>
+                        )}
+                        {rutaSec && (
                           editando ? (
                             <input
                               type="number" min={1} autoFocus
                               value={editSec.valor}
                               onChange={e => setEditSec({ key: f.key, valor: e.target.value })}
-                              onBlur={e => guardarSec(sec.fechaEntrega, sec.ruta, f, e.target.value)}
+                              onBlur={e => guardarSec(rutaSec, f, e.target.value)}
                               onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setEditSec(null) }}
                               className="ml-2 w-16 border border-gray-300 rounded px-1 py-0.5 text-xs font-sans"
                             />
@@ -446,28 +457,25 @@ export default function DocumentoRuta() {
   }
 
   // sección de solo lectura para "sin ruta" (lista plana → le calculamos totales)
-  function seccionSinRutaDe(doc: DocumentoDia): SeccionDocumento | null {
-    if (doc.sinRuta.length === 0) return null
-    return {
-      filas: doc.sinRuta,
-      totales: doc.sinRuta.reduce(
-        (t, f) => ({
-          cant: t.cant + f.cant, vb: t.vb + f.vb, vr: t.vr + f.vr,
-          cabeza: t.cabeza + (f.cabeza ?? 0), patas: t.patas + (f.patas ?? 0),
-        }),
-        { cant: 0, vb: 0, vr: 0, cabeza: 0, patas: 0 }
-      ),
-    }
-  }
+  const seccionSinRuta: SeccionDocumento | null = doc && doc.sinRuta.length > 0
+    ? {
+        filas: doc.sinRuta,
+        totales: doc.sinRuta.reduce(
+          (t, f) => ({
+            cant: t.cant + f.cant, vb: t.vb + f.vb, vr: t.vr + f.vr,
+            cabeza: t.cabeza + (f.cabeza ?? 0), patas: t.patas + (f.patas ?? 0),
+          }),
+          { cant: 0, vb: 0, vr: 0, cabeza: 0, patas: 0 }
+        ),
+      }
+    : null
 
-  // Avisos de TODA la jornada en un solo panel. Con más de un documento se le antepone el
-  // día de entrega, si no "Cimitarra: el código X no tiene orden" saldría dos veces sin que
-  // se pueda distinguir a cuál de los dos documentos se refiere.
-  const hayVariasEntregas = (docs?.length ?? 0) > 1
-  const avisos: string[] = (docs ?? []).flatMap(d =>
-    d.avisos.map(a => (hayVariasEntregas ? `[entrega ${d.fechaEntrega}] ${a}` : a))
-  )
-  const haySinRuta = (docs ?? []).some(d => d.sinRuta.length > 0)
+  // Cuántas filas del documento se entregan fuera del día normal. Solo para el aviso de
+  // arriba: no parte nada, cada una ya lleva su etiqueta en la tabla.
+  const filasOtraEntrega = doc
+    ? [...doc.bloques.flatMap(b => [...b.bovinos.filas, ...b.porcinos.filas]), ...doc.sinRuta]
+        .filter(f => f.etiquetaEntrega != null).length
+    : 0
 
   // Direcciones de entrega: SOLO la ruta Nacional las lleva. Se listan por código
   // (un mismo bloque puede llevar varios clientes, cada uno a su punto de entrega).
@@ -500,7 +508,7 @@ export default function DocumentoRuta() {
           </button>
           <button
             onClick={exportar}
-            disabled={!docs || docs.length === 0}
+            disabled={!doc}
             className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 transition-all duration-200 whitespace-nowrap disabled:opacity-40"
           >
             <FileSpreadsheet size={14} />
@@ -509,18 +517,20 @@ export default function DocumentoRuta() {
         </div>
       </div>
 
-      {haySinRuta && (
+      {doc && doc.sinRuta.length > 0 && (
         <p className="text-xs text-amber-700 -mt-3">
           Hay despachos sin ruta asignada: se exportan en una hoja aparte llamada «Sin ruta».
         </p>
       )}
 
-      {/* Aviso de la jornada partida. No es un error: es lo que Rafa pidió cuando deja
-          listos dos días en una sola jornada (víspera de festivo). */}
-      {hayVariasEntregas && (
+      {/* La jornada NO se parte: lo que se entrega otro día sigue en este documento y solo
+          lleva su etiqueta. Esto es el resumen, para no tener que buscarlas a ojo. */}
+      {filasOtraEntrega > 0 && (
         <p className="text-xs text-gray-500 -mt-3">
-          Esta jornada tiene {docs?.length} fechas de entrega: sale un documento por cada una,
-          con su propio encabezado. El Excel las trae como hojas separadas.
+          {filasOtraEntrega === 1
+            ? 'Hay 1 código que se entrega otro día'
+            : `Hay ${filasOtraEntrega} códigos que se entregan otro día`}: van en este mismo
+          documento, marcados con su fecha de entrega al lado.
         </p>
       )}
 
@@ -534,7 +544,7 @@ export default function DocumentoRuta() {
         </div>
       )}
 
-      {avisos.length > 0 && (
+      {doc && doc.avisos.length > 0 && (
         <div className="border border-amber-300 bg-amber-50 rounded-xl overflow-hidden">
           <button
             onClick={() => setShowAvisos(v => !v)}
@@ -542,96 +552,82 @@ export default function DocumentoRuta() {
           >
             <span className="flex items-center gap-2">
               <AlertTriangle size={16} className="text-amber-500" />
-              {avisos.length} {avisos.length === 1 ? 'aviso de datos' : 'avisos de datos'}
+              {doc.avisos.length} {doc.avisos.length === 1 ? 'aviso de datos' : 'avisos de datos'}
             </span>
             <ChevronDown size={16} className={`transition-transform duration-200 ${showAvisos ? 'rotate-180' : ''}`} />
           </button>
           {showAvisos && (
             <ul className="px-4 pb-3 space-y-1 text-sm text-amber-800 list-disc list-inside">
-              {avisos.map((a, i) => <li key={i}>{a}</li>)}
+              {doc.avisos.map((a, i) => <li key={i}>{a}</li>)}
             </ul>
           )}
         </div>
       )}
 
-      {!docs ? (
+      {!doc ? (
         <p className="text-sm text-gray-400">Cargando documento...</p>
       ) : (
-        docs.map(doc => {
-          const seccionSinRuta = seccionSinRutaDe(doc)
-          return (
-            // Un grupo por fecha de ENTREGA. Con una sola entrega (el caso normal) esto es
-            // exactamente lo que se veía antes; con dos, cada grupo lleva su propia franja
-            // arriba para que no haya dudas de cuál documento es cuál.
-            <div key={doc.fechaEntrega} className="space-y-6">
-              {hayVariasEntregas && (
-                <div className="bg-green-800 text-white rounded-xl px-4 py-2.5">
-                  <p className="text-sm font-bold capitalize">Entrega {fechaLarga(doc.fechaEntrega)}</p>
+        <>
+          {doc.bloques.map((b, i) => (
+            // Externo puede aportar VARIOS bloques el mismo día (uno por carro), todos
+            // con ruta==='Externo' -> la key no puede ser solo b.ruta (colisionaría). El orden
+            // de doc.bloques es determinista, así que sumarle el índice es seguro.
+            <section key={`${b.ruta}-${i}`} className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5 space-y-4">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">{b.ruta}</h3>
+                <p className="text-sm text-gray-500 capitalize">{fechaLarga(doc.fechaEntrega)}</p>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {campoManual(b, 'conductor', 'Conductor')}
+                {campoManual(b, 'auxiliar', 'Auxiliar')}
+                {campoManual(b, 'horaProgramada', 'Hora programada')}
+                {campoManual(b, 'placa', 'Placa')}
+              </div>
+
+              {/* Un carro externo lleva UN SOLO tipo de carne: se dibuja solo la sub-tabla que
+                  tiene filas, para que no aparezca la vacía al lado (eso es lo que se veía como
+                  "res y cerdo mezclados"). Las rutas con nombre sí muestran las dos aunque una
+                  esté vacía, que es como Rafa arma sus alineaciones. */}
+              {(b.ruta !== 'Externo' || b.bovinos.filas.length > 0) && tabla('Bovinos', b.bovinos, true, true, b.ruta)}
+              {(b.ruta !== 'Externo' || b.porcinos.filas.length > 0) && tabla('Porcinos', b.porcinos, false, true, b.ruta)}
+
+              {direccionesDelBloque(b).length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Direcciones de entrega</p>
+                  <ul className="text-sm text-gray-700 space-y-1">
+                    {direccionesDelBloque(b).map(d => (
+                      <li key={d.key}>
+                        <span className="font-mono font-semibold text-gray-900">{d.cod}</span>
+                        <span className="text-gray-500"> — </span>
+                        {d.direccion}
+                        <span className="text-gray-500"> — {d.cant}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
 
-              {doc.bloques.map((b, i) => (
-                // Externo puede aportar VARIOS bloques el mismo día (uno por carro), todos
-                // con ruta==='Externo' -> la key no puede ser solo b.ruta (colisionaría). El orden
-                // de doc.bloques es determinista, así que sumarle el índice es seguro.
-                <section key={`${b.ruta}-${i}`} className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5 space-y-4">
-                  <div>
-                    <h3 className="text-lg font-bold text-gray-900">{b.ruta}</h3>
-                    <p className="text-sm text-gray-500 capitalize">{fechaLarga(doc.fechaEntrega)}</p>
-                  </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Observación</label>
+                <textarea
+                  rows={2}
+                  value={manualLocal[claveBloque(b)]?.observacion ?? ''}
+                  onChange={e => setCampoManual(b, 'observacion', e.target.value)}
+                  onBlur={e => guardarCampoManual(b, 'observacion', e.target.value)}
+                  className={inputCls}
+                />
+              </div>
+            </section>
+          ))}
 
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    {campoManual(doc.fechaEntrega, b, 'conductor', 'Conductor')}
-                    {campoManual(doc.fechaEntrega, b, 'auxiliar', 'Auxiliar')}
-                    {campoManual(doc.fechaEntrega, b, 'horaProgramada', 'Hora programada')}
-                    {campoManual(doc.fechaEntrega, b, 'placa', 'Placa')}
-                  </div>
-
-                  {/* Un carro externo lleva UN SOLO tipo de carne: se dibuja solo la sub-tabla que
-                      tiene filas, para que no aparezca la vacía al lado (eso es lo que se veía como
-                      "res y cerdo mezclados"). Las rutas con nombre sí muestran las dos aunque una
-                      esté vacía, que es como Rafa arma sus alineaciones. */}
-                  {(b.ruta !== 'Externo' || b.bovinos.filas.length > 0) && tabla('Bovinos', b.bovinos, true, true, b.ruta, doc.fechaEntrega)}
-                  {(b.ruta !== 'Externo' || b.porcinos.filas.length > 0) && tabla('Porcinos', b.porcinos, false, true, b.ruta, doc.fechaEntrega)}
-
-                  {direccionesDelBloque(b).length > 0 && (
-                    <div>
-                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Direcciones de entrega</p>
-                      <ul className="text-sm text-gray-700 space-y-1">
-                        {direccionesDelBloque(b).map(d => (
-                          <li key={d.key}>
-                            <span className="font-mono font-semibold text-gray-900">{d.cod}</span>
-                            <span className="text-gray-500"> — </span>
-                            {d.direccion}
-                            <span className="text-gray-500"> — {d.cant}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Observación</label>
-                    <textarea
-                      rows={2}
-                      value={manualLocal[claveBloque(doc.fechaEntrega, b)]?.observacion ?? ''}
-                      onChange={e => setCampoManual(doc.fechaEntrega, b, 'observacion', e.target.value)}
-                      onBlur={e => guardarCampoManual(doc.fechaEntrega, b, 'observacion', e.target.value)}
-                      className={inputCls}
-                    />
-                  </div>
-                </section>
-              ))}
-
-              {seccionSinRuta && (
-                <section className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5 space-y-3">
-                  <h3 className="text-lg font-bold text-gray-900">Despachos sin ruta asignada</h3>
-                  {tabla('Detalle', seccionSinRuta, true, false)}
-                </section>
-              )}
-            </div>
-          )
-        })
+          {seccionSinRuta && (
+            <section className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5 space-y-3">
+              <h3 className="text-lg font-bold text-gray-900">Despachos sin ruta asignada</h3>
+              {tabla('Detalle', seccionSinRuta, true, false)}
+            </section>
+          )}
+        </>
       )}
     </div>
   )

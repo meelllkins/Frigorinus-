@@ -38,6 +38,18 @@ function textoNombreHoja(d: Date): string {
   return `${d.getDate()} ${mes}`
 }
 
+/**
+ * Texto de la celda COD. Cuando la fila se entrega un día distinto al del documento se le
+ * agrega la etiqueta: "155-2 (ENTREGA 8 AGOSTO)". La DECISIÓN de etiquetar no se toma acá
+ * —viene resuelta en `etiquetaEntrega`, ver documentoRuta.ts—, así que la pantalla y el
+ * Excel marcan exactamente las mismas filas. En una jornada normal no marca ninguna y el
+ * texto queda idéntico al de siempre.
+ */
+function textoCod(f: FilaDocumento): string {
+  if (f.etiquetaEntrega == null) return f.cod
+  return `${f.cod} (ENTREGA ${textoNombreHoja(comoFecha(f.etiquetaEntrega))})`
+}
+
 // ── Estilos (bordes finos + centrado por defecto; colores sin "#") ──
 const BORDE = { style: 'thin', color: { rgb: '000000' } }
 const BORDES = { top: BORDE, bottom: BORDE, left: BORDE, right: BORDE }
@@ -149,7 +161,7 @@ function escribirBovinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: number
   // Los códigos sin orden de entrega igual salen al final (los ordena seccionDe), pero en el
   // Excel van SIN separador ni aviso: Rafa lo quiere limpio. El aviso queda solo en pantalla.
   for (const f of sec.filas) {
-    h.celda(r, c, { v: f.cod, t: 's', s: ss.datos })
+    h.celda(r, c, { v: textoCod(f), t: 's', s: ss.datos })
     h.celda(r, c + 1, { v: f.cant, t: 'n', s: ss.datos })
     h.celda(r, c + 2, { v: f.vb, t: 'n', s: ss.datos })
     h.celda(r, c + 3, { v: f.vr, t: 'n', s: ss.datos })
@@ -182,7 +194,7 @@ function escribirPorcinos(h: Hoja, sec: SeccionDocumento, c: number, cEnd: numbe
 
   const first = r
   for (const f of sec.filas) {
-    h.combinada(r, c, c + 2, { v: f.cod, t: 's', s: ss.datos })
+    h.combinada(r, c, c + 2, { v: textoCod(f), t: 's', s: ss.datos })
     h.celda(r, c + 3, { v: f.cant, t: 'n', s: ss.datos })
     h.celda(r, c + 4, { v: f.vb, t: 'n', s: ss.datos })
     h.celda(r, c + 5, { v: f.vr, t: 'n', s: ss.datos })
@@ -269,11 +281,11 @@ function anchosColumnas(matriz: MatrizPlana): { wch: number }[] {
 
 function hojaSinRuta(sinRuta: FilaDocumento[]): MatrizPlana {
   const filas: MatrizPlana = [['COD', 'CANT', 'V/B', 'V/R', 'CABEZA', 'PATAS']]
-  for (const f of sinRuta) filas.push([f.cod, f.cant, f.vb, f.vr, f.cabeza, f.patas])
+  for (const f of sinRuta) filas.push([textoCod(f), f.cant, f.vb, f.vr, f.cabeza, f.patas])
   return filas
 }
 
-/** Escribe UN documento (una fecha de entrega) como una hoja del libro. */
+/** Escribe el documento de la jornada como la hoja del libro. */
 function agregarHojaDocumento(
   wb: XLSX.WorkBook,
   doc: DocumentoDia,
@@ -281,8 +293,9 @@ function agregarHojaDocumento(
 ): void {
   const h = new Hoja()
 
-  // Fecha de ENTREGA del documento, formateada UNA sola vez; el mismo texto va a todos los
-  // bloques y al nombre de hoja. Ningún bloque la recalcula ni usa la fecha de despacho.
+  // Entrega NOMINAL de la jornada, formateada UNA sola vez; el mismo texto va a todos los
+  // bloques y al nombre de hoja. Las filas que se entregan otro día no abren hoja aparte:
+  // se quedan acá con su etiqueta al lado del código (ver textoCod).
   const entrega = comoFecha(doc.fechaEntrega)
   const textoFecha = textoLineaFecha(entrega)
 
@@ -295,7 +308,7 @@ function agregarHojaDocumento(
     const llevaDireccion = [...b.bovinos.filas, ...b.porcinos.filas].some(f => f.direccion)
     const ancho = llevaDireccion ? COLS_TABLA + 1 : COLS_TABLA
 
-    escribirBloque(h, b, c, textoFecha, manualEnPantalla.get(claveBloque(doc.fechaEntrega, b)) ?? b.manual ?? null, b.ruta === 'Externo', ancho)
+    escribirBloque(h, b, c, textoFecha, manualEnPantalla.get(claveBloque(b)) ?? b.manual ?? null, b.ruta === 'Externo', ancho)
 
     for (const w of ANCHOS_BLOQUE) cols.push({ wch: w })
     if (llevaDireccion) cols.push({ wch: ANCHO_DIRECCION })
@@ -307,32 +320,25 @@ function agregarHojaDocumento(
 }
 
 /**
- * Exporta la jornada a un .xlsx con el formato de Rafa: UNA hoja por fecha de entrega.
- * En un día normal `docs` trae un solo documento y el libro sale idéntico a antes; en
- * víspera de festivo salen dos hojas, "7 AGOSTO" y "8 AGOSTO", cada una con sus bloques.
+ * Exporta la jornada a un .xlsx con el formato de Rafa: UNA hoja con todo lo despachado
+ * ese día, se entregue cuando se entregue. Los códigos que salen otro día van en esa misma
+ * hoja, con la etiqueta de entrega al lado del código.
  *
  * `manualEnPantalla` = datos manuales del estado local de la pantalla (lo que Rafa ve,
  * aunque no haya sacado el foco de un campo), por clave de bloque (ver claveBloque).
  */
-export function exportarDocumentoRuta(docs: DocumentoDia[], manualEnPantalla: Map<string, DatosManuales>): void {
-  if (docs.length === 0) return
+export function exportarDocumentoRuta(doc: DocumentoDia, manualEnPantalla: Map<string, DatosManuales>): void {
   const wb = XLSX.utils.book_new()
 
-  for (const doc of docs) agregarHojaDocumento(wb, doc, manualEnPantalla)
+  agregarHojaDocumento(wb, doc, manualEnPantalla)
 
-  // "Sin ruta" también es POR documento. Con una sola fecha de entrega la hoja se sigue
-  // llamando 'Sin ruta' (igual que siempre); con varias se le agrega el día para que los
-  // nombres no choquen —Excel no admite dos hojas con el mismo nombre—.
-  for (const doc of docs) {
-    if (doc.sinRuta.length === 0) continue
+  if (doc.sinRuta.length > 0) {
     const matSin = hojaSinRuta(doc.sinRuta)
     const wsSin = XLSX.utils.aoa_to_sheet(matSin)
     wsSin['!cols'] = anchosColumnas(matSin)
-    const nombre = docs.length === 1 ? 'Sin ruta' : `Sin ruta ${textoNombreHoja(comoFecha(doc.fechaEntrega))}`
-    XLSX.utils.book_append_sheet(wb, wsSin, nombre.slice(0, 31))
+    XLSX.utils.book_append_sheet(wb, wsSin, 'Sin ruta')
   }
 
-  // El nombre del archivo sigue siendo el de la JORNADA (la fecha del selector): es un
-  // solo libro con todo lo despachado ese día, aunque adentro lleve dos entregas.
-  XLSX.writeFile(wb, `Documento de ruta ${docs[0].fecha}.xlsx`)
+  // El nombre del archivo es el de la JORNADA (la fecha del selector).
+  XLSX.writeFile(wb, `Documento de ruta ${doc.fecha}.xlsx`)
 }
