@@ -138,6 +138,12 @@ export default function Beneficio() {
   const [batchError, setBatchError] = useState('')
   const [batchSuccess, setBatchSuccess] = useState('')
   const batchErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Enter salta al campo siguiente, igual que en el formulario individual: código ->
+  // inicial -> final -> enviar. La fecha queda fuera de la cadena, como allá, porque viene
+  // con el día de hoy puesto y casi nunca se toca.
+  const batchFormRef = useRef<HTMLFormElement>(null)
+  const batchInicialRef = useRef<HTMLInputElement>(null)
+  const batchFinalRef = useRef<HTMLInputElement>(null)
 
   // Edición inline
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -1505,6 +1511,7 @@ export default function Beneficio() {
 
           {showBatch && (
             <form
+              ref={batchFormRef}
               onSubmit={handleBatchSubmit}
               className="mt-4 bg-gray-50 border border-gray-200 rounded-2xl p-6 grid grid-cols-1 sm:grid-cols-2 gap-5"
             >
@@ -1514,6 +1521,9 @@ export default function Beneficio() {
                   type="text"
                   value={batchForm.codigo_cliente}
                   onChange={e => setBatchForm({ ...batchForm, codigo_cliente: e.target.value })}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') { e.preventDefault(); batchInicialRef.current?.focus() }
+                  }}
                   className={inputClass}
                   required
                 />
@@ -1531,10 +1541,14 @@ export default function Beneficio() {
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1.5">Número animal inicial</label>
                 <input
+                  ref={batchInicialRef}
                   type="number"
                   min={1}
                   value={batchForm.numero_inicial}
                   onChange={e => setBatchForm({ ...batchForm, numero_inicial: e.target.value })}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') { e.preventDefault(); batchFinalRef.current?.focus() }
+                  }}
                   className={inputClass}
                   placeholder="ej: 121"
                   required
@@ -1543,10 +1557,14 @@ export default function Beneficio() {
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1.5">Número animal final</label>
                 <input
+                  ref={batchFinalRef}
                   type="number"
                   min={1}
                   value={batchForm.numero_final}
                   onChange={e => setBatchForm({ ...batchForm, numero_final: e.target.value })}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') { e.preventDefault(); batchFormRef.current?.requestSubmit() }
+                  }}
                   className={inputClass}
                   placeholder="ej: 130"
                   required
