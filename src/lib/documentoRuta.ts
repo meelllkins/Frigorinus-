@@ -61,8 +61,7 @@ export type DocumentoDia = {
 }
 
 /**
- * Jornada CANÓNICA de una fecha de entrega: el día en que se despacha "normalmente" para
- * entregar ese día (entrega − 1).
+ * Jornada CANÓNICA de una fecha de entrega: entrega − 1, siempre.
  *
  * Existe solo por `documentos_ruta`: su UNIQUE es (fecha, ruta, carro_id, fecha_entrega) e
  * incluye `fecha`, la jornada. Si cada encabezado se guardara con la jornada REAL en que se
@@ -70,8 +69,16 @@ export type DocumentoDia = {
  * despachos. Escribiendo siempre esta fecha canónica, todas las escrituras de una entrega
  * chocan contra la MISMA fila y el encabezado queda uno solo.
  *
- * Coincide con lo que ya hay guardado: el backfill de la migración puso
- * fecha_entrega = fecha + 1, o sea fecha = fecha_entrega − 1.
+ * ⚠️ NO ES LA INVERSA de entregaPorDefecto() y no debe intentar serlo. Desde que el sábado
+ *    entrega el lunes (+2), esa función dejó de ser invertible: sábado y domingo caen los
+ *    dos en lunes, así que "la jornada de una entrega-lunes" es ambigua. Acá no importa:
+ *    lo único que se necesita es un valor DETERMINISTA por fecha de entrega, y −1 lo es.
+ *    Un despacho del sábado y otro del domingo, ambos para entregar el lunes, escriben el
+ *    mismo `fecha` (domingo) y comparten el encabezado, que es lo correcto: es un camión.
+ *
+ * Además −1 es lo que hay guardado: el backfill de la migración puso
+ * fecha_entrega = fecha + 1, o sea fecha = fecha_entrega − 1. Cambiarlo dejaría huérfano
+ * cada encabezado ya existente.
  */
 export function jornadaCanonica(fechaEntrega: string): string {
   return sumarDias(fechaEntrega, -DIAS_HASTA_ENTREGA)
@@ -647,8 +654,12 @@ export async function construirDocumentoDia(
   //   · fecha_entrega IS NULL Y fecha_despacho = la pedida − 1
   //                                          -> el histórico anterior a la columna, que
   //                                             siempre se entregó al día siguiente
-  // Es el mismo criterio que fechaEntregaDe() aplica en memoria, pero expresado en SQL para
-  // no traerse la tabla entera. Sin la segunda condición, el histórico desaparecería.
+  // Sin la segunda condición, el histórico desaparecería de la pantalla.
+  //
+  // El −1 del histórico es FIJO y NO sigue la excepción del sábado: esas filas se armaron
+  // cuando la regla era +1 a secas, así que un despacho viejo de sábado se siguió —y se
+  // sigue— entregando el domingo a los ojos de la app. Aplicarles la regla nueva movería
+  // documentos ya cerrados de una tabla a otra.
   const { data: despData, error: errDesp } = await supabase
     .from('despachos')
     .select(SELECT_DESPACHOS)
