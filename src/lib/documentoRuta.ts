@@ -10,7 +10,11 @@ export type FilaDocumento = {
   key: string              // identidad ESTABLE de la fila (no depende del orden de la BD)
   cod: string              // celda COD ya formateada (ver formatearCod)
   codigoCliente: string
-  animales: number[]       // ordenados de menor a mayor, sin repetidos
+  // Números de animal TAL CUAL se guardaron ('0001' sigue siendo '0001'), ordenados por su
+  // valor numérico y sin repetidos POR TEXTO. Son texto y no número porque el cero a la
+  // izquierda es significativo: '0001' y '1' son dos rayas distintas y las dos tienen que
+  // salir en el documento.
+  animales: string[]
   cant: number             // suma de fracciones de canal: 0, 0.5 (media canal), 1, 2...
   vb: number               // vísceras blancas
   vr: number               // vísceras rojas
@@ -105,12 +109,13 @@ export function claveBloque(b: { ruta: string; carroId: string | null }): string
 // ════════════════════════════════════════════════════════════════
 
 /**
- * Formatea la celda COD. `animales` se asume ordenado de menor a mayor y sin
- * repetidos (así lo entrega la agrupación).
+ * Formatea la celda COD. `animales` se asume ordenado por valor numérico y sin repetidos
+ * por texto (así lo entrega la agrupación), y se imprime TAL CUAL vino: los ceros a la
+ * izquierda son parte del número de raya y no se normalizan.
  */
 export function formatearCod(
   codigoCliente: string,
-  animales: number[],
+  animales: string[],
   codigoDestino: string | null,
   esDesposte: boolean,
   esMediaCanal = false,
@@ -131,7 +136,11 @@ export function formatearCod(
       listaAnimales = ''
     } else if (
       animales.length >= UMBRAL_RANGO &&
-      animales[animales.length - 1] - animales[0] === animales.length - 1 // consecutivos, sin huecos
+      // Consecutivos, sin huecos. La comprobación es NUMÉRICA pero los extremos se imprimen
+      // con su texto original, así "0007..0014" sale "0007 AL 0014". Si hay dos rayas que
+      // valen lo mismo ('0001' y '1'), la cuenta no cierra y cae solo al listado completo,
+      // que es justo lo que corresponde: un rango se comería una de las dos.
+      Number(animales[animales.length - 1]) - Number(animales[0]) === animales.length - 1
     ) {
       listaAnimales = `${animales[0]} AL ${animales[animales.length - 1]}`
     } else {
@@ -220,8 +229,10 @@ function compararFila(a: FilaDocumento, b: FilaDocumento): number {
   const porCodigo = compararCodigo(a.codigoCliente, b.codigoCliente)
   if (porCodigo !== 0) return porCodigo
 
-  const primerA = a.animales.length > 0 ? a.animales[0] : Infinity
-  const primerB = b.animales.length > 0 ? b.animales[0] : Infinity
+  // El orden entre filas sigue siendo por VALOR del primer animal (2 antes que 10), aunque
+  // el arreglo guarde texto. Nunca es NaN: solo entran rayas con número finito.
+  const primerA = a.animales.length > 0 ? Number(a.animales[0]) : Infinity
+  const primerB = b.animales.length > 0 ? Number(b.animales[0]) : Infinity
   if (primerA !== primerB) return primerA - primerB
 
   const despA = a.esDesposte ? 1 : 0
@@ -261,7 +272,11 @@ type Grupo = {
   direccion: string | null
   // SOLO animales con canal despachada: es la fuente del texto COD (ver grupoAFila).
   // Los animales que solo aportaron víscera adelantada NO entran acá a propósito.
-  animalesCanal: Set<number>
+  //
+  // Map y no Set: la CLAVE es el número tal cual se guardó ('0001') y el VALOR su magnitud
+  // (1). Con un Set<number> —como estaba— '0001' y '1' colapsaban en la misma entrada y el
+  // documento perdía rayas: el código 102 con 0001/0002/1/2 salía como "102-1-2".
+  animalesCanal: Map<string, number>
   cant: number
   vb: number
   vr: number
@@ -307,7 +322,13 @@ function grupoAFila(g: Grupo): FilaDocumento {
   //       COD = "13-1-2"  CANT = 2  V/B = V/R = 4
   // Si NO hay ninguna canal (solo adelanto), la lista queda vacía y formatearCod devuelve
   // el código pelado: "13" (no "13-", ni "13-0", ni vacío).
-  const animales = [...g.animalesCanal].sort((a, b) => a - b)
+  // Orden por VALOR (2 antes que 10), con el texto de desempate para que dos rayas que
+  // valen lo mismo ('0001' y '1') queden juntas y en un orden estable entre refrescos.
+  const animales = [...g.animalesCanal.entries()]
+    .sort(([textoA, valorA], [textoB, valorB]) =>
+      valorA - valorB || (textoA < textoB ? -1 : textoA > textoB ? 1 : 0)
+    )
+    .map(([texto]) => texto)
   const esBovino = g.tipoCarne === 'res'
   return {
     key: claveGrupo(g.ruta, g.tipoCarne, g.codigoCliente, g.esDesposte, g.codigoDestino, g.evento, g.esMediaCanal, g.direccion),
@@ -496,7 +517,7 @@ export function armarDocumento(
       g = {
         ruta, tipoCarne, codigoCliente, esDesposte, codigoDestino, evento, esMediaCanal,
         direccion: direccionFila,
-        animalesCanal: new Set(),
+        animalesCanal: new Map(),
         cant: 0, vb: 0, vr: 0, cabeza: null, patas: null, despachoIds: [], despachoIdsCanal: [],
       }
       grupos.set(key, g)
@@ -504,8 +525,12 @@ export function armarDocumento(
 
     g.despachoIds.push(d.id)
 
+    // El número de animal se conserva como TEXTO (con sus ceros a la izquierda) y aparte se
+    // calcula su valor, que solo se usa para ordenar. Convertirlo a número para guardarlo
+    // era lo que hacía desaparecer rayas: Number('0001') === Number('1').
     const rawAnimal = rb.numero_animal
-    const numAnimal = rawAnimal == null || rawAnimal === '' ? NaN : Number(rawAnimal)
+    const textoAnimal = rawAnimal == null ? '' : String(rawAnimal).trim()
+    const numAnimal = textoAnimal === '' ? NaN : Number(textoAnimal)
 
     // CABEZA/PATAS suman TODO el grupo, venga la fila de canal o de víscera (regla de Rafa:
     // estas columnas incluyen todo lo asociado al código). En la práctica solo las filas de
@@ -523,7 +548,7 @@ export function armarDocumento(
       //     grupo colando su número en el COD ("32-1-2" con un solo canal despachado).
       //  2. El "adelanto de vísceras": se mandan antes las vísceras de animales cuya canal
       //     todavía no salió. Esos animales NO deben aparecer en el COD ni sumar a CANT.
-      if (Number.isFinite(numAnimal)) g.animalesCanal.add(numAnimal)
+      if (Number.isFinite(numAnimal)) g.animalesCanal.set(textoAnimal, numAnimal)
       // Suma la FRACCIÓN, no las filas: media canal aporta 0.5. 0.5+0.5 da 1 exacto
       // (es una fracción binaria), así que no hay deriva de coma flotante.
       g.cant += fraccion
