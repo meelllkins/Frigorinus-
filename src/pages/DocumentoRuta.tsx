@@ -1,5 +1,21 @@
-import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
-import { RefreshCw, AlertTriangle, ChevronDown, FileSpreadsheet } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef, Fragment, type ReactNode } from 'react'
+import { RefreshCw, AlertTriangle, ChevronDown, FileSpreadsheet, GripVertical } from 'lucide-react'
+import {
+  DndContext,
+  MouseSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+  type DragEndEvent,
+  type Modifier,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  useSortable,
+  arrayMove,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import {
   construirDocumentoDia,
   guardarDatosManuales,
@@ -11,6 +27,12 @@ import {
   type FilaDocumento,
   type DatosManuales,
 } from '../lib/documentoRuta'
+import {
+  fetchOrdenManual,
+  guardarOrdenSeccion,
+  claveSeccionOrden,
+  type TipoCarne,
+} from '../lib/ordenDocumento'
 import { exportarDocumentoRuta } from '../lib/exportarDocumentoRuta'
 import {
   fetchMaestroSecuencia,
@@ -66,6 +88,60 @@ const inputCls =
 const cellInputCls =
   'w-20 border border-gray-200 rounded-md px-2 py-1 text-sm text-right focus:outline-none focus:border-green-700 focus:ring-1 focus:ring-green-700 disabled:bg-gray-50 disabled:text-gray-400'
 
+// ── Reordenar filas arrastrando (solo mouse) ─────────────────────────────────
+// Rafa acomoda cada cuadrícula como va a entregar. El orden se guarda por
+// documento (ver ordenDocumento.ts) y solo se mueve DENTRO de una cuadrícula.
+
+/**
+ * Encierra el arrastre al eje vertical. Una fila de tabla solo puede subir o
+ * bajar dentro de su tabla; dejarla seguir el mouse en X la saca de la
+ * cuadrícula y se ve como si se pudiera soltar en otro lado, que es justo lo
+ * que NO se puede hacer.
+ *
+ * Va escrito acá y no con @dnd-kit/modifiers para no sumar una dependencia
+ * entera por tres líneas.
+ */
+const soloVertical: Modifier = ({ transform }) => ({ ...transform, x: 0 })
+
+/**
+ * Fila arrastrable. Dibuja la columna del handle y deja el resto de las celdas
+ * tal cual venían (`children`).
+ *
+ * El arrastre sale SOLO del handle, nunca de la fila entera: adentro hay inputs
+ * de cabeza/patas y el botón de secuencia, y hacerlos parte del área de arrastre
+ * rompería seleccionar texto, tipear y hacer clic en ellos.
+ */
+function FilaArrastrable({ id, zebra, children }: { id: string; zebra: boolean; children: ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  return (
+    <tr
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        // Mientras viaja se levanta por encima de las demás filas y se aclara,
+        // para que se vea DÓNDE va a caer sin tapar lo de abajo.
+        ...(isDragging ? { opacity: 0.6, position: 'relative' as const, zIndex: 10 } : {}),
+      }}
+      className={isDragging ? 'bg-green-50 shadow-lg' : zebra ? 'bg-gray-50' : 'bg-white'}
+    >
+      <td className="w-8 px-1 py-2.5 align-middle">
+        <button
+          type="button"
+          {...attributes}
+          {...listeners}
+          title="Arrastrar para cambiar el orden"
+          aria-label="Arrastrar para cambiar el orden"
+          className="text-gray-300 hover:text-gray-600 cursor-grab active:cursor-grabbing touch-none p-0.5 rounded focus:outline-none focus:ring-1 focus:ring-green-700"
+        >
+          <GripVertical size={16} />
+        </button>
+      </td>
+      {children}
+    </tr>
+  )
+}
+
 /**
  * Trae el maestro de secuencia y arma EL documento de una fecha de entrega. Va fuera del
  * componente porque no depende de ningún estado. Si el maestro no se puede leer (tabla sin
@@ -80,7 +156,22 @@ async function cargarDocumento(fechaEntrega: string): Promise<{ doc: DocumentoDi
   const resolver = maestro.length > 0
     ? crearResolverSecuencia(maestro, diaSemanaDe(fechaEntrega))
     : undefined
-  const doc = await construirDocumentoDia(fechaEntrega, resolver)
+  // Orden manual de las cuadrículas de ESTE documento (lo que Rafa arrastró).
+  // Va antes de armar el documento porque el override entra en el ordenamiento
+  // mismo, no después: así el Excel exportado sale igual que la pantalla.
+  const orden = await fetchOrdenManual(fechaEntrega)
+  const doc = await construirDocumentoDia(fechaEntrega, resolver, orden.resolver)
+
+  // Un orden vacío es lo NORMAL (documento que todavía no se reordenó) y no avisa
+  // nada. Esto es solo para cuando la consulta FALLA: sin el aviso, arrastrar
+  // parecería funcionar hasta el siguiente refresco, cuando las filas vuelven
+  // solas a su lugar y no hay nada que lo explique.
+  if (orden.error != null) {
+    doc.avisos.unshift(
+      `No se pudo leer el orden manual de las cuadrículas (${orden.error}): el documento sale en su ` +
+      'orden natural y arrastrar filas no se va a guardar. ¿Falta correr migracion_orden_documento_ruta.sql?'
+    )
+  }
 
   // Sin maestro el documento igual se arma, pero las rutas regionales salen SIN el orden de
   // entrega (queda el orden por código). Antes esto pasaba en SILENCIO y era indistinguible
@@ -135,6 +226,19 @@ export default function DocumentoRuta() {
   // Último fallo de guardado del encabezado. Antes se descartaba: el dato se veía en
   // pantalla (estado local) y desaparecía recién al volver, sin nada que lo explicara.
   const [errorGuardado, setErrorGuardado] = useState<string | null>(null)
+  // Cuadrículas cuyo orden se está escribiendo (clave de sección). Es solo para el
+  // cartelito "Guardando orden…": la UI NO se bloquea, así Rafa puede seguir
+  // arrastrando mientras el anterior viaja a la base.
+  const [guardandoOrden, setGuardandoOrden] = useState<ReadonlySet<string>>(new Set())
+  const [errorOrden, setErrorOrden] = useState<string | null>(null)
+
+  // Sensor de arrastre. Va acá arriba y NO adentro de tabla(): tabla() se llama en un
+  // bucle sobre los bloques, así que un hook ahí adentro violaría las reglas de hooks.
+  //
+  // MouseSensor y no PointerSensor: esto es para PC/laptop. PointerSensor tomaría
+  // también touch y lápiz, y en un móvil se comería el scroll de la tabla.
+  // La distancia mínima evita que un clic con temblor en el handle cuente como arrastre.
+  const sensores = useSensors(useSensor(MouseSensor, { activationConstraint: { distance: 4 } }))
 
   // Refresco (botón "Actualizar" / pestaña visible): recarga SIN reiniciar los campos
   // manuales — conserva lo que Rafa esté escribiendo y solo agrega rutas nuevas.
@@ -303,6 +407,74 @@ export default function DocumentoRuta() {
     if (ok) await cargar() // recarga: el documento se reordena con la secuencia nueva
   }
 
+  // ── Reordenar filas arrastrando ────────────────────────────────
+  /**
+   * Mueve una fila DENTRO de su cuadrícula y persiste el orden nuevo.
+   *
+   * El movimiento se aplica primero en pantalla y recién después se escribe: la
+   * fila queda donde Rafa la soltó al instante, sin esperar a la base ni recargar
+   * el documento. El reorden no cambia ningún total, así que no hace falta
+   * recalcular nada — solo cambia el orden del arreglo.
+   *
+   * Si la escritura falla, el orden en pantalla queda igual (es lo que Rafa
+   * quiso) pero el cartel rojo avisa que NO se guardó, así no se entera recién
+   * al siguiente refresco cuando las filas vuelven solas a su lugar.
+   */
+  function reordenar(
+    ruta: string,
+    carroId: string | null,
+    tipoCarne: TipoCarne,
+    titulo: string,
+    ev: DragEndEvent
+  ) {
+    const { active, over } = ev
+    // over null = se soltó fuera de la lista. active === over = no se movió.
+    if (!doc || over == null || active.id === over.id) return
+
+    const claveSec = claveSeccionOrden(ruta, carroId, tipoCarne)
+    const claveDelBloque = claveBloque({ ruta, carroId })
+    const cual = tipoCarne === 'res' ? 'bovinos' : 'porcinos'
+    // OJO con Externo: un carro que llevó res Y cerdo produce DOS bloques con el MISMO
+    // carroId (armarDocumento los separa por evento|tipoCarne, pero claveBloque es solo
+    // ruta|carro). Buscar por claveBloque sola devolvía cualquiera de los dos: si caía el
+    // de cerdo, su sección de bovinos está vacía y el arrastre no hacía nada. Por eso el
+    // bloque se identifica por la fila que se movió, que está en UNO solo.
+    const bloque = doc.bloques.find(
+      b => claveBloque(b) === claveDelBloque && b[cual].filas.some(f => f.key === active.id)
+    )
+    if (!bloque) return
+
+    const seccion = bloque[cual]
+    const desde = seccion.filas.findIndex(f => f.key === active.id)
+    const hasta = seccion.filas.findIndex(f => f.key === over.id)
+    // Las dos tienen que estar en ESTA cuadrícula. Cada tabla tiene su propio
+    // DndContext, así que arrastrar de una a otra no es posible; esto es el cinturón.
+    if (desde < 0 || hasta < 0) return
+
+    const filas = arrayMove(seccion.filas, desde, hasta)
+    const seccionNueva: SeccionDocumento = { ...seccion, filas, ordenManual: true }
+    // Por identidad y no por clave, por lo mismo de arriba: dos bloques de Externo pueden
+    // empatar en claveBloque y se actualizarían LOS DOS con la sección del otro.
+    setDoc({
+      ...doc,
+      bloques: doc.bloques.map(b => (b === bloque ? { ...b, [cual]: seccionNueva } : b)),
+    })
+
+    setGuardandoOrden(prev => new Set(prev).add(claveSec))
+    void (async () => {
+      // Se escribe la cuadrícula ENTERA (0..n-1), no solo la fila movida: así toda
+      // fila que ya está en la tabla queda con posición, y la que se despache más
+      // tarde —sin posición— cae al final, que es la regla que pidió Rafa.
+      const r = await guardarOrdenSeccion(fecha, ruta, carroId, tipoCarne, filas.map(f => f.key))
+      setGuardandoOrden(prev => {
+        const next = new Set(prev)
+        next.delete(claveSec)
+        return next
+      })
+      setErrorOrden(r.ok ? null : `${ruta} · ${titulo}: ${r.mensaje}`)
+    })()
+  }
+
   // ── Exportar a Excel ───────────────────────────────────────────
   // Usa los datos manuales del ESTADO LOCAL (lo que Rafa ve, aunque no haya sacado el foco).
   function exportar() {
@@ -311,19 +483,43 @@ export default function DocumentoRuta() {
   }
 
   // ── Render de una tabla de sección ─────────────────────────────
-  function tabla(titulo: string, seccion: SeccionDocumento, conCP: boolean, editable: boolean, ruta: string | null = null) {
+  // Es la ÚNICA función que dibuja cuadrículas: por acá pasan las regionales, las de
+  // Nacional/Barbosa y las de cada carro de Externo (BOVINOS y PORCINOS por separado),
+  // más la lista de "sin ruta". Por eso el arrastre se agrega acá una sola vez.
+  //
+  // `dnd` = null -> la tabla no se reordena. Hoy solo la usa así "sin ruta": es el balde
+  // de despachos con ruta NULL, es de solo lectura y no tiene ruta con la cual guardar
+  // un orden.
+  function tabla(
+    titulo: string,
+    seccion: SeccionDocumento,
+    conCP: boolean,
+    editable: boolean,
+    ruta: string | null = null,
+    dnd: { carroId: string | null; tipoCarne: TipoCarne } | null = null
+  ) {
     // Se guarda en una const para que TypeScript arrastre el estrechamiento hasta el onBlur.
     const rutaSec = ruta != null && rutaUsaSecuencia(ruta) ? ruta : null
-    const conSecuencia = rutaSec != null
+    // El separador "sin orden de entrega asignado" se dibuja UNA vez, antes del primer
+    // código sin secuencia, y eso solo tiene sentido si esas filas quedaron todas juntas
+    // al final. Con reorden manual dejan de estarlo (Rafa puede subir una fila sin
+    // secuencia), así que el separador se apaga en esa cuadrícula. El botón para asignar
+    // la secuencia sigue en cada fila: eso no cambia.
+    const conSecuencia = rutaSec != null && !seccion.ordenManual
+    // Reordenar necesita ruta: es parte de la identidad con la que se guarda el orden.
+    const rutaDnd = dnd != null && ruta != null ? ruta : null
+    const nCols = (conCP ? 6 : 4) + (rutaDnd != null ? 1 : 0)
+    const guardando = rutaDnd != null && dnd != null &&
+      guardandoOrden.has(claveSeccionOrden(rutaDnd, dnd.carroId, dnd.tipoCarne))
     const thCls = 'text-left px-4 py-2.5 font-semibold text-white text-xs uppercase tracking-wider'
     const tdNum = 'px-4 py-2.5 text-gray-700 text-right'
-    return (
-      <div>
-        <h4 className="text-sm font-bold text-gray-700 mb-1.5">{titulo}</h4>
+
+    const contenido = (
         <div className="w-full overflow-x-auto rounded-xl shadow-sm border border-gray-200 bg-white">
           <table className="min-w-[520px] w-full text-sm">
             <thead>
               <tr className="bg-gray-800">
+                {rutaDnd != null && <th className={`${thCls} w-8 px-1`}><span className="sr-only">Orden</span></th>}
                 <th className={thCls}>COD</th>
                 <th className={`${thCls} text-right`}>CANT</th>
                 <th className={`${thCls} text-right`}>V/B</th>
@@ -335,7 +531,7 @@ export default function DocumentoRuta() {
             <tbody className="divide-y divide-gray-100">
               {seccion.filas.length === 0 ? (
                 <tr>
-                  <td colSpan={conCP ? 6 : 4} className="px-4 py-4 text-center text-gray-400 text-sm">Sin filas</td>
+                  <td colSpan={nCols} className="px-4 py-4 text-center text-gray-400 text-sm">Sin filas</td>
                 </tr>
               ) : (
                 seccion.filas.map((f, i) => {
@@ -346,16 +542,11 @@ export default function DocumentoRuta() {
                     conSecuencia && f.secuencia == null &&
                     (i === 0 || seccion.filas[i - 1].secuencia != null)
                   const editando = editSec?.key === f.key
-                  return (
-                    <Fragment key={f.key}>
-                      {primeroSinOrden && (
-                        <tr className="bg-amber-50">
-                          <td colSpan={conCP ? 6 : 4} className="px-4 py-1.5 text-center text-[11px] font-semibold text-amber-700 uppercase tracking-wider">
-                            — Sin orden de entrega asignado —
-                          </td>
-                        </tr>
-                      )}
-                    <tr className={i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}>
+                  // Las celdas de siempre. Se arman aparte de la <tr> porque la fila
+                  // arrastrable agrega adelante la columna del handle y las recibe
+                  // como children; el contenido no cambia en ninguno de los dos casos.
+                  const celdas = (
+                    <>
                       <td className="px-4 py-2.5 font-mono font-semibold text-gray-900">
                         {f.cod}
                         {rutaSec && (
@@ -406,12 +597,30 @@ export default function DocumentoRuta() {
                           <td className={tdNum}>{f.patas ?? ''}</td>
                         </>
                       ))}
-                    </tr>
+                    </>
+                  )
+                  return (
+                    <Fragment key={f.key}>
+                      {primeroSinOrden && (
+                        <tr className="bg-amber-50">
+                          <td colSpan={nCols} className="px-4 py-1.5 text-center text-[11px] font-semibold text-amber-700 uppercase tracking-wider">
+                            — Sin orden de entrega asignado —
+                          </td>
+                        </tr>
+                      )}
+                      {rutaDnd != null ? (
+                        <FilaArrastrable id={f.key} zebra={i % 2 === 1}>{celdas}</FilaArrastrable>
+                      ) : (
+                        <tr className={i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}>{celdas}</tr>
+                      )}
                     </Fragment>
                   )
                 })
               )}
               <tr className="bg-gray-100 font-bold text-gray-900">
+                {/* Hueco de la columna del handle: sin esto los totales se corren una
+                    columna y no quedan debajo de su cifra. */}
+                {rutaDnd != null && <td className="w-8 px-1 py-2.5" />}
                 <td className="px-4 py-2.5">TOTAL</td>
                 <td className={tdNum}>{seccion.totales.cant}</td>
                 <td className={tdNum}>{seccion.totales.vb}</td>
@@ -422,6 +631,33 @@ export default function DocumentoRuta() {
             </tbody>
           </table>
         </div>
+    )
+
+    return (
+      <div>
+        <h4 className="text-sm font-bold text-gray-700 mb-1.5 flex items-center gap-2">
+          {titulo}
+          {/* Feedback mínimo mientras el orden viaja a la base. No bloquea nada:
+              la fila ya está en su lugar nuevo y se puede seguir arrastrando. */}
+          {guardando && <span className="text-[11px] font-medium text-gray-400 normal-case">Guardando orden…</span>}
+        </h4>
+        {rutaDnd != null && dnd != null ? (
+          // Un DndContext POR CUADRÍCULA. Es lo que hace imposible arrastrar una fila
+          // de una tabla a otra: cada contexto solo conoce sus propias filas, así que
+          // BOVINOS y PORCINOS —y cada carro de Externo— quedan aislados entre sí.
+          <DndContext
+            sensors={sensores}
+            collisionDetection={closestCenter}
+            modifiers={[soloVertical]}
+            onDragEnd={ev => reordenar(rutaDnd, dnd.carroId, dnd.tipoCarne, titulo, ev)}
+          >
+            <SortableContext items={seccion.filas.map(f => f.key)} strategy={verticalListSortingStrategy}>
+              {contenido}
+            </SortableContext>
+          </DndContext>
+        ) : (
+          contenido
+        )}
       </div>
     )
   }
@@ -437,6 +673,8 @@ export default function DocumentoRuta() {
           }),
           { cant: 0, vb: 0, vr: 0, cabeza: 0, patas: 0 }
         ),
+        // No se reordena: sin ruta no hay cuadrícula con la cual guardar un orden.
+        ordenManual: false,
       }
     : null
 
@@ -500,6 +738,17 @@ export default function DocumentoRuta() {
         </div>
       )}
 
+      {errorOrden && (
+        <div className="border border-red-300 bg-red-50 rounded-xl px-4 py-3 flex items-start gap-2">
+          <AlertTriangle size={16} className="text-red-500 mt-0.5 shrink-0" />
+          <div className="text-sm text-red-800 min-w-0">
+            <p className="font-semibold">El orden de las filas NO se guardó.</p>
+            <p className="mt-0.5 break-words">{errorOrden}</p>
+            <p className="mt-0.5 text-xs">En pantalla se ve movido, pero vuelve a su lugar al actualizar.</p>
+          </div>
+        </div>
+      )}
+
       {doc && doc.avisos.length > 0 && (
         <div className="border border-amber-300 bg-amber-50 rounded-xl overflow-hidden">
           <button
@@ -548,8 +797,10 @@ export default function DocumentoRuta() {
                   tiene filas, para que no aparezca la vacía al lado (eso es lo que se veía como
                   "res y cerdo mezclados"). Las rutas con nombre sí muestran las dos aunque una
                   esté vacía, que es como Rafa arma sus alineaciones. */}
-              {(b.ruta !== 'Externo' || b.bovinos.filas.length > 0) && tabla('Bovinos', b.bovinos, true, true, b.ruta)}
-              {(b.ruta !== 'Externo' || b.porcinos.filas.length > 0) && tabla('Porcinos', b.porcinos, false, true, b.ruta)}
+              {(b.ruta !== 'Externo' || b.bovinos.filas.length > 0) &&
+                tabla('Bovinos', b.bovinos, true, true, b.ruta, { carroId: b.carroId, tipoCarne: 'res' })}
+              {(b.ruta !== 'Externo' || b.porcinos.filas.length > 0) &&
+                tabla('Porcinos', b.porcinos, false, true, b.ruta, { carroId: b.carroId, tipoCarne: 'cerdo' })}
 
               {direccionesDelBloque(b).length > 0 && (
                 <div>

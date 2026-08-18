@@ -34,6 +34,11 @@ export type FilaDocumento = {
 export type SeccionDocumento = {
   filas: FilaDocumento[]
   totales: { cant: number; vb: number; vr: number; cabeza: number; patas: number }
+  // Esta cuadrícula tiene al menos una fila con orden manual guardado (Rafa la
+  // arrastró). Solo se usa para PRESENTAR: con override, el separador
+  // "sin orden de entrega asignado" ya no describe nada —las filas sin secuencia
+  // dejan de estar todas juntas al final— y la pantalla lo oculta.
+  ordenManual: boolean
 }
 
 export type DatosManuales = {
@@ -358,21 +363,65 @@ function grupoAFila(g: Grupo): FilaDocumento {
  */
 export type ResolverSecuencia = (ruta: string, fila: FilaDocumento) => number | null
 
-function seccionDe(filas: FilaDocumento[], ruta: string | null, secuenciaDe?: ResolverSecuencia): SeccionDocumento {
+/**
+ * Override MANUAL del orden de una cuadrícula: Rafa arrastró las filas con el mouse.
+ * Devuelve el mapa `fila.key -> posición` de ESA cuadrícula, o null si no la tocó
+ * (que es el caso normal). Lo arma el llamador —ver fetchOrdenManual() en
+ * ordenDocumento.ts— para que este módulo no dependa de Supabase, igual que
+ * ResolverSecuencia.
+ *
+ * Una cuadrícula es (ruta, carro, tipo de carne): las dos sub-tablas de un bloque se
+ * ordenan por separado, y en Externo cada carro tiene las suyas.
+ */
+export type ResolverOrdenManual = (
+  ruta: string | null,
+  carroId: string | null,
+  tipoCarne: 'res' | 'cerdo'
+) => Map<string, number> | null
+
+function seccionDe(
+  filas: FilaDocumento[],
+  ruta: string | null,
+  secuenciaDe?: ResolverSecuencia,
+  ordenSeccion?: Map<string, number> | null
+): SeccionDocumento {
   // Orden de ENTREGA: las rutas regionales con maestro se ordenan por secuencia de
   // menor a mayor (el 1 se entrega primero). Si no hay resolver, o la ruta no lleva
   // secuencia, o el código no está en el maestro, la secuencia es null -> todas quedan
   // "empatadas" y manda compararFila, o sea el orden de siempre.
   // La secuencia se guarda EN la fila: la usan el orden, el separador "sin orden asignado"
   // de la pantalla y del Excel, y el control para asignarla. Así nadie la recalcula aparte.
+  //
+  // ORDEN MANUAL (override): si Rafa arrastró filas de esta cuadrícula, las que movió
+  // mandan y van primero, en la posición que les dejó. Todo lo demás —una fila
+  // despachada DESPUÉS del arrastre, o la primera vez que se abre el documento— queda
+  // sin posición y cae al final EN SU ORDEN NATURAL, o sea el de las dos reglas de
+  // arriba, que siguen siendo la fuente de verdad. El override no las reemplaza: se
+  // apoya encima.
+  const posicionDe = (f: FilaDocumento): number | null => ordenSeccion?.get(f.key) ?? null
   const ordenadas = filas
     .map(f => ({ ...f, secuencia: ruta != null && secuenciaDe ? secuenciaDe(ruta, f) : null }))
     .sort((a, b) => {
+      const pa = posicionDe(a)
+      const pb = posicionDe(b)
+      // Una sola con posición: esa va antes. Es lo que empuja al final a los códigos
+      // despachados después del reorden.
+      if (pa == null && pb != null) return 1
+      if (pa != null && pb == null) return -1
+      // Las dos con posición: manda lo que Rafa dejó. El === no debería pasar
+      // (se reescribe la cuadrícula entera con 0..n-1), pero si pasa desempata
+      // el orden natural en vez de quedar a merced del orden de llegada de la BD.
+      if (pa != null && pb != null && pa !== pb) return pa - pb
+
       const sa = a.secuencia ?? Number.POSITIVE_INFINITY
       const sb = b.secuencia ?? Number.POSITIVE_INFINITY
       if (sa !== sb) return sa - sb
       return compararFila(a, b) // desempate determinista (incluye códigos sin secuencia)
     })
+  // Que la cuadrícula tenga override se decide por las filas que HAY, no por lo que
+  // haya guardado: un orden viejo cuyas filas ya no existen (despachos revertidos) no
+  // cuenta como reorden manual.
+  const ordenManual = ordenadas.some(f => posicionDe(f) != null)
   const totales = { cant: 0, vb: 0, vr: 0, cabeza: 0, patas: 0 }
   for (const f of ordenadas) {
     totales.cant += f.cant
@@ -381,7 +430,7 @@ function seccionDe(filas: FilaDocumento[], ruta: string | null, secuenciaDe?: Re
     totales.cabeza += f.cabeza ?? 0
     totales.patas += f.patas ?? 0
   }
-  return { filas: ordenadas, totales }
+  return { filas: ordenadas, totales, ordenManual }
 }
 
 /**
@@ -395,7 +444,8 @@ export function armarDocumento(
   fechaEntrega: string,
   despachos: DespachoRow[],
   manuales: ManualRow[],
-  secuenciaDe?: ResolverSecuencia
+  secuenciaDe?: ResolverSecuencia,
+  ordenDe?: ResolverOrdenManual
 ): DocumentoDia {
   const avisos: string[] = []
   const grupos = new Map<string, Grupo>()
@@ -594,11 +644,21 @@ export function armarDocumento(
 
   // Un bloque por ruta con filas, a partir de un subconjunto de `items` ya elegido
   // por el llamador (todos los de esa ruta, o solo los de UN carro de Externo).
+  // El orden manual se pide POR CUADRÍCULA, o sea (ruta, carro, tipo de carne): las dos
+  // sub-tablas del bloque se ordenan por separado y, en Externo, cada carro tiene las
+  // suyas. Es lo que garantiza que arrastrar BOVINOS de un carro no mueva sus PORCINOS
+  // ni toque los otros carros.
   const armarBloque = (ruta: string, itemsDelBloque: typeof items, carroId: string | null = null): BloqueRuta => ({
     ruta,
     carroId,
-    bovinos: seccionDe(itemsDelBloque.filter(it => it.tipoCarne === 'res').map(it => it.fila), ruta, secuenciaDe),
-    porcinos: seccionDe(itemsDelBloque.filter(it => it.tipoCarne === 'cerdo').map(it => it.fila), ruta, secuenciaDe),
+    bovinos: seccionDe(
+      itemsDelBloque.filter(it => it.tipoCarne === 'res').map(it => it.fila),
+      ruta, secuenciaDe, ordenDe?.(ruta, carroId, 'res')
+    ),
+    porcinos: seccionDe(
+      itemsDelBloque.filter(it => it.tipoCarne === 'cerdo').map(it => it.fila),
+      ruta, secuenciaDe, ordenDe?.(ruta, carroId, 'cerdo')
+    ),
     manual: manualPorClave.get(claveManual(ruta, carroId)) ?? null,
   })
 
@@ -666,7 +726,8 @@ const SELECT_DESPACHOS =
  */
 export async function construirDocumentoDia(
   fechaEntrega: string,
-  secuenciaDe?: ResolverSecuencia
+  secuenciaDe?: ResolverSecuencia,
+  ordenDe?: ResolverOrdenManual
 ): Promise<DocumentoDia> {
   const avisosConsulta: string[] = []
   const jornada = jornadaCanonica(fechaEntrega)
@@ -720,7 +781,8 @@ export async function construirDocumentoDia(
     fechaEntrega,
     (despData ?? []) as unknown as DespachoRow[],
     (manData ?? []) as unknown as ManualRow[],
-    secuenciaDe
+    secuenciaDe,
+    ordenDe
   )
   doc.avisos.unshift(...avisosConsulta)
   return doc
