@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
-import { ChevronDown, Pencil, Trash2, Truck, X } from 'lucide-react'
+import { ChevronDown, Pencil, Trash2, Truck, Upload, X } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { fetchClientesMap, type ClienteInfo } from '../lib/clientes'
 import CeldasCliente from '../components/CeldasCliente'
 import ClienteModal from '../components/ClienteModal'
+import ImportarSacrificioModal from '../components/ImportarSacrificioModal'
 import RutaFields from '../components/RutaFields'
 import DireccionNacionalField from '../components/DireccionNacionalField'
 import {
@@ -15,6 +16,9 @@ import {
 } from '../lib/direccionesNacional'
 import { entregaPorDefecto } from '../lib/fechaEntrega'
 import { enTramoPrevioAFestivo } from '../lib/festivos'
+// Solo tipos: se borran al compilar, así que sacrificioPdf.ts (y con él pdfjs-dist) no entra
+// en el chunk de arranque. El módulo se carga con import() dentro del handler del botón.
+import type { FilasClasificadas, ParseSacrificio } from '../lib/sacrificioPdf'
 import type { RegistroBeneficio } from '../types'
 
 function addDays(dateStr: string, days: number): string {
@@ -205,6 +209,19 @@ export default function Beneficio() {
   const [deleteMultiError, setDeleteMultiError] = useState('')
   const selectAllRef = useRef<HTMLInputElement>(null)
 
+  // Carga masiva desde el PDF de sacrificio del ERP (solo bovinos). Ver src/lib/sacrificioPdf.ts.
+  const pdfInputRef = useRef<HTMLInputElement>(null)
+  const [pdfLeyendo, setPdfLeyendo] = useState(false)
+  const [pdfError, setPdfError] = useState('')
+  const pdfErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [pdfPreview, setPdfPreview] = useState<
+    { parse: ParseSacrificio; clasificadas: FilasClasificadas } | null
+  >(null)
+  const [pdfConfirmando, setPdfConfirmando] = useState(false)
+  const [pdfInsertError, setPdfInsertError] = useState('')
+  const [toast, setToast] = useState('')
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   useEffect(() => {
     fetchRegistros()
   }, [])
@@ -260,6 +277,82 @@ export default function Beneficio() {
     setEditError(msg)
     if (editErrorTimerRef.current) clearTimeout(editErrorTimerRef.current)
     editErrorTimerRef.current = setTimeout(() => setEditError(''), 4000)
+  }
+
+  function showToast(msg: string) {
+    setToast(msg)
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+    toastTimerRef.current = setTimeout(() => setToast(''), 6000)
+  }
+
+  function showPdfError(msg: string) {
+    setPdfError(msg)
+    if (pdfErrorTimerRef.current) clearTimeout(pdfErrorTimerRef.current)
+    pdfErrorTimerRef.current = setTimeout(() => setPdfError(''), 8000)
+  }
+
+  /**
+   * Los errores que lanza sacrificioPdf.ts ya vienen redactados para el usuario; se
+   * reconocen por `name` para no tener que importar la clase (y arrastrar el módulo al
+   * bundle inicial). Cualquier otra cosa es un bug y sale con un texto genérico.
+   */
+  function mensajePdf(err: unknown): string {
+    if (err instanceof Error && err.name === 'SacrificioPdfError') return err.message
+    console.error('[cargarPdfSacrificio] Error inesperado:', err)
+    return 'No se pudo leer el PDF. Probá de nuevo.'
+  }
+
+  /**
+   * Lee el PDF y abre el preview. No escribe NADA en la base: eso pasa recién al confirmar.
+   * pdfjs-dist entra por dynamic import acá adentro, no en el bundle inicial.
+   */
+  async function handlePdfElegido(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    // Se limpia el input para que elegir DOS VECES el mismo archivo vuelva a disparar onChange.
+    e.target.value = ''
+    if (!file) return
+    setPdfError('')
+    setPdfInsertError('')
+    setPdfLeyendo(true)
+    try {
+      const { parsearSacrificioPdf, clasificarFilas } = await import('../lib/sacrificioPdf')
+      const parse = await parsearSacrificioPdf(file)
+      const clasificadas = await clasificarFilas(parse.filas, parse.fechaISO)
+      setPdfPreview({ parse, clasificadas })
+    } catch (err) {
+      showPdfError(mensajePdf(err))
+    } finally {
+      setPdfLeyendo(false)
+    }
+  }
+
+  async function handleConfirmarPdf() {
+    if (!pdfPreview) return
+    setPdfConfirmando(true)
+    setPdfInsertError('')
+    try {
+      const { insertarFilas } = await import('../lib/sacrificioPdf')
+      const { insertados, saltados, advertencias } = await insertarFilas(
+        pdfPreview.clasificadas,
+        pdfPreview.parse.fechaISO
+      )
+      setPdfPreview(null)
+      // El PDF es de bovinos: si Rafa estaba en la pestaña de cerdos, no vería nada de lo cargado.
+      setActiveTab('res')
+      showToast(
+        [
+          `${insertados} ${insertados === 1 ? 'animal insertado' : 'animales insertados'}, ${saltados} ${saltados === 1 ? 'saltado' : 'saltados'} por duplicado.`,
+          ...advertencias,
+        ].join(' ')
+      )
+      setSearch('')
+      fetchRegistros()
+    } catch (err) {
+      // El modal queda abierto para poder reintentar sin volver a elegir el archivo.
+      setPdfInsertError(mensajePdf(err))
+    } finally {
+      setPdfConfirmando(false)
+    }
   }
 
   function handleTabChange(tab: 'res' | 'cerdo') {
@@ -1405,7 +1498,31 @@ export default function Beneficio() {
       )}
 
       <section>
-        <h2 className="text-xl font-bold text-gray-900 mb-5">Registrar animal</h2>
+        <div className="flex items-start justify-between gap-4 mb-5">
+          <h2 className="text-xl font-bold text-gray-900">Registrar animal</h2>
+          {/* Carga masiva desde el PDF del ERP (VisualERP, solo bovinos). */}
+          <div className="flex flex-col items-end gap-1.5">
+            <input
+              ref={pdfInputRef}
+              type="file"
+              accept=".pdf,application/pdf"
+              onChange={handlePdfElegido}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => pdfInputRef.current?.click()}
+              disabled={pdfLeyendo}
+              className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 transition-all duration-200 active:scale-95 disabled:opacity-50 whitespace-nowrap shadow-sm"
+            >
+              <Upload size={14} />
+              {pdfLeyendo ? 'Leyendo PDF...' : 'Cargar PDF sacrificio'}
+            </button>
+            {pdfError && (
+              <p className="text-xs text-red-600 font-medium text-right max-w-xs">{pdfError}</p>
+            )}
+          </div>
+        </div>
 
         {/* Subtabs */}
         <div className="flex w-fit border border-gray-200 rounded-xl overflow-hidden shadow-sm mb-3">
@@ -1878,6 +1995,23 @@ export default function Beneficio() {
           onClose={() => setModalCodigo(null)}
           onSaved={(cod, nuevo) => setClientesMap(prev => ({ ...prev, [cod]: nuevo }))}
         />
+      )}
+
+      {pdfPreview && (
+        <ImportarSacrificioModal
+          parse={pdfPreview.parse}
+          clasificadas={pdfPreview.clasificadas}
+          confirmando={pdfConfirmando}
+          error={pdfInsertError}
+          onCancelar={() => { setPdfPreview(null); setPdfInsertError('') }}
+          onConfirmar={handleConfirmarPdf}
+        />
+      )}
+
+      {toast && (
+        <div className="fixed bottom-4 right-4 z-50 max-w-sm bg-gray-900 text-white text-sm font-semibold rounded-xl shadow-xl px-4 py-3 animate-slideDown">
+          {toast}
+        </div>
       )}
     </div>
   )
