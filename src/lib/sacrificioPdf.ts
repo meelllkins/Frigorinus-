@@ -68,10 +68,32 @@ const UMBRAL_CELDA = 5
  * Sin esto "Codigo" + "Alterno" se pegarían en "CodigoAlterno" y no matchearía el rótulo.
  */
 const UMBRAL_ESPACIO = 1
+/**
+ * Cuánto se pueden separar en X dos PALABRAS para considerarlas de la misma columna. En el
+ * informe real "Codigo" arranca en x=126.6 y "Alterno" en x=125.6: 1 pt. Las columnas están
+ * a 30-50 pt entre sí, así que 15 (media columna) reconoce el rótulo apilado sin alcanzar
+ * nunca a la columna vecina.
+ */
+const TOLERANCIA_COLUMNA = 15
+/**
+ * Cuántos renglones arriba/abajo se busca la otra mitad del rótulo. No alcanza con 1: los
+ * rótulos de las distintas columnas tienen distinta cantidad de palabras, así que entre
+ * "Codigo" (y=561.9) y "Alterno" (y=554.0) se cuela el renglón y=558 de otras columnas. En
+ * el PDF real quedan a 2 líneas; 3 deja margen sin aflojar el criterio, porque el filtro que
+ * de verdad discrimina es la coincidencia en X.
+ */
+const RENGLONES_ROTULO = 3
 
 interface TrozoPdf { texto: string; x: number; xFin: number; y: number }
 interface Celda { texto: string; centro: number }
-interface Linea { celdas: Celda[]; texto: string; normalizado: string }
+/**
+ * Trozo suelto del renglón, ANTES de fusionarse en celdas. Se conserva porque el encabezado
+ * necesita posiciones a nivel de palabra: las celdas fusionan columnas vecinas (en el informe
+ * real "Codigo" queda pegado a "Orden" y "Alterno" a "Prod. Animal"), y con el centro de esas
+ * celdas el rótulo apilado no se puede reconocer. Ver ubicarEncabezado().
+ */
+interface Palabra { texto: string; x: number; xFin: number }
+interface Linea { celdas: Celda[]; palabras: Palabra[]; texto: string; normalizado: string }
 
 /** minúsculas y sin tildes, para comparar rótulos sin depender de cómo los escriba el ERP. */
 function normalizar(s: string): string {
@@ -125,7 +147,8 @@ function armarLineas(trozos: TrozoPdf[]): Linea[] {
     cerrar()
     if (celdas.length === 0) return []
     const texto = celdas.map(c => c.texto).join(' ')
-    return [{ celdas, texto, normalizado: normalizar(texto) }]
+    const palabras = porX.map(t => ({ texto: t.texto, x: t.x, xFin: t.xFin }))
+    return [{ celdas, palabras, texto, normalizado: normalizar(texto) }]
   })
 }
 
@@ -135,6 +158,11 @@ const RE_CODIGO_ALTERNO = /^(\d{2,3})-(\d{2})$/
 const RE_FECHA = /\b(\d{2})\/(\d{2})\/(\d{4})\b/g
 /** Un renglón del cuadro tiene muchas columnas; los pies de página y totales, pocas. */
 const CELDAS_MINIMAS_FILA = 4
+/**
+ * Id interno del ERP de la columna "Numero Animal" (`2608032810`). No se usa como dato —el
+ * número de la planta sale del Codigo Alterno— pero sirve para reconocer una fila de verdad.
+ */
+const RE_ID_INTERNO = /^\d{8,}$/
 
 /**
  * Saca el `Codigo Alterno` de un renglón.
@@ -155,6 +183,64 @@ function codigoAlternoDeLinea(linea: Linea, centroColumna: number): string | nul
   return candidatos.reduce((mejor, c) =>
     Math.abs(c.centro - centroColumna) < Math.abs(mejor.centro - centroColumna) ? c : mejor
   ).texto
+}
+
+/**
+ * Ubica el encabezado del cuadro y el centro de la columna "Codigo Alterno".
+ *
+ * NO se busca la cadena contigua "codigo alterno": en el informe real el rótulo viene
+ * APILADO en dos renglones físicos ("Codigo" en y=561.9, "Alterno" en y=554.0, Δy 7.9 pt)
+ * porque la columna es angosta, y armarLineas —que une por Δy ≤ 2.5— los deja en líneas
+ * distintas. Ese era el motivo de "No encontré la columna Codigo Alterno" con la columna
+ * presente. Los PDFs sintéticos no lo reproducían porque metían el rótulo en una línea.
+ *
+ * El ancla es `alterno`, que solo existe en el informe DETALLADO: el resumido no lo trae y
+ * se sigue rechazando. Y se exige `codigo` en la misma columna (misma línea, o la de arriba
+ * o la de abajo dentro de media columna en X), así que un "Codigo" suelto tampoco alcanza.
+ *
+ * La fila del encabezado es la de `alterno`, que es de donde ya salía el centro de columna.
+ */
+function ubicarEncabezado(lineas: Linea[]): { indice: number; centro: number } | null {
+  for (let i = 0; i < lineas.length; i++) {
+    const alterno = lineas[i].palabras.find(p => normalizar(p.texto).includes('alterno'))
+    if (!alterno) continue
+
+    const desde = Math.max(0, i - RENGLONES_ROTULO)
+    const hasta = Math.min(lineas.length - 1, i + RENGLONES_ROTULO)
+    for (let j = desde; j <= hasta; j++) {
+      const tieneCodigo = lineas[j].palabras.some(
+        p =>
+          normalizar(p.texto).includes('codigo') &&
+          Math.abs(p.x - alterno.x) <= TOLERANCIA_COLUMNA
+      )
+      // El centro sale de la palabra "Alterno" y NO de su celda: la celda fusiona las columnas
+      // vecinas ("Alterno Prod. Animal") y su centro cae corrido ~26 pt a la derecha, justo
+      // donde no están los códigos de las filas.
+      if (tieneCodigo) return { indice: i, centro: (alterno.x + alterno.xFin) / 2 }
+    }
+  }
+  return null
+}
+
+/**
+ * ¿El renglón tiene pinta de fila del cuadro? Se exige el id interno del ERP, que TODA fila
+ * trae en la columna "Numero Animal".
+ *
+ * Sin ese requisito se contaban como ilegibles las CONTINUACIONES: cuando el nombre del
+ * cliente o la procedencia no entran en su columna, el ERP los envuelve a un segundo renglón
+ * ("51.40 SUPER LA 80 25 Ago 25 Ago"), que tiene 4+ celdas y dígitos pero no es una fila. En
+ * el informe del 25/08 eso levantaba 4 falsas alarmas sobre un parseo perfecto de 120 filas.
+ */
+function pareceFilaDelCuadro(linea: Linea): boolean {
+  return (
+    linea.celdas.length >= CELDAS_MINIMAS_FILA &&
+    linea.texto.split(/\s+/).some(t => RE_ID_INTERNO.test(t))
+  )
+}
+
+/** ¿La línea es (parte de) el encabezado del cuadro? Se repite en cada página. */
+function esLineaDeEncabezado(linea: Linea): boolean {
+  return linea.palabras.some(p => normalizar(p.texto).includes('alterno'))
 }
 
 /** `dd/mm/yyyy` -> `yyyy-mm-dd`, validando que sea un día real. */
@@ -263,8 +349,15 @@ export async function parsearSacrificioPdf(file: File): Promise<ParseSacrificio>
   }
 
   const textoCompleto = lineas.map(l => l.normalizado).join(' | ')
+  // Igual que el rótulo de la columna, un título puede quedar partido en dos renglones. Para
+  // las frases se compara además contra cada PAR de líneas consecutivas, así "Informe de" +
+  // "Sacrificio por Día" también matchea. (En el informe real de hoy el título viene entero
+  // en un solo TextItem; esto es para que no se rompa si el ERP cambia el ancho.)
+  const textoConVecinas = lineas
+    .map((l, i) => (i + 1 < lineas.length ? `${l.normalizado} ${lineas[i + 1].normalizado}` : l.normalizado))
+    .join(' | ')
 
-  if (!textoCompleto.includes('informe de sacrificio')) {
+  if (!textoConVecinas.includes('informe de sacrificio')) {
     throw new SacrificioPdfError(
       'Este PDF no es el "Informe de Sacrificio por Día" de VisualERP. Cargá ese informe.'
     )
@@ -277,28 +370,25 @@ export async function parsearSacrificioPdf(file: File): Promise<ParseSacrificio>
     )
   }
 
-  const iEncabezado = lineas.findIndex(l => l.normalizado.includes('codigo alterno'))
-  if (iEncabezado === -1) {
+  const encabezado = ubicarEncabezado(lineas)
+  if (encabezado === null) {
     throw new SacrificioPdfError(
       'No encontré la columna "Codigo Alterno" en el PDF. Tiene que ser el informe DETALLADO.'
     )
   }
-  const celdaColumna =
-    lineas[iEncabezado].celdas.find(c => normalizar(c.texto).includes('alterno')) ??
-    lineas[iEncabezado].celdas[0]
+  const iEncabezado = encabezado.indice
 
   const filas: FilaSacrificio[] = []
   let ilegibles = 0
   // El encabezado se repite en cada página; se saltan sus renglones y los pies, que no traen
   // ningún token con forma de Codigo Alterno.
   for (const linea of lineas.slice(iEncabezado + 1)) {
-    const codigoAlterno = codigoAlternoDeLinea(linea, celdaColumna.centro)
+    const codigoAlterno = codigoAlternoDeLinea(linea, encabezado.centro)
     if (!codigoAlterno) {
       // Renglón con pinta de fila del cuadro pero sin código legible: se avisa, no se inventa.
-      if (linea.celdas.length >= CELDAS_MINIMAS_FILA && /\d/.test(linea.texto)) {
-        const esEncabezadoRepetido = linea.normalizado.includes('codigo alterno')
-        if (!esEncabezadoRepetido) ilegibles++
-      }
+      // El encabezado se repite en cada página y se reconoce por 'alterno', no por la cadena
+      // entera, por lo mismo que arriba: viene apilado en dos renglones.
+      if (pareceFilaDelCuadro(linea) && !esLineaDeEncabezado(linea)) ilegibles++
       continue
     }
     const [, codigo, numero] = RE_CODIGO_ALTERNO.exec(codigoAlterno)!
