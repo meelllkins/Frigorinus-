@@ -475,6 +475,7 @@ export default function Inventario() {
               onOtroCodigo={setDespOtroCodigo}
               codigoDestino={despCodigoDestino}
               onCodigoDestino={setDespCodigoDestino}
+              tipoCarne="res"
             />
             {despRuta === RUTA_NACIONAL && codigosSeleccionados.map(cod => (
               <DireccionNacionalField
@@ -522,6 +523,7 @@ export default function Inventario() {
               onOtroCodigo={setDespOtroCodigo}
               codigoDestino={despCodigoDestino}
               onCodigoDestino={setDespCodigoDestino}
+              tipoCarne="res"
             />
             {despRuta === RUTA_NACIONAL && (
               <DireccionNacionalField

@@ -1122,6 +1122,7 @@ export default function Beneficio() {
               fechaEntrega={mostrarFechaEntrega ? despFechaEntrega : undefined}
               onFechaEntrega={mostrarFechaEntrega ? setDespFechaEntrega : undefined}
               fechaEntregaPorDefecto={entregaPorDefecto(localToday())}
+              tipoCarne={activeTab}
             />
             {despRuta === RUTA_NACIONAL && codigosEnLote.map(cod => {
               const guardadas = direccionesGuardadas[cod] ?? []
@@ -1293,6 +1294,7 @@ export default function Beneficio() {
               fechaEntrega={mostrarFechaEntrega ? despFechaEntrega : undefined}
               onFechaEntrega={mostrarFechaEntrega ? setDespFechaEntrega : undefined}
               fechaEntregaPorDefecto={entregaPorDefecto(localToday())}
+              tipoCarne="res"
             />
             {despRuta === RUTA_NACIONAL && (
               <DireccionNacionalField

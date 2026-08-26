@@ -1,4 +1,4 @@
-import { RUTAS } from '../lib/rutas'
+import { rutasPara } from '../lib/rutas'
 
 /**
  * Campos comunes de despacho: Ruta (obligatoria) + casilla "¿Es para otro
@@ -23,6 +23,11 @@ interface Props {
   onFechaEntrega?: (f: string) => void
   /** Fecha de entrega normal, para poder avisar cuándo se está eligiendo otra. */
   fechaEntregaPorDefecto?: string
+  /**
+   * Qué se está despachando. Solo filtra las rutas de una sola especie (hoy
+   * 'CERDOS NORDESTE', que es de porcinos). Sin pasarlo se ofrecen todas.
+   */
+  tipoCarne?: 'res' | 'cerdo'
 }
 
 export default function RutaFields({
@@ -35,6 +40,7 @@ export default function RutaFields({
   fechaEntrega,
   onFechaEntrega,
   fechaEntregaPorDefecto,
+  tipoCarne,
 }: Props) {
   const inputCls =
     'w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-700 focus:ring-1 focus:ring-green-700 transition-colors'
@@ -50,7 +56,7 @@ export default function RutaFields({
         </label>
         <select value={ruta} onChange={e => onRuta(e.target.value)} className={`${inputCls} bg-white`}>
           <option value="">Selecciona ruta...</option>
-          {RUTAS.map(r => (
+          {rutasPara(tipoCarne).map(r => (
             <option key={r} value={r}>{r}</option>
           ))}
         </select>
