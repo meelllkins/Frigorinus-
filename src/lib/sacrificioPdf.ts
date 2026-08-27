@@ -7,12 +7,12 @@ import { supabase } from './supabase'
  * Del PDF se usan exactamente dos cosas:
  *   - Del ENCABEZADO: `Fecha Sacrificio: dd/mm/yyyy`, única para todo el archivo. No se lee
  *     fila por fila: la columna "Fecha Hora Sacrificio" de cada fila repite ese mismo día.
- *   - De cada FILA: la columna `Codigo Alterno` (`NNN-NN` o `NN-NN`), que se parte en el `-`:
- *     antes -> codigo_cliente, después -> numero_animal.
+ *   - De cada FILA: la columna `Codigo Alterno` (`NN-NN` o `NNN-NNN`, 2 a 3 dígitos por lado),
+ *     que se parte en el `-`: antes -> codigo_cliente, después -> numero_animal.
  *
  * OJO: el PDF trae ADEMÁS una columna "Numero Animal" con un id interno del ERP
  * (`2608029608`). NO es el número que usa la planta y se ignora por completo. El patrón
- * `\d{2,3}-\d{2}` no lo matchea, así que no hay forma de confundirlos.
+ * `\d{2,3}-\d{2,3}` no lo matchea (8+ dígitos, sin `-`), así que no hay forma de confundirlos.
  *
  * El resto de columnas (Tipo Animal, Peso En Pie, Peso Canal Cal, Rto. Canal Cal, horas,
  * Cliente, Procedencia) se descartan: `registros_beneficio` no tiene columnas equivalentes.
@@ -26,7 +26,7 @@ export interface FilaSacrificio {
   codigoAlterno: string
   /** Parte antes del `-`. String, sin normalizar (ver nota de ceros a la izquierda). */
   codigo_cliente: string
-  /** Parte después del `-`. String, SIEMPRE 2 dígitos, con su cero a la izquierda (`07`). */
+  /** Parte después del `-`. String, 2 o 3 dígitos, con sus ceros a la izquierda (`07`, `005`). */
   numero_animal: string
 }
 
@@ -76,6 +76,22 @@ export class SacrificioPdfError extends Error {
 // reconstruirlo. Dos umbrales, en unidades del PDF (1/72"):
 /** Dos trozos con `y` más cerca que esto son el mismo renglón. */
 const TOLERANCIA_Y = 2.5
+/**
+ * Cuando el `Codigo Alterno` es ancho (`134-005`, 3+3 díg.), VisualERP lo parte en dos medias
+ * líneas centradas en la fila: `134-` ~4 pt ARRIBA del renglón y `005` ~4 pt ABAJO (Δy real
+ * ~7.9 pt, más que TOLERANCIA_Y). Sin coser, armarLineas los deja en líneas sueltas y el
+ * renglón queda sin código. `coserCodigoPartido` une un trozo `\d{2,3}-` (guion final
+ * huérfano) con el `\d{2,3}` que caiga dentro de esta banda vertical y alineado en X, y lo
+ * reubica en la `y` del punto medio de las dos mitades —que por cómo el ERP las centra ES la
+ * de la fila—, así la agrupación normal lo absorbe en el renglón correcto. Los códigos que
+ * entran en la celda (`134-07`, `809-05`) vienen inline y no pasan por acá.
+ */
+const SALTO_MEDIA_CELDA = 9
+/**
+ * Cuánto se pueden desalinear en X los CENTROS de las dos mitades del código partido. En el
+ * informe real coinciden al decimal; 3 pt cubre el redondeo sin llegar a la columna vecina.
+ */
+const TOLERANCIA_COSTURA = 3
 /**
  * Dos trozos separados por menos que esto son la misma celda (`258` + `-` + `07`).
  * Las columnas del informe están a 30-50 pt una de otra y un espacio ronda los 2-3 pt, así
@@ -135,11 +151,47 @@ function sumarDias(fechaISO: string, dias: number): string {
 }
 
 /**
+ * Une el `Codigo Alterno` que el ERP partió en dos medias líneas (`134-` arriba, `005` abajo)
+ * en un solo trozo ubicado en la `y` de la fila. Ver SALTO_MEDIA_CELDA. El resto pasa intacto.
+ */
+function coserCodigoPartido(trozos: TrozoPdf[]): TrozoPdf[] {
+  const usados = new Set<TrozoPdf>()
+  const salida: TrozoPdf[] = []
+  for (const t of trozos) {
+    if (usados.has(t)) continue
+    if (RE_MITAD_CON_GUION.test(t.texto.trim())) {
+      const centro = (t.x + t.xFin) / 2
+      const cont = trozos.find(
+        d =>
+          d !== t &&
+          !usados.has(d) &&
+          RE_MITAD_DIGITOS.test(d.texto.trim()) &&
+          Math.abs(d.y - t.y) <= SALTO_MEDIA_CELDA &&
+          Math.abs((d.x + d.xFin) / 2 - centro) <= TOLERANCIA_COSTURA
+      )
+      if (cont) {
+        usados.add(t)
+        usados.add(cont)
+        salida.push({
+          texto: t.texto.trim() + cont.texto.trim(),
+          x: Math.min(t.x, cont.x),
+          xFin: Math.max(t.xFin, cont.xFin),
+          y: (t.y + cont.y) / 2,
+        })
+        continue
+      }
+    }
+    salida.push(t)
+  }
+  return salida
+}
+
+/**
  * Agrupa los trozos de una página en renglones (por `y`) y cada renglón en celdas (por `x`).
  * `pagina` solo viaja con la línea para poder ubicarla después si no se pudo leer.
  */
 function armarLineas(trozos: TrozoPdf[], pagina: number): Linea[] {
-  const ordenados = [...trozos].sort((a, b) => (b.y - a.y) || (a.x - b.x))
+  const ordenados = [...coserCodigoPartido(trozos)].sort((a, b) => (b.y - a.y) || (a.x - b.x))
   const grupos: TrozoPdf[][] = []
   for (const t of ordenados) {
     const ultimo = grupos[grupos.length - 1]
@@ -183,8 +235,15 @@ function armarLineas(trozos: TrozoPdf[], pagina: number): Linea[] {
 }
 
 // ── Reglas del cuadro ────────────────────────────────────────────────────────
-/** `258-07`, `17-01`, `520-03`. El id interno (`2608029608`) no matchea: no tiene `-`. */
-const RE_CODIGO_ALTERNO = /^(\d{2,3})-(\d{2})$/
+/**
+ * `258-07`, `17-01`, `520-03`, `134-005`, `809-005`. 2 o 3 dígitos por lado: el ERP usa códigos
+ * NNN-NNN legítimos que conviven con los NN-NN en la misma jornada (`809-005` y `809-05` son
+ * animales distintos). El id interno (`2608029608`) no matchea: no tiene `-`.
+ */
+const RE_CODIGO_ALTERNO = /^(\d{2,3})-(\d{2,3})$/
+/** Mitad de un `Codigo Alterno` partido en dos líneas físicas. Ver SALTO_MEDIA_CELDA. */
+const RE_MITAD_CON_GUION = /^\d{2,3}-$/
+const RE_MITAD_DIGITOS = /^\d{2,3}$/
 const RE_FECHA = /\b(\d{2})\/(\d{2})\/(\d{4})\b/g
 /** Un renglón del cuadro tiene muchas columnas; los pies de página y totales, pocas. */
 const CELDAS_MINIMAS_FILA = 4
@@ -207,9 +266,9 @@ const RE_CODIGO_PARECIDO = /^\d+-\d+$/
 function razonDelSkip(linea: Linea): string {
   const parecidos = [...new Set(linea.texto.split(/\s+/).filter(t => RE_CODIGO_PARECIDO.test(t)))]
   if (parecidos.length > 0) {
-    return `Tiene ${parecidos.length === 1 ? 'un valor' : 'valores'} con forma de código (${parecidos.join(', ')}) que no cumple${parecidos.length === 1 ? '' : 'n'} el formato NNN-NN.`
+    return `Tiene ${parecidos.length === 1 ? 'un valor' : 'valores'} con forma de código (${parecidos.join(', ')}) que no cumple${parecidos.length === 1 ? '' : 'n'} el formato NN-NN o NNN-NNN (2 a 3 dígitos por lado del guion).`
   }
-  return 'No se encontró ningún código con formato NNN-NN en el renglón.'
+  return 'No se encontró ningún código con formato NN-NN o NNN-NNN (2 a 3 dígitos por lado del guion) en el renglón.'
 }
 
 /**
