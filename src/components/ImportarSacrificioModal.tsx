@@ -1,5 +1,9 @@
-import { AlertTriangle, X } from 'lucide-react'
+import { useState } from 'react'
+import { AlertTriangle, ChevronDown, X } from 'lucide-react'
 import type { FilasClasificadas, ParseSacrificio } from '../lib/sacrificioPdf'
+
+/** Con cuántos caracteres se corta el renglón en la lista. El completo va en el `title`. */
+const LARGO_CONTENIDO = 120
 
 interface Props {
   parse: ParseSacrificio
@@ -25,6 +29,8 @@ export default function ImportarSacrificioModal({
 }: Props) {
   const { nuevas, duplicadas, todas } = clasificadas
   const advertencias = parse.advertencias
+  const noLeidos = parse.renglonesNoLeidos
+  const [verNoLeidos, setVerNoLeidos] = useState(false)
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn">
@@ -70,6 +76,50 @@ export default function ImportarSacrificioModal({
                 <span>{a}</span>
               </p>
             ))}
+          </div>
+        )}
+
+        {/* Detalle de lo que el parser NO pudo leer. Es informativo: no bloquea Confirmar,
+            porque esas filas simplemente no se insertan y Rafa decide si sigue o cancela. */}
+        {noLeidos.length > 0 && (
+          <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setVerNoLeidos(v => !v)}
+              className="w-full flex items-center justify-between gap-2 px-3 py-2 text-xs font-semibold text-amber-800"
+            >
+              <span className="flex items-center gap-2 text-left">
+                <AlertTriangle size={14} className="shrink-0" />
+                {noLeidos.length}{' '}
+                {noLeidos.length === 1
+                  ? 'renglón no se pudo leer (click para ver detalle)'
+                  : 'renglones no se pudieron leer (click para ver detalle)'}
+              </span>
+              <ChevronDown
+                size={14}
+                className={`shrink-0 transition-transform duration-200 ${verNoLeidos ? 'rotate-180' : ''}`}
+              />
+            </button>
+            {verNoLeidos && (
+              <ul className="max-h-40 overflow-y-auto border-t border-amber-200 divide-y divide-amber-200">
+                {noLeidos.map((r, i) => (
+                  <li key={`${r.pagina}-${i}`} className="px-3 py-2 space-y-0.5">
+                    <p className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide">
+                      Página {r.pagina}
+                    </p>
+                    <p
+                      title={r.contenido}
+                      className="font-mono text-xs text-gray-800 break-words"
+                    >
+                      {r.contenido.length > LARGO_CONTENIDO
+                        ? `${r.contenido.slice(0, LARGO_CONTENIDO)}…`
+                        : r.contenido}
+                    </p>
+                    <p className="text-[11px] text-amber-800">{r.razon}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 

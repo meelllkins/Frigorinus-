@@ -30,6 +30,20 @@ export interface FilaSacrificio {
   numero_animal: string
 }
 
+/**
+ * Un renglón que TENÍA pinta de fila del cuadro pero del que no se pudo sacar el código.
+ * Es puro diagnóstico: no se inserta ni cambia nada, solo se le muestra a Rafa para que
+ * pueda cotejarlo contra el PDF sin recorrerlo entero.
+ */
+export interface RenglonNoLeido {
+  /** Página del PDF, 1-indexada, como la ve Rafa en el visor. */
+  pagina: number
+  /** El renglón reconstruido a partir de los trozos de pdf.js, sin recortar. */
+  contenido: string
+  /** Por qué se salteó, en una línea. */
+  razon: string
+}
+
 export interface ParseSacrificio {
   /** `dd/mm/yyyy`, para mostrar. */
   fechaTexto: string
@@ -39,6 +53,11 @@ export interface ParseSacrificio {
   filas: FilaSacrificio[]
   /** Problemas no fatales (p. ej. renglones del cuadro que no se pudieron leer). */
   advertencias: string[]
+  /**
+   * Detalle de los renglones que quedaron afuera. Su largo es EXACTAMENTE el número que
+   * anuncia la advertencia: las dos cosas salen de la misma lista.
+   */
+  renglonesNoLeidos: RenglonNoLeido[]
 }
 
 /**
@@ -93,7 +112,15 @@ interface Celda { texto: string; centro: number }
  * celdas el rótulo apilado no se puede reconocer. Ver ubicarEncabezado().
  */
 interface Palabra { texto: string; x: number; xFin: number }
-interface Linea { celdas: Celda[]; palabras: Palabra[]; texto: string; normalizado: string }
+interface Linea {
+  celdas: Celda[]
+  palabras: Palabra[]
+  texto: string
+  normalizado: string
+  /** Página del PDF (1-indexada). Solo se usa para poder señalar dónde está un renglón que
+   *  no se pudo leer: las líneas de todas las páginas se procesan en una sola lista. */
+  pagina: number
+}
 
 /** minúsculas y sin tildes, para comparar rótulos sin depender de cómo los escriba el ERP. */
 function normalizar(s: string): string {
@@ -107,8 +134,11 @@ function sumarDias(fechaISO: string, dias: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-/** Agrupa los trozos de una página en renglones (por `y`) y cada renglón en celdas (por `x`). */
-function armarLineas(trozos: TrozoPdf[]): Linea[] {
+/**
+ * Agrupa los trozos de una página en renglones (por `y`) y cada renglón en celdas (por `x`).
+ * `pagina` solo viaja con la línea para poder ubicarla después si no se pudo leer.
+ */
+function armarLineas(trozos: TrozoPdf[], pagina: number): Linea[] {
   const ordenados = [...trozos].sort((a, b) => (b.y - a.y) || (a.x - b.x))
   const grupos: TrozoPdf[][] = []
   for (const t of ordenados) {
@@ -148,7 +178,7 @@ function armarLineas(trozos: TrozoPdf[]): Linea[] {
     if (celdas.length === 0) return []
     const texto = celdas.map(c => c.texto).join(' ')
     const palabras = porX.map(t => ({ texto: t.texto, x: t.x, xFin: t.xFin }))
-    return [{ celdas, palabras, texto, normalizado: normalizar(texto) }]
+    return [{ celdas, palabras, texto, normalizado: normalizar(texto), pagina }]
   })
 }
 
@@ -163,6 +193,24 @@ const CELDAS_MINIMAS_FILA = 4
  * número de la planta sale del Codigo Alterno— pero sirve para reconocer una fila de verdad.
  */
 const RE_ID_INTERNO = /^\d{8,}$/
+/**
+ * Token con PINTA de Codigo Alterno que no cumple el formato exacto (`1234-5`, `07-1`).
+ * Solo sirve para redactar por qué no se pudo leer un renglón; no cambia qué se parsea.
+ */
+const RE_CODIGO_PARECIDO = /^\d+-\d+$/
+
+/**
+ * Por qué este renglón no dio un Codigo Alterno. Son los dos casos que se pueden distinguir
+ * de verdad: el resto de los skips (continuaciones, pies, encabezado repetido) ni siquiera
+ * llega acá — se descartan antes y en silencio, y nunca formaron parte del conteo.
+ */
+function razonDelSkip(linea: Linea): string {
+  const parecidos = [...new Set(linea.texto.split(/\s+/).filter(t => RE_CODIGO_PARECIDO.test(t)))]
+  if (parecidos.length > 0) {
+    return `Tiene ${parecidos.length === 1 ? 'un valor' : 'valores'} con forma de código (${parecidos.join(', ')}) que no cumple${parecidos.length === 1 ? '' : 'n'} el formato NNN-NN.`
+  }
+  return 'No se encontró ningún código con formato NNN-NN en el renglón.'
+}
 
 /**
  * Saca el `Codigo Alterno` de un renglón.
@@ -338,7 +386,7 @@ export async function parsearSacrificioPdf(file: File): Promise<ParseSacrificio>
         const x = item.transform[4]
         trozos.push({ texto: item.str, x, xFin: x + (item.width ?? 0), y: item.transform[5] })
       }
-      if (trozos.length > 0) lineas.push(...armarLineas(trozos))
+      if (trozos.length > 0) lineas.push(...armarLineas(trozos, n))
     }
   } finally {
     void doc.destroy()
@@ -379,16 +427,23 @@ export async function parsearSacrificioPdf(file: File): Promise<ParseSacrificio>
   const iEncabezado = encabezado.indice
 
   const filas: FilaSacrificio[] = []
-  let ilegibles = 0
+  const renglonesNoLeidos: RenglonNoLeido[] = []
   // El encabezado se repite en cada página; se saltan sus renglones y los pies, que no traen
   // ningún token con forma de Codigo Alterno.
   for (const linea of lineas.slice(iEncabezado + 1)) {
     const codigoAlterno = codigoAlternoDeLinea(linea, encabezado.centro)
     if (!codigoAlterno) {
-      // Renglón con pinta de fila del cuadro pero sin código legible: se avisa, no se inventa.
-      // El encabezado se repite en cada página y se reconoce por 'alterno', no por la cadena
-      // entera, por lo mismo que arriba: viene apilado en dos renglones.
-      if (pareceFilaDelCuadro(linea) && !esLineaDeEncabezado(linea)) ilegibles++
+      // Renglón con pinta de fila del cuadro pero sin código legible: se registra con su
+      // contenido para poder mostrarlo, no se inventa nada. El encabezado se repite en cada
+      // página y se reconoce por 'alterno', no por la cadena entera, por lo mismo que arriba:
+      // viene apilado en dos renglones.
+      if (pareceFilaDelCuadro(linea) && !esLineaDeEncabezado(linea)) {
+        renglonesNoLeidos.push({
+          pagina: linea.pagina,
+          contenido: linea.texto,
+          razon: razonDelSkip(linea),
+        })
+      }
       continue
     }
     const [, codigo, numero] = RE_CODIGO_ALTERNO.exec(codigoAlterno)!
@@ -403,14 +458,23 @@ export async function parsearSacrificioPdf(file: File): Promise<ParseSacrificio>
   }
 
   const advertencias: string[] = []
-  if (ilegibles > 0) {
+  // El número sale del LARGO de la lista, no de un contador aparte: así el mensaje y el
+  // detalle que se despliega en el modal no pueden discrepar nunca.
+  if (renglonesNoLeidos.length > 0) {
+    const n = renglonesNoLeidos.length
     advertencias.push(
-      `${ilegibles} ${ilegibles === 1 ? 'renglón del cuadro no se pudo leer' : 'renglones del cuadro no se pudieron leer'}. Compará el total con el del PDF antes de confirmar.`
+      `${n} ${n === 1 ? 'renglón del cuadro no se pudo leer' : 'renglones del cuadro no se pudieron leer'}. Compará el total con el del PDF antes de confirmar.`
     )
   }
 
   const fechaISO = fechaSacrificioDelEncabezado(lineas.slice(0, iEncabezado))
-  return { fechaTexto: fechaISO.split('-').reverse().join('/'), fechaISO, filas, advertencias }
+  return {
+    fechaTexto: fechaISO.split('-').reverse().join('/'),
+    fechaISO,
+    filas,
+    advertencias,
+    renglonesNoLeidos,
+  }
 }
 
 // ── Contra la base ───────────────────────────────────────────────────────────
