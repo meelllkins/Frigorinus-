@@ -25,14 +25,13 @@ export const RUTAS = [
 export type Ruta = typeof RUTAS[number]
 
 /**
- * Rutas que existen SOLO para porcinos.
+ * Rutas exclusivas de porcinos (se filtran del selector de bovinos).
  *
- * Hasta ahora la lista era una sola y compartida: el selector mostraba las mismas rutas
- * despachando res que cerdo. 'CERDOS NORDESTE' es la primera que no vale para las dos, así
- * que esta constante es todo lo que separa por especie. Una ruta que NO esté acá se sigue
- * ofreciendo para ambas, igual que siempre.
+ * Vacía por ahora: 'CERDOS NORDESTE' se necesita en TODOS los selectores
+ * (Beneficios res/cerdo + Inventario/Vísceras). Si en el futuro una ruta
+ * debe mostrarse solo en porcinos, agregarla aquí basta.
  */
-export const RUTAS_SOLO_PORCINOS: readonly Ruta[] = ['CERDOS NORDESTE']
+export const RUTAS_SOLO_PORCINOS: readonly Ruta[] = []
 
 /**
  * Rutas que se ofrecen al despachar `tipoCarne`.
