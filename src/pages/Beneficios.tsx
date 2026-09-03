@@ -655,6 +655,19 @@ export default function Beneficio() {
   )])
   const codigosEnLoteKey = codigosEnLote.join('|')
 
+  /** Rayas del lote, en el orden en que se listan. Base del "todos" de desposte. */
+  const rayasDelLote = registros.filter(r => selected.has(r.id))
+  const desposteMarcados = rayasDelLote.filter(r => despDesposteIds.has(r.id)).length
+  const desposteTodos = rayasDelLote.length > 0 && desposteMarcados === rayasDelLote.length
+
+  /**
+   * Master de desposte: si ya estaban TODAS marcadas, desmarca; si no, marca todas.
+   * Solo toca las rayas del lote, así que no arrastra marcas de una selección anterior.
+   */
+  function toggleDesposteTodos() {
+    setDespDesposteIds(desposteTodos ? new Set() : new Set(rayasDelLote.map(r => r.id)))
+  }
+
   /**
    * Identificador del CARRO para este acto de despacho. Solo Externo: cada vez que se
    * despacha a Externo es un carro distinto, con su propio conductor/placa/hora. Se genera
@@ -1356,9 +1369,27 @@ export default function Beneficio() {
               )}
             </div>
             <div className="mb-4">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">¿Desposte? (por animal)</p>
+              {/* Master: marca/desmarca de un golpe todas las rayas del lote. Va en la
+                  cabecera de la lista, que es donde se espera este control. */}
+              <label className="flex items-center gap-2 mb-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={desposteTodos}
+                  ref={el => { if (el) el.indeterminate = desposteMarcados > 0 && !desposteTodos }}
+                  onChange={toggleDesposteTodos}
+                  className="w-4 h-4 rounded accent-green-700 cursor-pointer shrink-0"
+                />
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  ¿Desposte? (por animal)
+                </span>
+                {desposteMarcados > 0 && (
+                  <span className="text-xs font-semibold text-gray-500 ml-auto">
+                    {desposteMarcados}/{rayasDelLote.length}
+                  </span>
+                )}
+              </label>
               <div className="max-h-[35vh] overflow-y-auto pr-1 space-y-1.5">
-                {registros.filter(r => selected.has(r.id)).map(r => (
+                {rayasDelLote.map(r => (
                   <label key={r.id} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
                     <input
                       type="checkbox"
