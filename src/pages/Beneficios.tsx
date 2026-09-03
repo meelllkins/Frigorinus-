@@ -105,6 +105,15 @@ interface VisceraSingle {
  */
 const PLEGAR_VISCERAS_DESDE = 3
 
+/** Fila cruda de inventario_visceras con el embed de su registro, como la devuelve PostgREST. */
+interface VisceraFila {
+  id: string
+  registro_id: string
+  created_at: string
+  tipo: 'roja' | 'blanca' | null
+  registros_beneficio: { numero_animal: string; codigo_cliente: string } | null
+}
+
 /**
  * Vísceras que unos códigos tienen EN CAVA, para N códigos y en una sola consulta.
  *
@@ -136,14 +145,17 @@ async function fetchVisceraDisponibles(codigos: string[]): Promise<VisceraSingle
     .in('registro_id', ids)
     .eq('estado', 'en_inventario')
 
-  return (data ?? []).map((v: any) => ({
+  // El embed llega anidado y PostgREST no lo tipa solo; se declara la forma de la fila en
+  // vez de un `any`, que además apagaba el chequeo de todo el map.
+  const filas = (data ?? []) as unknown as VisceraFila[]
+  return filas.map(v => ({
     id: v.id,
     registro_id: v.registro_id,
     created_at: v.created_at,
     numero_animal: v.registros_beneficio?.numero_animal ?? '',
     codigo_cliente: v.registros_beneficio?.codigo_cliente ?? '',
     tipo: v.tipo ?? null,
-  })) as VisceraSingle[]
+  }))
 }
 
 function formatVisceraDate(timestamp: string): string {
@@ -216,6 +228,9 @@ export default function Beneficio() {
   const [despCabezaPatasPorCodigo, setDespCabezaPatasPorCodigo] = useState<Record<string, { cabeza: string; patas: string }>>({})
   // Direcciones SOLO de la ruta Nacional: catálogo guardado y lo elegido por código.
   const [direccionesGuardadas, setDireccionesGuardadas] = useState<Record<string, DireccionNacional[]>>({})
+  // Sube cuando Rafa corrige o borra una dirección desde "Gestionar direcciones": es lo que
+  // vuelve a disparar la consulta del catálogo, para que el selector no quede con lo viejo.
+  const [catalogoVersion, setCatalogoVersion] = useState(0)
   const [despDireccionPorCodigo, setDespDireccionPorCodigo] = useState<Record<string, string>>({})
   // Reparto por raya (caso 355): qué códigos reparten, y la dirección de cada raya.
   const [despRepartirPorCodigo, setDespRepartirPorCodigo] = useState<Record<string, boolean>>({})
@@ -805,7 +820,7 @@ export default function Beneficio() {
       if (vigente) setDireccionesGuardadas(mapa)
     })()
     return () => { vigente = false }
-  }, [despRuta, visceraModal, codigosEnLoteKey])
+  }, [despRuta, visceraModal, codigosEnLoteKey, catalogoVersion])
 
   // Vísceras del lote múltiple: se traen al abrir el modal de despacho, para que Rafa las
   // marque en el mismo acto que los canales. Los setState van DESPUÉS del await (regla
@@ -1214,6 +1229,7 @@ export default function Beneficio() {
                       guardadas={guardadas}
                       valor={despDireccionPorCodigo[cod] ?? ''}
                       onValor={v => setDespDireccionPorCodigo(prev => ({ ...prev, [cod]: v }))}
+                      onCatalogoCambiado={() => setCatalogoVersion(v => v + 1)}
                     />
                   )}
                   {puedeRepartir && (
@@ -1235,6 +1251,9 @@ export default function Beneficio() {
                       guardadas={guardadas}
                       valor={despDireccionPorRegistro[r.id] ?? despDireccionPorCodigo[cod] ?? ''}
                       onValor={v => setDespDireccionPorRegistro(prev => ({ ...prev, [r.id]: v }))}
+                      /* Sin gestión acá: `codigo` es la etiqueta de la raya ("355-12"), no
+                         el código del catálogo, y la corrección iría a un código que no
+                         existe. Se gestiona desde la vista sin reparto o desde el individual. */
                     />
                   ))}
                 </div>
@@ -1502,6 +1521,7 @@ export default function Beneficio() {
                 guardadas={direccionesGuardadas[visceraModal.registro.codigo_cliente] ?? []}
                 valor={despDireccionPorCodigo[visceraModal.registro.codigo_cliente] ?? ''}
                 onValor={v => setDespDireccionPorCodigo(prev => ({ ...prev, [visceraModal.registro.codigo_cliente]: v }))}
+                onCatalogoCambiado={() => setCatalogoVersion(v => v + 1)}
                 /* Individual = una sola raya: no hay nada que repartir, va directo. */
               />
             )}
