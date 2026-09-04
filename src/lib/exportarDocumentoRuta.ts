@@ -248,12 +248,18 @@ function escribirBloque(
   filaLabel('PLACA', manual?.placa ?? null)
 
   // Un carro externo lleva UN SOLO tipo de carne: se escribe solo la sección con filas, para
-  // que no salga la vacía al lado (eso se veía como "res y cerdo mezclados"). Las rutas con
-  // nombre sí escriben las dos aunque una esté vacía.
+  // que no salga la vacía al lado (eso se veía como "res y cerdo mezclados"). BOVINOS vacío
+  // se sigue escribiendo en las rutas con nombre, que es como Rafa arma sus alineaciones.
   if (!esExterno || b.bovinos.filas.length > 0) {
     r = escribirBovinos(h, b.bovinos, c, cEnd, r, ss, colDireccion)
   }
-  if (!esExterno || b.porcinos.filas.length > 0) {
+  // PORCINOS vacío NO se escribe en ninguna ruta, tampoco en las que tienen nombre: quedaba
+  // el título y los encabezados sin una sola fila debajo (lo reportó Rafa).
+  //
+  // Omitirlo no deja hueco. `r` es el cursor de fila DENTRO del bloque: si no se llama, no
+  // avanza y la OBSERVACIÓN sube sola. El bloque termina más corto que sus vecinos, que es lo
+  // que ya pasa entre rutas con distinta cantidad de códigos.
+  if (b.porcinos.filas.length > 0) {
     r = escribirPorcinos(h, b.porcinos, c, cEnd, r, ss, colDireccion)
   }
 
