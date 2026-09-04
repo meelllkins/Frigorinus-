@@ -98,10 +98,64 @@ interface VisceraSingle {
   tipo: 'roja' | 'blanca' | null
 }
 
-interface VisceraGroup {
-  codigo: string
+/**
+ * A partir de cuántos códigos la sección de vísceras arranca plegada. Con pocos códigos
+ * se ve todo de una; con muchos (20 códigos × 5-8 vísceras) la pantalla queda impracticable
+ * si se abre entera, así que arranca en un renglón por código.
+ */
+const PLEGAR_VISCERAS_DESDE = 3
+
+/** Fila cruda de inventario_visceras con el embed de su registro, como la devuelve PostgREST. */
+interface VisceraFila {
+  id: string
   registro_id: string
-  visceras: VisceraSingle[]
+  created_at: string
+  tipo: 'roja' | 'blanca' | null
+  registros_beneficio: { numero_animal: string; codigo_cliente: string } | null
+}
+
+/**
+ * Vísceras que unos códigos tienen EN CAVA, para N códigos y en una sola consulta.
+ *
+ * ÚNICA fuente de qué vísceras se ofrecen al despachar: la usan el individual y el
+ * múltiple, para que no vuelvan a divergir (el múltiple miraba solo las vísceras de los
+ * animales del lote y se quedaba mudo cuando el resultado daba vacío).
+ *
+ * Se ofrecen TODAS las del código, no solo las de las rayas marcadas: el canal y su
+ * víscera no siempre salen el mismo día, así que la víscera de una raya despachada ayer
+ * tiene que poder salir hoy con el resto del código.
+ *
+ * Fuera del componente a propósito: no toca estado, así que es estable y el efecto que la
+ * llama no depende de una función recreada en cada render.
+ */
+async function fetchVisceraDisponibles(codigos: string[]): Promise<VisceraSingle[]> {
+  if (codigos.length === 0) return []
+  const { data: registrosCliente } = await supabase
+    .from('registros_beneficio')
+    .select('id')
+    .in('codigo_cliente', codigos)
+    .eq('tipo_carne', 'res')
+
+  const ids = (registrosCliente ?? []).map(x => x.id)
+  if (ids.length === 0) return []
+
+  const { data } = await supabase
+    .from('inventario_visceras')
+    .select('id, registro_id, tipo, created_at, registros_beneficio(numero_animal, codigo_cliente)')
+    .in('registro_id', ids)
+    .eq('estado', 'en_inventario')
+
+  // El embed llega anidado y PostgREST no lo tipa solo; se declara la forma de la fila en
+  // vez de un `any`, que además apagaba el chequeo de todo el map.
+  const filas = (data ?? []) as unknown as VisceraFila[]
+  return filas.map(v => ({
+    id: v.id,
+    registro_id: v.registro_id,
+    created_at: v.created_at,
+    numero_animal: v.registros_beneficio?.numero_animal ?? '',
+    codigo_cliente: v.registros_beneficio?.codigo_cliente ?? '',
+    tipo: v.tipo ?? null,
+  }))
 }
 
 function formatVisceraDate(timestamp: string): string {
@@ -174,6 +228,9 @@ export default function Beneficio() {
   const [despCabezaPatasPorCodigo, setDespCabezaPatasPorCodigo] = useState<Record<string, { cabeza: string; patas: string }>>({})
   // Direcciones SOLO de la ruta Nacional: catálogo guardado y lo elegido por código.
   const [direccionesGuardadas, setDireccionesGuardadas] = useState<Record<string, DireccionNacional[]>>({})
+  // Sube cuando Rafa corrige o borra una dirección desde "Gestionar direcciones": es lo que
+  // vuelve a disparar la consulta del catálogo, para que el selector no quede con lo viejo.
+  const [catalogoVersion, setCatalogoVersion] = useState(0)
   const [despDireccionPorCodigo, setDespDireccionPorCodigo] = useState<Record<string, string>>({})
   // Reparto por raya (caso 355): qué códigos reparten, y la dirección de cada raya.
   const [despRepartirPorCodigo, setDespRepartirPorCodigo] = useState<Record<string, boolean>>({})
@@ -182,8 +239,6 @@ export default function Beneficio() {
   // Rafa la cambia cuando en una jornada deja listo también lo del día siguiente hábil.
   // Ver src/lib/fechaEntrega.ts.
   const [despFechaEntrega, setDespFechaEntrega] = useState(entregaPorDefecto(localToday()))
-  // Ruta+código destino del lote múltiple, para reusarlos en el paso de vísceras
-  const [despMultiCtx, setDespMultiCtx] = useState<{ ruta: string; codigo_destino: string | null; carro_id: string | null; fecha_entrega: string } | null>(null)
   // Desposte es POR ANIMAL: booleano en individual, set de ids marcados en múltiple.
   const [despDesposte, setDespDesposte] = useState(false)
   const [despDesposteIds, setDespDesposteIds] = useState<Set<string>>(new Set())
@@ -195,12 +250,14 @@ export default function Beneficio() {
   } | null>(null)
   const [visceraSelected, setVisceraSelected] = useState<Set<string>>(new Set())
   const [visceraDispatching, setVisceraDispatching] = useState(false)
-  const [visceraMultiModal, setVisceraMultiModal] = useState<{
-    canalesCount: number
-    groups: VisceraGroup[]
-  } | null>(null)
-  const [visceraMultiSelected, setVisceraMultiSelected] = useState<Set<string>>(new Set())
-  const [visceraMultiDispatching, setVisceraMultiDispatching] = useState(false)
+  // Vísceras ofrecidas en el despacho MÚLTIPLE. Van dentro del mismo modal que el canal
+  // (antes eran un segundo modal posterior al insert, que además no aparecía si el lote
+  // no traía vísceras propias: el bloque simplemente se perdía).
+  // `null` = todavía no se consultaron; `[]` = se consultaron y el lote no tiene.
+  const [despVisceras, setDespVisceras] = useState<VisceraSingle[] | null>(null)
+  const [despVisceraSelected, setDespVisceraSelected] = useState<Set<string>>(new Set())
+  // Qué códigos están desplegados en la sección de vísceras (ver PLEGAR_VISCERAS_DESDE).
+  const [despVisceraAbiertos, setDespVisceraAbiertos] = useState<Set<string>>(new Set())
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState('')
   const deleteErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -594,6 +651,11 @@ export default function Beneficio() {
     setDespDireccionPorCodigo({})
     setDespRepartirPorCodigo({})
     setDespDireccionPorRegistro({})
+    // `null` y no `[]`: el modal arranca en "Cargando" y no en "no hay vísceras", que sería
+    // el mismo silencio que hacía parecer que el bloque no existía.
+    setDespVisceras(null)
+    setDespVisceraSelected(new Set())
+    setDespVisceraAbiertos(new Set())
   }
 
   const despInputCls =
@@ -607,6 +669,19 @@ export default function Beneficio() {
     registros.filter(r => selected.has(r.id)).map(r => r.codigo_cliente)
   )])
   const codigosEnLoteKey = codigosEnLote.join('|')
+
+  /** Rayas del lote, en el orden en que se listan. Base del "todos" de desposte. */
+  const rayasDelLote = registros.filter(r => selected.has(r.id))
+  const desposteMarcados = rayasDelLote.filter(r => despDesposteIds.has(r.id)).length
+  const desposteTodos = rayasDelLote.length > 0 && desposteMarcados === rayasDelLote.length
+
+  /**
+   * Master de desposte: si ya estaban TODAS marcadas, desmarca; si no, marca todas.
+   * Solo toca las rayas del lote, así que no arrastra marcas de una selección anterior.
+   */
+  function toggleDesposteTodos() {
+    setDespDesposteIds(desposteTodos ? new Set() : new Set(rayasDelLote.map(r => r.id)))
+  }
 
   /**
    * Identificador del CARRO para este acto de despacho. Solo Externo: cada vez que se
@@ -639,6 +714,46 @@ export default function Beneficio() {
    */
   const mostrarFechaEntrega = enTramoPrevioAFestivo(localToday())
 
+  /**
+   * Vísceras del lote agrupadas por CÓDIGO de cliente (no por animal): Rafa despacha por
+   * código, así que ese es el renglón que marca. Dentro de cada grupo, cada víscera dice de
+   * qué raya viene, para no perder la atribución.
+   */
+  const visceraGruposLote = (() => {
+    const mapa = new Map<string, VisceraSingle[]>()
+    for (const v of despVisceras ?? []) {
+      const grupo = mapa.get(v.codigo_cliente)
+      if (grupo) grupo.push(v)
+      else mapa.set(v.codigo_cliente, [v])
+    }
+    for (const grupo of mapa.values()) {
+      grupo.sort((a, b) =>
+        a.numero_animal.localeCompare(b.numero_animal, undefined, { numeric: true })
+      )
+    }
+    return sortCodigos([...mapa.keys()]).map(codigo => ({ codigo, visceras: mapa.get(codigo)! }))
+  })()
+
+  const totalVisceraLote = (despVisceras ?? []).length
+
+  /** Marca o desmarca de un golpe todas las vísceras de un código. */
+  function toggleVisceraGrupo(visceras: VisceraSingle[]) {
+    const todasMarcadas = visceras.every(v => despVisceraSelected.has(v.id))
+    const next = new Set(despVisceraSelected)
+    for (const v of visceras) {
+      if (todasMarcadas) next.delete(v.id)
+      else next.add(v.id)
+    }
+    setDespVisceraSelected(next)
+  }
+
+  function toggleVisceraAbierto(codigo: string) {
+    const next = new Set(despVisceraAbiertos)
+    if (next.has(codigo)) next.delete(codigo)
+    else next.add(codigo)
+    setDespVisceraAbiertos(next)
+  }
+
   /** Rayas (animales) de un código dentro del lote seleccionado. Una raya = un registro. */
   function rayasDelCodigo(codigo: string): RegistroBeneficio[] {
     return registros.filter(r => selected.has(r.id) && r.codigo_cliente === codigo)
@@ -659,6 +774,22 @@ export default function Beneficio() {
       : delCodigo
     const d = cruda.trim()
     return d === '' ? null : d
+  }
+
+  /**
+   * Dirección de UNA víscera del lote múltiple (solo Nacional).
+   *
+   * Normalmente es la de SU raya. Pero se ofrecen todas las vísceras del código, incluidas
+   * las de rayas que no están en el lote: esas no tienen dirección propia, y si el código
+   * reparte por raya tampoco hay una del código (ese campo se oculta al repartir). Ahí se
+   * cae a la de la primera raya del código en el lote, que es el camión al que se suben:
+   * mejor eso que una fila sin dirección.
+   */
+  function direccionDeViscera(v: VisceraSingle): string | null {
+    const propia = direccionDeRaya(v.registro_id, v.codigo_cliente)
+    if (propia) return propia
+    const primeraRaya = rayasDelCodigo(v.codigo_cliente)[0]
+    return primeraRaya ? direccionDeRaya(primeraRaya.id, v.codigo_cliente) : null
   }
 
   /** Guarda en el catálogo TODAS las direcciones usadas, para reusarlas la próxima vez. */
@@ -689,7 +820,27 @@ export default function Beneficio() {
       if (vigente) setDireccionesGuardadas(mapa)
     })()
     return () => { vigente = false }
-  }, [despRuta, visceraModal, codigosEnLoteKey])
+  }, [despRuta, visceraModal, codigosEnLoteKey, catalogoVersion])
+
+  // Vísceras del lote múltiple: se traen al abrir el modal de despacho, para que Rafa las
+  // marque en el mismo acto que los canales. Los setState van DESPUÉS del await (regla
+  // set-state-in-effect del compilador de React), igual que en el efecto de direcciones.
+  useEffect(() => {
+    if (!showModal) return
+    const codigos = codigosEnLoteKey.split('|').filter(c => c !== '')
+    if (codigos.length === 0) return
+    let vigente = true
+    void (async () => {
+      const visceras = await fetchVisceraDisponibles(codigos)
+      if (!vigente) return
+      setDespVisceras(visceras)
+      const conVisceras = [...new Set(visceras.map(v => v.codigo_cliente))]
+      setDespVisceraAbiertos(
+        conVisceras.length <= PLEGAR_VISCERAS_DESDE ? new Set(conVisceras) : new Set()
+      )
+    })()
+    return () => { vigente = false }
+  }, [showModal, codigosEnLoteKey])
 
   async function handleDespachar(r: RegistroBeneficio) {
     resetDespFields()
@@ -700,28 +851,7 @@ export default function Beneficio() {
       return
     }
 
-    const { data: registrosCliente } = await supabase
-      .from('registros_beneficio')
-      .select('id, numero_animal')
-      .eq('codigo_cliente', r.codigo_cliente)
-      .eq('tipo_carne', 'res')
-
-    const ids = (registrosCliente ?? []).map(x => x.id)
-
-    const { data } = await supabase
-      .from('inventario_visceras')
-      .select('id, registro_id, tipo, created_at, registros_beneficio(numero_animal, codigo_cliente)')
-      .in('registro_id', ids)
-      .eq('estado', 'en_inventario')
-
-    const visceras = (data ?? []).map((v: any) => ({
-      id: v.id,
-      registro_id: v.registro_id,
-      created_at: v.created_at,
-      numero_animal: v.registros_beneficio?.numero_animal ?? '',
-      codigo_cliente: v.registros_beneficio?.codigo_cliente ?? '',
-      tipo: v.tipo ?? null,
-    })) as VisceraSingle[]
+    const visceras = await fetchVisceraDisponibles([r.codigo_cliente])
     setVisceraSelected(new Set())
     setVisceraModal({ registro: r, visceras })
   }
@@ -912,51 +1042,6 @@ export default function Beneficio() {
     }
   }
 
-  async function handleDespacharSeleccionMulti() {
-    if (!visceraMultiModal) return
-    const selectedIds = Array.from(visceraMultiSelected)
-    if (selectedIds.length === 0) {
-      setVisceraMultiModal(null)
-      setVisceraMultiSelected(new Set())
-      return
-    }
-    setVisceraMultiDispatching(true)
-    const hoy = localToday()
-    const allVisceras = visceraMultiModal.groups.flatMap(g => g.visceras)
-    const toDispatch = allVisceras.filter(v => visceraMultiSelected.has(v.id))
-    await supabase
-      .from('inventario_visceras')
-      .update({ estado: 'despachada', fecha_despacho: hoy })
-      .in('id', selectedIds)
-    await supabase.from('despachos').insert(
-      toDispatch.map(v => ({
-        registro_id: v.registro_id,
-        viscera_id: v.id,
-        tipo_despacho: 'viscera',
-        fecha_despacho: hoy,
-        // Misma ruta y código destino que el canal del lote (sin cabeza/patas).
-        ruta: despMultiCtx?.ruta ?? null,
-        codigo_destino: despMultiCtx?.codigo_destino ?? null,
-        // Mismo carro que los canales del lote: las vísceras viajan en ese camión.
-        carro_id: despMultiCtx?.carro_id ?? null,
-        // Y la misma FECHA DE ENTREGA, por lo mismo: si el lote salió para el día después
-        // del festivo, sus vísceras tienen que caer en ESE documento, no en el de mañana.
-        // Mismo patrón de herencia que ruta/destino/carro; el ?? cubre el caso raro de
-        // llegar acá sin contexto de lote (ahí manda lo que esté puesto en el modal).
-        fecha_entrega: despMultiCtx?.fecha_entrega ?? fechaEntregaAEscribir(hoy),
-        // Misma dirección que el canal de SU código (direccionDeRaya lee el estado que
-        // quedó de cuando se despachó el canal del lote; no se resetea hasta el próximo
-        // despacho). Escrita acá para que sobreviva al archivado, no solo al fallback de
-        // documentoRuta.ts.
-        direccion: direccionDeRaya(v.registro_id, v.codigo_cliente),
-      }))
-    )
-    setDespMultiCtx(null)
-    setVisceraMultiModal(null)
-    setVisceraMultiSelected(new Set())
-    setVisceraMultiDispatching(false)
-  }
-
   async function handleDespacharMultiple() {
     setDispatching(true)
     const hoy = localToday()
@@ -1041,45 +1126,38 @@ export default function Beneficio() {
         }
       })
     )
-    setDespMultiCtx({ ruta: despRuta, codigo_destino: codigoDestinoFinal, carro_id: carroId, fecha_entrega: fechaEntrega })
 
-    // Solo se ofrecen vísceras de los animales que efectivamente salieron.
-    const resIds = registros
-      .filter(r => idsADespachar.includes(r.id) && r.tipo_carne === 'res')
-      .map(r => r.id)
+    // Vísceras marcadas en el MISMO modal: salen en este acto, con el mismo carro y la
+    // misma fecha de entrega que los canales, para que caigan en el mismo documento.
+    const visceraADespachar = (despVisceras ?? []).filter(v => despVisceraSelected.has(v.id))
+    if (visceraADespachar.length > 0) {
+      await supabase
+        .from('inventario_visceras')
+        .update({ estado: 'despachada', fecha_despacho: hoy })
+        .in('id', visceraADespachar.map(v => v.id))
+      await supabase.from('despachos').insert(
+        visceraADespachar.map(v => ({
+          registro_id: v.registro_id,
+          viscera_id: v.id,
+          tipo_despacho: 'viscera',
+          fecha_despacho: hoy,
+          // Misma ruta, código destino, carro y fecha de entrega que los canales del lote
+          // (sin cabeza/patas): las vísceras viajan en ese camión.
+          fecha_entrega: fechaEntrega,
+          ruta: despRuta,
+          codigo_destino: codigoDestinoFinal,
+          carro_id: carroId,
+          // Misma dirección que el canal de SU código (ver direccionDeViscera). Se escribe
+          // acá para que sobreviva al archivado, no solo al fallback de documentoRuta.ts.
+          direccion: direccionDeViscera(v),
+        }))
+      )
+    }
 
     setSelected(new Set())
     setShowModal(false)
     setDispatching(false)
     fetchRegistros()
-
-    if (resIds.length > 0) {
-      const { data } = await supabase
-        .from('inventario_visceras')
-        .select('id, registro_id, created_at, tipo')
-        .in('registro_id', resIds)
-        .eq('estado', 'en_inventario')
-
-      const visceras = (data ?? []) as VisceraSingle[]
-      if (visceras.length > 0) {
-        const groupMap = new Map<string, VisceraGroup>()
-        for (const v of visceras) {
-          const reg = registros.find(r => r.id === v.registro_id)
-          if (!reg) continue
-          const codigo = `${reg.codigo_cliente}-${reg.numero_animal}`
-          if (!groupMap.has(v.registro_id)) {
-            groupMap.set(v.registro_id, { codigo, registro_id: v.registro_id, visceras: [] })
-          }
-          groupMap.get(v.registro_id)!.visceras.push(v)
-        }
-        const allGroups = Array.from(groupMap.values())
-        setVisceraMultiSelected(new Set())
-        setVisceraMultiModal({
-          canalesCount: ids.length,
-          groups: allGroups,
-        })
-      }
-    }
   }
 
   const batchCount = (() => {
@@ -1104,13 +1182,23 @@ export default function Beneficio() {
       {/* Modal de confirmación de despacho múltiple */}
       {showModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn">
-          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 max-h-[90vh] overflow-y-auto animate-scaleIn">
+          {/* max-w-md (y no sm como los demás): acá entra además la lista de vísceras
+              agrupada por código, que con max-w-sm queda apretada. */}
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto animate-scaleIn">
             <h3 className="text-base font-bold text-gray-900 mb-2">Confirmar despacho</h3>
             <p className="text-sm text-gray-600 mb-4">
               ¿Estás seguro de despachar{' '}
               <span className="font-semibold text-gray-900">
                 {selected.size} {selected.size === 1 ? 'animal' : 'animales'}
-              </span>?
+              </span>
+              {despVisceraSelected.size > 0 && (
+                <>
+                  {' y '}
+                  <span className="font-semibold text-gray-900">
+                    {despVisceraSelected.size} {despVisceraSelected.size === 1 ? 'víscera' : 'vísceras'}
+                  </span>
+                </>
+              )}?
             </p>
             <RutaFields
               ruta={despRuta}
@@ -1141,6 +1229,7 @@ export default function Beneficio() {
                       guardadas={guardadas}
                       valor={despDireccionPorCodigo[cod] ?? ''}
                       onValor={v => setDespDireccionPorCodigo(prev => ({ ...prev, [cod]: v }))}
+                      onCatalogoCambiado={() => setCatalogoVersion(v => v + 1)}
                     />
                   )}
                   {puedeRepartir && (
@@ -1162,6 +1251,9 @@ export default function Beneficio() {
                       guardadas={guardadas}
                       valor={despDireccionPorRegistro[r.id] ?? despDireccionPorCodigo[cod] ?? ''}
                       onValor={v => setDespDireccionPorRegistro(prev => ({ ...prev, [r.id]: v }))}
+                      /* Sin gestión acá: `codigo` es la etiqueta de la raya ("355-12"), no
+                         el código del catálogo, y la corrección iría a un código que no
+                         existe. Se gestiona desde la vista sin reparto o desde el individual. */
                     />
                   ))}
                 </div>
@@ -1186,10 +1278,137 @@ export default function Beneficio() {
                 ))}
               </div>
             )}
+            {/* Vísceras del lote, agrupadas por código y plegables. Van acá —y no en un
+                modal posterior— para que el canal y sus vísceras salgan en un solo acto. */}
             <div className="mb-4">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">¿Desposte? (por animal)</p>
+              <div className="flex items-baseline justify-between gap-2 mb-1.5">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Vísceras</p>
+                {totalVisceraLote > 0 && (
+                  <p className="text-xs text-gray-500">
+                    {despVisceraSelected.size} de {totalVisceraLote} seleccionadas
+                  </p>
+                )}
+              </div>
+              {despVisceras === null ? (
+                <p className="text-sm text-gray-400">Cargando vísceras...</p>
+              ) : totalVisceraLote === 0 ? (
+                <p className="text-sm text-gray-500">Estos códigos no tienen vísceras en cava.</p>
+              ) : (
+                <>
+                  <div className="flex gap-2 mb-2">
+                    <button
+                      type="button"
+                      onClick={() => setDespVisceraSelected(new Set((despVisceras ?? []).map(v => v.id)))}
+                      className="text-xs font-semibold text-green-700 hover:text-green-900 bg-green-50 hover:bg-green-100 border border-green-200 rounded px-2 py-0.5 transition-colors"
+                    >
+                      Todas
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDespVisceraSelected(new Set())}
+                      className="text-xs font-semibold text-gray-600 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded px-2 py-0.5 transition-colors"
+                    >
+                      Ninguna
+                    </button>
+                  </div>
+                  <div className="space-y-2 max-h-[40vh] overflow-y-auto pr-1">
+                    {visceraGruposLote.map(g => {
+                      const marcadas = g.visceras.filter(v => despVisceraSelected.has(v.id)).length
+                      const todas = marcadas === g.visceras.length
+                      const rojas = g.visceras.filter(v => v.tipo === 'roja').length
+                      const blancas = g.visceras.filter(v => v.tipo === 'blanca').length
+                      const abierto = despVisceraAbiertos.has(g.codigo)
+                      return (
+                        <div key={g.codigo} className="border border-gray-200 rounded-lg overflow-hidden">
+                          <div className="flex items-center gap-2 px-2.5 py-2 bg-gray-50">
+                            <input
+                              type="checkbox"
+                              checked={todas}
+                              ref={el => { if (el) el.indeterminate = marcadas > 0 && !todas }}
+                              onChange={() => toggleVisceraGrupo(g.visceras)}
+                              className="w-4 h-4 rounded accent-green-700 cursor-pointer shrink-0"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => toggleVisceraAbierto(g.codigo)}
+                              className="flex-1 flex items-center justify-between gap-2 text-left min-w-0"
+                            >
+                              <span className="flex flex-col min-w-0">
+                                <span className="text-sm font-semibold text-gray-800 font-mono">{g.codigo}</span>
+                                <span className="text-xs text-gray-500">
+                                  {rojas} rojas · {blancas} blancas
+                                </span>
+                              </span>
+                              <span className="flex items-center gap-1.5 shrink-0">
+                                <span className="text-xs font-semibold text-gray-500">
+                                  {marcadas}/{g.visceras.length}
+                                </span>
+                                <ChevronDown
+                                  size={14}
+                                  className={`text-gray-400 transition-transform duration-200 ${abierto ? 'rotate-180' : ''}`}
+                                />
+                              </span>
+                            </button>
+                          </div>
+                          {abierto && (
+                            <div className="px-2.5 py-2 space-y-2 border-t border-gray-100">
+                              {g.visceras.map(v => (
+                                <label key={v.id} className="flex items-center gap-2.5 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={despVisceraSelected.has(v.id)}
+                                    onChange={() => {
+                                      const next = new Set(despVisceraSelected)
+                                      if (next.has(v.id)) next.delete(v.id)
+                                      else next.add(v.id)
+                                      setDespVisceraSelected(next)
+                                    }}
+                                    className="w-4 h-4 rounded accent-green-700 cursor-pointer shrink-0"
+                                  />
+                                  <span className="flex items-center gap-2 text-sm text-gray-700 min-w-0">
+                                    <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold shrink-0 ${tipoBadge(v.tipo).cls}`}>
+                                      {tipoBadge(v.tipo).label}
+                                    </span>
+                                    <span className="font-mono text-xs text-gray-600 shrink-0">
+                                      {v.codigo_cliente}-{v.numero_animal}
+                                    </span>
+                                    <span className="text-xs text-gray-400 truncate">
+                                      {formatVisceraDate(v.created_at)}
+                                    </span>
+                                  </span>
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="mb-4">
+              {/* Master: marca/desmarca de un golpe todas las rayas del lote. Va en la
+                  cabecera de la lista, que es donde se espera este control. */}
+              <label className="flex items-center gap-2 mb-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={desposteTodos}
+                  ref={el => { if (el) el.indeterminate = desposteMarcados > 0 && !desposteTodos }}
+                  onChange={toggleDesposteTodos}
+                  className="w-4 h-4 rounded accent-green-700 cursor-pointer shrink-0"
+                />
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  ¿Desposte? (por animal)
+                </span>
+                {desposteMarcados > 0 && (
+                  <span className="text-xs font-semibold text-gray-500 ml-auto">
+                    {desposteMarcados}/{rayasDelLote.length}
+                  </span>
+                )}
+              </label>
               <div className="max-h-[35vh] overflow-y-auto pr-1 space-y-1.5">
-                {registros.filter(r => selected.has(r.id)).map(r => (
+                {rayasDelLote.map(r => (
                   <label key={r.id} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
                     <input
                       type="checkbox"
@@ -1302,6 +1521,7 @@ export default function Beneficio() {
                 guardadas={direccionesGuardadas[visceraModal.registro.codigo_cliente] ?? []}
                 valor={despDireccionPorCodigo[visceraModal.registro.codigo_cliente] ?? ''}
                 onValor={v => setDespDireccionPorCodigo(prev => ({ ...prev, [visceraModal.registro.codigo_cliente]: v }))}
+                onCatalogoCambiado={() => setCatalogoVersion(v => v + 1)}
                 /* Individual = una sola raya: no hay nada que repartir, va directo. */
               />
             )}
@@ -1419,81 +1639,6 @@ export default function Beneficio() {
                   {visceraDispatching ? 'Despachando...' : 'Despachar canal'}
                 </button>
               )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal resumen de vísceras post despacho múltiple */}
-      {visceraMultiModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn">
-          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 max-h-[90vh] overflow-y-auto animate-scaleIn">
-            <h3 className="text-base font-bold text-gray-900 mb-2">¿Despachar vísceras también?</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Se despacharon{' '}
-              <span className="font-semibold text-gray-900">{visceraMultiModal.canalesCount} canales</span>. Selecciona las vísceras a despachar:
-            </p>
-            <div className="flex gap-2 mb-3">
-              <button
-                type="button"
-                onClick={() => setVisceraMultiSelected(new Set(visceraMultiModal.groups.flatMap(g => g.visceras.map(v => v.id))))}
-                className="text-xs font-semibold text-green-700 hover:text-green-900 bg-green-50 hover:bg-green-100 border border-green-200 rounded px-2 py-0.5 transition-colors"
-              >
-                Seleccionar todos
-              </button>
-              <button
-                type="button"
-                onClick={() => setVisceraMultiSelected(new Set())}
-                className="text-xs font-semibold text-gray-600 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded px-2 py-0.5 transition-colors"
-              >
-                Desmarcar todos
-              </button>
-            </div>
-            <div className="mb-5 space-y-4 max-h-[50vh] overflow-y-auto pr-1">
-              {visceraMultiModal.groups.map(g => (
-                <div key={g.registro_id}>
-                  <p className="text-xs font-semibold text-gray-500 mb-1.5 uppercase tracking-wide font-mono">{g.codigo}</p>
-                  <div className="space-y-2 pl-1">
-                    {g.visceras.map(v => (
-                      <label key={v.id} className="flex items-center gap-3 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={visceraMultiSelected.has(v.id)}
-                          onChange={() => {
-                            const next = new Set(visceraMultiSelected)
-                            if (next.has(v.id)) next.delete(v.id)
-                            else next.add(v.id)
-                            setVisceraMultiSelected(next)
-                          }}
-                          className="w-4 h-4 rounded accent-green-700 cursor-pointer"
-                        />
-                        <span className="flex items-center gap-2 text-sm text-gray-700">
-                          <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ${tipoBadge(v.tipo).cls}`}>
-                            {tipoBadge(v.tipo).label}
-                          </span>
-                          <span className="text-gray-500">Ingresada: {formatVisceraDate(v.created_at)}</span>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="flex gap-3 justify-end flex-wrap">
-              <button
-                onClick={() => { setVisceraMultiModal(null); setVisceraMultiSelected(new Set()) }}
-                disabled={visceraMultiDispatching}
-                className="px-4 py-2 text-sm font-semibold text-gray-700 border border-gray-300 rounded-lg transition-all duration-200 hover:bg-gray-50 disabled:opacity-50"
-              >
-                No despachar vísceras
-              </button>
-              <button
-                onClick={handleDespacharSeleccionMulti}
-                disabled={visceraMultiDispatching}
-                className="px-4 py-2 text-sm font-bold text-white bg-green-800 hover:bg-green-700 rounded-lg transition-all duration-200 active:scale-95 disabled:opacity-50"
-              >
-                {visceraMultiDispatching ? 'Despachando...' : 'Despachar selección'}
-              </button>
             </div>
           </div>
         </div>

@@ -111,6 +111,9 @@ export default function Inventario() {
   // y lo elegido por código. Sin canal en el mismo acto no hay reparto por raya (eso es
   // decisión del código completo, no de una víscera suelta).
   const [direccionesGuardadas, setDireccionesGuardadas] = useState<Record<string, DireccionNacional[]>>({})
+  // Sube cuando Rafa corrige o borra una dirección desde "Gestionar direcciones": es lo que
+  // vuelve a disparar la consulta del catálogo, para que el selector no quede con lo viejo.
+  const [catalogoVersion, setCatalogoVersion] = useState(0)
   const [despDireccionPorCodigo, setDespDireccionPorCodigo] = useState<Record<string, string>>({})
   const selectAllRef = useRef<HTMLInputElement>(null)
 
@@ -363,7 +366,7 @@ export default function Inventario() {
       if (vigente) setDireccionesGuardadas(mapa)
     })()
     return () => { vigente = false }
-  }, [despRuta, despachoUnica, codigosSeleccionadosKey])
+  }, [despRuta, despachoUnica, codigosSeleccionadosKey, catalogoVersion])
 
   const allVisibleSelected =
     visibleVisceras.length > 0 && visibleVisceras.every(v => selected.has(v.id))
@@ -485,6 +488,7 @@ export default function Inventario() {
                 guardadas={direccionesGuardadas[cod] ?? []}
                 valor={despDireccionPorCodigo[cod] ?? ''}
                 onValor={v => setDespDireccionPorCodigo(prev => ({ ...prev, [cod]: v }))}
+                onCatalogoCambiado={() => setCatalogoVersion(v => v + 1)}
               />
             ))}
             <div className="flex gap-3 justify-end">
@@ -533,6 +537,7 @@ export default function Inventario() {
                 onValor={v =>
                   setDespDireccionPorCodigo(prev => ({ ...prev, [despachoUnica.registros_beneficio.codigo_cliente]: v }))
                 }
+                onCatalogoCambiado={() => setCatalogoVersion(v => v + 1)}
               />
             )}
             <div className="flex gap-3 justify-end">
