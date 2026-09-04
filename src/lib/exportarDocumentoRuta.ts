@@ -69,6 +69,14 @@ const S = {
 }
 type SetEstilos = typeof S
 
+/**
+ * Columna separadora entre rutas: negro sólido, como en el maestro ALINEACIÓN_2026.
+ *
+ * No pasa por estilo(): no lleva borde (sobre negro no se vería) ni fuente, porque la celda
+ * va siempre vacía. El color es FF0C0C0C y NO 000000 puro — es el del maestro.
+ */
+const S_SEPARADOR = { fill: { patternType: 'solid', fgColor: { rgb: 'FF0C0C0C' } } }
+
 // TODOS los bloques usan el mismo juego de estilos `S`, Externo incluido: no hay
 // excepción de color por ruta. Lo único propio de Externo es que sus secciones no
 // llevan fila de total (cada código es un cargue distinto y no se puede sumar entre carros).
@@ -97,6 +105,15 @@ class Hoja {
     this.cells[XLSX.utils.encode_cell({ r, c })] = celda
     if (r > this.maxR) this.maxR = r
     if (c > this.maxC) this.maxC = c
+  }
+
+  /**
+   * Última fila escrita (0-indexada). La necesitan las columnas separadoras: se pintan
+   * recién cuando ya están todos los bloques, para llegar hasta abajo del más largo y no
+   * cortarse a media tabla.
+   */
+  get ultimaFila(): number {
+    return this.maxR
   }
 
   // Fila combinada c0..c1: valor+estilo en la primera celda; el resto vacías con el
@@ -291,8 +308,11 @@ function agregarHojaDocumento(
   // derecha para las direcciones, así que el offset se acumula en vez de ser 1 + i*7 fijo.
   // A queda de margen; entre bloque y bloque va una columna separadora.
   const cols: { wch: number }[] = [{ wch: ANCHO_SEP }]
+  // Columnas que hay que pintar de negro. Se anotan acá y se pintan al final: recién cuando
+  // están todos los bloques se sabe hasta qué fila llega el más largo.
+  const colsSeparadoras: number[] = []
   let c = 1
-  for (const b of doc.bloques) {
+  doc.bloques.forEach((b, i) => {
     const llevaDireccion = [...b.bovinos.filas, ...b.porcinos.filas].some(f => f.direccion)
     const ancho = llevaDireccion ? COLS_TABLA + 1 : COLS_TABLA
 
@@ -301,7 +321,17 @@ function agregarHojaDocumento(
     for (const w of ANCHOS_BLOQUE) cols.push({ wch: w })
     if (llevaDireccion) cols.push({ wch: ANCHO_DIRECCION })
     cols.push({ wch: ANCHO_SEP })
+    // La columna que sigue al bloque separa DOS rutas solo si hay otra atrás. La del último
+    // queda contra el borde derecho de la hoja y no separa nada, así que no se pinta.
+    if (i < doc.bloques.length - 1) colsSeparadoras.push(c + ancho)
     c += ancho + 1
+  })
+
+  // Negro de punta a punta: de la primera fila a la última con contenido de CUALQUIER bloque,
+  // así la banda no queda cortada al lado de una ruta con menos filas que su vecina.
+  const ultima = h.ultimaFila
+  for (const col of colsSeparadoras) {
+    for (let r = 0; r <= ultima; r++) h.celda(r, col, { v: '', t: 's', s: S_SEPARADOR })
   }
 
   XLSX.utils.book_append_sheet(wb, h.toSheet(cols), textoNombreHoja(entrega))
