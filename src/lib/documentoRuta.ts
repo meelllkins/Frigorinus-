@@ -475,7 +475,8 @@ export function armarDocumento(
   // Las vísceras NO se parten: viajan completas con UNA de las dos mitades. Para que caigan
   // en la MISMA fila que esa mitad, heredan la marca de media canal del animal (igual que
   // heredan el desposte). Cuál de las dos mitades les toca lo decide su propio
-  // codigo_destino, que ya las separa por grupo.
+  // codigo_destino: ver destinoPorRegistro, que justamente NO hereda cuando el animal salió
+  // repartido entre dos destinos.
   const mediaCanalPorRegistro = new Map<string, boolean>()
   for (const d of despachos) {
     if (d.tipo_despacho === 'canal' && d.registro_id != null && fraccionDe(d) < 1) {
@@ -492,6 +493,29 @@ export function armarDocumento(
     if (d.tipo_despacho === 'canal' && d.registro_id != null && d.direccion != null && d.direccion.trim() !== '') {
       direccionPorRegistro.set(d.registro_id, d.direccion.trim())
     }
+  }
+
+  // El `codigo_destino` del CANAL, para que su víscera se agrupe con él.
+  //
+  // Desde que el despacho permite mandar el adelanto a otro cliente, la víscera guarda su
+  // propio destino. Como el destino entra en la clave de grupo, eso la despegaba de su canal
+  // y salía una fila fantasma: el canal quedaba con V/B 0 y V/R 0, y al lado aparecía
+  // "TESTQA PARA COD 602" con CANT 0. Heredando el destino para AGRUPAR, la víscera vuelve a
+  // su fila. En la base sigue guardando el suyo: es el que arma el "PARA COD" de la línea de
+  // adelanto en la observación.
+  //
+  // `registrosConDestinoAmbiguo`: un animal con MEDIA CANAL puede tener dos filas de canal,
+  // cada una a un destino distinto. Ahí no hay un destino único que heredar, y además es
+  // justamente el caso en que el destino propio de la víscera es el que decide con cuál
+  // mitad viaja — así que esas se dejan como estaban.
+  const destinoPorRegistro = new Map<string, string | null>()
+  const registrosConDestinoAmbiguo = new Set<string>()
+  for (const d of despachos) {
+    if (d.tipo_despacho !== 'canal' || d.registro_id == null) continue
+    const t = (d.codigo_destino ?? '').trim()
+    const destino = t === '' ? null : t
+    if (!destinoPorRegistro.has(d.registro_id)) destinoPorRegistro.set(d.registro_id, destino)
+    else if (destinoPorRegistro.get(d.registro_id) !== destino) registrosConDestinoAmbiguo.add(d.registro_id)
   }
 
   // ── CARRO de Externo ────────────────────────────────────────────────────────
@@ -536,8 +560,7 @@ export function armarDocumento(
     const tipoCarne = rb.tipo_carne
     const codigoCliente = rb.codigo_cliente
     const ruta = d.ruta
-    // La víscera hereda el desposte del canal del mismo animal (codigo_destino NO se hereda:
-    // ese sí se captura de verdad en las filas de víscera).
+    // La víscera hereda el desposte del canal del mismo animal.
     const esDesposte =
       d.tipo_despacho === 'canal'
         ? !!d.es_desposte
@@ -545,7 +568,19 @@ export function armarDocumento(
           ? despostePorRegistro.get(d.registro_id) ?? false
           : false
     const destinoTrim = (d.codigo_destino ?? '').trim()
-    const codigoDestino = destinoTrim === '' ? null : destinoTrim // null y '' se tratan igual
+    const destinoPropio = destinoTrim === '' ? null : destinoTrim // null y '' se tratan igual
+    // La víscera se agrupa con el destino de SU canal, no con el suyo: si no, un adelanto a
+    // otro cliente la despega de la canal y salen dos filas. Se queda con el propio solo si
+    // no hay canal de ese animal en el documento (adelanto puro) o si el animal salió
+    // repartido entre dos destinos (media canal), que es donde el suyo sí desempata.
+    const heredaDestino =
+      d.tipo_despacho !== 'canal' &&
+      d.registro_id != null &&
+      destinoPorRegistro.has(d.registro_id) &&
+      !registrosConDestinoAmbiguo.has(d.registro_id)
+    const codigoDestino = heredaDestino
+      ? destinoPorRegistro.get(d.registro_id!) ?? null
+      : destinoPropio
     const etiquetaAnimal = `${codigoCliente}-${rb.numero_animal ?? '?'}`
 
     const fraccion = fraccionDe(d)
