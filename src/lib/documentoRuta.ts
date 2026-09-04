@@ -518,6 +518,32 @@ export function armarDocumento(
     else if (destinoPorRegistro.get(d.registro_id) !== destino) registrosConDestinoAmbiguo.add(d.registro_id)
   }
 
+  // Lo mismo pero por CÓDIGO, para el ADELANTO PURO: ahí la raya se quedó en cava, así que su
+  // canal no está en el documento y no hay de quién heredar por registro. Sin esto la víscera
+  // caía a su destino propio y salía la fila "TESTQA PARA COD 602" con CANT 0 — que es
+  // justamente lo que Rafa quiere ver SOLO en la observación, nunca en el cuadro.
+  //
+  // Heredando el destino de las otras canales de su código, la víscera se fusiona en la fila
+  // normal del código y le suma sus V/B y V/R, que es lo que no se puede perder: la regla es
+  // que esas columnas cuentan TODAS las vísceras, adelantos incluidos.
+  //
+  // Se agrupa por ruta+tipo+código porque son los otros componentes de la clave que separan
+  // filas del mismo código. Si ese código tiene canales a destinos DISTINTOS no hay uno solo
+  // que heredar: ahí va null, que deja la fila sin "PARA COD" en vez de inventar uno.
+  const claveCodigo = (r: string | null, tc: string, cod: string) => `${r ?? ' SIN_RUTA'}|${tc}|${cod}`
+  const destinoPorCodigo = new Map<string, string | null>()
+  const codigosConDestinoAmbiguo = new Set<string>()
+  for (const d of despachos) {
+    if (d.tipo_despacho !== 'canal') continue
+    const rb = d.registros_beneficio
+    if (!rb || rb.codigo_cliente == null) continue
+    const k = claveCodigo(d.ruta, rb.tipo_carne, rb.codigo_cliente)
+    const t = (d.codigo_destino ?? '').trim()
+    const destino = t === '' ? null : t
+    if (!destinoPorCodigo.has(k)) destinoPorCodigo.set(k, destino)
+    else if (destinoPorCodigo.get(k) !== destino) codigosConDestinoAmbiguo.add(k)
+  }
+
   // ── CARRO de Externo ────────────────────────────────────────────────────────
   // 'Externo' no es una ruta: cada ACTO de despachar a Externo es un carro propio,
   // independiente de los demás aunque coincidan cliente y destino. No existe hoy una
@@ -569,18 +595,29 @@ export function armarDocumento(
           : false
     const destinoTrim = (d.codigo_destino ?? '').trim()
     const destinoPropio = destinoTrim === '' ? null : destinoTrim // null y '' se tratan igual
-    // La víscera se agrupa con el destino de SU canal, no con el suyo: si no, un adelanto a
-    // otro cliente la despega de la canal y salen dos filas. Se queda con el propio solo si
-    // no hay canal de ese animal en el documento (adelanto puro) o si el animal salió
-    // repartido entre dos destinos (media canal), que es donde el suyo sí desempata.
-    const heredaDestino =
-      d.tipo_despacho !== 'canal' &&
-      d.registro_id != null &&
-      destinoPorRegistro.has(d.registro_id) &&
-      !registrosConDestinoAmbiguo.has(d.registro_id)
-    const codigoDestino = heredaDestino
-      ? destinoPorRegistro.get(d.registro_id!) ?? null
-      : destinoPropio
+    // El destino con el que AGRUPA esta fila. La canal usa el suyo; la víscera casi nunca,
+    // porque su destino propio la despegaría de la fila del código y saldría una fila con
+    // "PARA COD X" en el cuadro — dato que va únicamente en la observación.
+    //
+    // El ÚNICO caso en que la víscera conserva el suyo es la media canal repartida entre dos
+    // destinos: ahí su destino es lo que decide con cuál de las dos mitades viaja.
+    //
+    // Ojo: esto solo cambia cómo se AGRUPA en memoria. En `despachos` la víscera sigue
+    // guardando su codigo_destino propio, que es el que arma el "PARA COD" de la línea de
+    // adelanto (ver lineasDeAdelanto en adelantoVisceras.ts).
+    let codigoDestino: string | null
+    if (d.tipo_despacho === 'canal') {
+      codigoDestino = destinoPropio
+    } else if (d.registro_id != null && registrosConDestinoAmbiguo.has(d.registro_id)) {
+      codigoDestino = destinoPropio // media canal repartida: su destino desempata la mitad
+    } else if (d.registro_id != null && destinoPorRegistro.has(d.registro_id)) {
+      codigoDestino = destinoPorRegistro.get(d.registro_id) ?? null // su canal está: hereda
+    } else {
+      // Adelanto puro: la canal de esta raya se quedó en cava. Se agrupa con el destino de
+      // las otras canales del código (o sin destino si no hay uno solo).
+      const k = claveCodigo(ruta, tipoCarne, codigoCliente)
+      codigoDestino = codigosConDestinoAmbiguo.has(k) ? null : destinoPorCodigo.get(k) ?? null
+    }
     const etiquetaAnimal = `${codigoCliente}-${rb.numero_animal ?? '?'}`
 
     const fraccion = fraccionDe(d)
