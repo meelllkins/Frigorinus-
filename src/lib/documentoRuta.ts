@@ -835,6 +835,41 @@ export async function guardarDatosManuales(
 }
 
 /**
+ * Agrega UNA línea al final de la observación del documento, sin pisar lo que ya haya.
+ *
+ * Va por RPC y no por UPSERT a propósito: la observación también se edita a mano en la
+ * pantalla del documento, con guardado por debounce. Un "leer, concatenar, escribir" hecho
+ * acá perdería lo que se haya escrito en el medio; la función del servidor hace todo eso en
+ * una sola sentencia. Además no duplica: si la línea EXACTA ya está, la deja como está.
+ * Ver SQL's/migracion_observacion_adelanto.sql.
+ *
+ * Nunca lanza: el fallo vuelve en el resultado. El llamador ya insertó el despacho y NO lo
+ * revierte por esto — la línea es texto de apoyo, el despacho es el dato.
+ */
+export async function agregarLineaObservacion(
+  fechaEntrega: string,
+  ruta: string,
+  linea: string,
+  carroId: string | null = null
+): Promise<ResultadoGuardado> {
+  const { error } = await supabase.rpc('documento_ruta_agregar_observacion', {
+    // Misma clave que guardarDatosManuales, incluida la jornada canónica: si no, la línea
+    // caería en una fila distinta de la que edita el textarea.
+    p_fecha: jornadaCanonica(fechaEntrega),
+    p_fecha_entrega: fechaEntrega,
+    p_ruta: ruta,
+    p_carro_id: carroId ?? '',
+    p_linea: linea,
+  })
+
+  if (error) {
+    console.error('[documentoRuta] Error agregando la línea de observación:', error)
+    return { ok: false, mensaje: error.message }
+  }
+  return { ok: true }
+}
+
+/**
  * Corrige cabeza/patas de un grupo: escribe los valores en el PRIMER id de canal
  * y pone AMBAS en null en el resto (para que la suma del grupo no se duplique).
  * Dos updates. Arreglo vacío -> no hace nada y devuelve false. Nunca lanza.

@@ -16,6 +16,8 @@ import {
 } from '../lib/direccionesNacional'
 import { entregaPorDefecto } from '../lib/fechaEntrega'
 import { enTramoPrevioAFestivo } from '../lib/festivos'
+import { lineasDeAdelanto } from '../lib/adelantoVisceras'
+import { agregarLineaObservacion } from '../lib/documentoRuta'
 // Solo tipos: se borran al compilar, así que sacrificioPdf.ts (y con él pdfjs-dist) no entra
 // en el chunk de arranque. El módulo se carga con import() dentro del handler del botón.
 import type { FilasClasificadas, ParseSacrificio } from '../lib/sacrificioPdf'
@@ -222,6 +224,15 @@ export default function Beneficio() {
   const [despRuta, setDespRuta] = useState('')
   const [despOtroCodigo, setDespOtroCodigo] = useState(false)
   const [despCodigoDestino, setDespCodigoDestino] = useState('')
+  // Destino PROPIO de las vísceras adelantadas, independiente del de la canal: Rafa manda
+  // la canal al código dueño y el adelanto a otro cliente en el MISMO acto. Cada víscera ya
+  // es su propia fila en `despachos`, con su propio codigo_destino, así que no hace falta
+  // columna nueva — antes se le escribía el mismo valor que a la canal y punto.
+  const [despVisceraOtroCodigo, setDespVisceraOtroCodigo] = useState(false)
+  const [despVisceraCodigoDestino, setDespVisceraCodigoDestino] = useState('')
+  // Fallo al escribir la línea de adelanto en la observación. El despacho ya se guardó, así
+  // que no se revierte nada: solo se avisa para que Rafa la escriba a mano si hace falta.
+  const [adelantoError, setAdelantoError] = useState('')
   const [despCabeza, setDespCabeza] = useState('')
   const [despPatas, setDespPatas] = useState('')
   // Múltiple: cabeza/patas POR CÓDIGO de cliente (un lote puede mezclar clientes).
@@ -642,6 +653,9 @@ export default function Beneficio() {
     setDespFechaEntrega(entregaPorDefecto(localToday()))
     setDespOtroCodigo(false)
     setDespCodigoDestino('')
+    setDespVisceraOtroCodigo(false)
+    setDespVisceraCodigoDestino('')
+    setAdelantoError('')
     setDespCabeza('')
     setDespPatas('')
     setDespDesposte(false)
@@ -656,6 +670,39 @@ export default function Beneficio() {
     setDespVisceras(null)
     setDespVisceraSelected(new Set())
     setDespVisceraAbiertos(new Set())
+  }
+
+  /**
+   * Destino propio de las vísceras adelantadas. Se dibuja solo si hay alguna marcada: sin
+   * vísceras en el acto el campo no significa nada.
+   */
+  function campoDestinoVisceras(hayMarcadas: boolean) {
+    if (!hayMarcadas) return null
+    return (
+      <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={despVisceraOtroCodigo}
+            onChange={e => setDespVisceraOtroCodigo(e.target.checked)}
+            className="w-4 h-4 rounded accent-green-700 cursor-pointer"
+          />
+          <span className="text-sm font-semibold text-gray-700">Las vísceras van a otro código</span>
+        </label>
+        {despVisceraOtroCodigo && (
+          <input
+            type="text"
+            value={despVisceraCodigoDestino}
+            onChange={e => setDespVisceraCodigoDestino(e.target.value)}
+            placeholder="Código destino de las vísceras (ej: 610)"
+            className={`${despInputCls} mt-2`}
+          />
+        )}
+        <p className="mt-1.5 text-xs text-gray-500">
+          Sin marcar, las vísceras salen al mismo destino que la canal.
+        </p>
+      </div>
+    )
   }
 
   const despInputCls =
@@ -690,6 +737,53 @@ export default function Beneficio() {
    */
   function nuevoCarroId(): string | null {
     return despRuta === 'Externo' ? crypto.randomUUID() : null
+  }
+
+  /**
+   * Destino que va en las filas de VÍSCERA. Si Rafa no marcó nada, es el mismo de la canal
+   * (comportamiento de siempre); si marcó, las vísceras adelantadas salen para otro código.
+   */
+  function codigoDestinoDeVisceras(destinoCanal: string | null): string | null {
+    const propio = despVisceraCodigoDestino.trim()
+    return despVisceraOtroCodigo && propio !== '' ? propio : destinoCanal
+  }
+
+  /**
+   * Escribe en la observación del documento una línea por código con adelanto.
+   *
+   * Se llama DESPUÉS de insertar los despachos y NO revierte nada si falla: el despacho es
+   * el dato y la línea es texto de apoyo. El append lo hace el servidor (ver
+   * agregarLineaObservacion), así que no pisa lo que Rafa esté escribiendo en el textarea.
+   */
+  async function escribirAdelanto(
+    visceras: VisceraSingle[],
+    registrosDespachados: Set<string>,
+    ruta: string,
+    fechaEntrega: string,
+    carroId: string | null,
+    destinoVisceras: string | null
+  ): Promise<void> {
+    const lineas = lineasDeAdelanto(
+      visceras.map(v => ({
+        registroId: v.registro_id,
+        codigoCliente: v.codigo_cliente,
+        numeroAnimal: v.numero_animal,
+      })),
+      registrosDespachados,
+      destinoVisceras
+    )
+    if (lineas.length === 0) return
+
+    const fallas: string[] = []
+    for (const l of lineas) {
+      const r = await agregarLineaObservacion(fechaEntrega, ruta, l.texto, carroId)
+      if (!r.ok) fallas.push(r.mensaje)
+    }
+    if (fallas.length > 0) {
+      setAdelantoError(
+        `El despacho se guardó, pero la nota de adelanto no se pudo escribir en la observación (${fallas[0]}). Agregala a mano en el documento de ruta.`
+      )
+    }
   }
 
   /**
@@ -949,24 +1043,36 @@ export default function Beneficio() {
         .update({ estado: 'despachada', fecha_despacho: hoy })
         .in('id', selectedIds)
       const selectedVisceras = visceraModal.visceras.filter(v => visceraSelected.has(v.id))
+      // Destino PROPIO de las vísceras: puede ser otro código que el de la canal.
+      const destinoVisceras = codigoDestinoDeVisceras(codigoDestinoFinal)
       await supabase.from('despachos').insert(
         selectedVisceras.map(v => ({
           registro_id: v.registro_id,
           viscera_id: v.id,
           tipo_despacho: 'viscera',
           fecha_despacho: hoy,
-          // Misma ruta, código destino, CARRO y FECHA DE ENTREGA que el canal (sin
-          // cabeza/patas): las vísceras viajan con él, así que tienen que caer en el mismo
-          // documento. Es la misma herencia que ya se hacía con ruta/destino/dirección.
+          // Misma ruta, CARRO y FECHA DE ENTREGA que el canal (sin cabeza/patas): las
+          // vísceras viajan con él, así que tienen que caer en el mismo documento. El
+          // DESTINO ya no se hereda: el adelanto puede ir a otro cliente.
           fecha_entrega: fechaEntrega,
           ruta: despRuta,
-          codigo_destino: codigoDestinoFinal,
+          codigo_destino: destinoVisceras,
           carro_id: carroId,
           // Misma dirección que su canal (individual = un solo animal, un solo código).
           // Se escribe acá y no se deja solo al fallback de documentoRuta.ts: ese fallback
           // solo une por registro_id (misma raya) y no sobrevive al archivado.
           direccion: direccionDeRaya(v.registro_id, r.codigo_cliente),
         }))
+      )
+      // Adelanto: las vísceras marcadas cuya raya NO sale en este acto. La de la canal que
+      // sí sale queda afuera del conteo (lo resuelve lineasDeAdelanto).
+      await escribirAdelanto(
+        selectedVisceras,
+        new Set([r.id]),
+        despRuta,
+        fechaEntrega,
+        carroId,
+        destinoVisceras
       )
     }
     setSelected(prev => { const next = new Set(prev); next.delete(r.id); return next })
@@ -1131,6 +1237,8 @@ export default function Beneficio() {
     // misma fecha de entrega que los canales, para que caigan en el mismo documento.
     const visceraADespachar = (despVisceras ?? []).filter(v => despVisceraSelected.has(v.id))
     if (visceraADespachar.length > 0) {
+      // Destino PROPIO de las vísceras: puede ser otro código que el de los canales.
+      const destinoVisceras = codigoDestinoDeVisceras(codigoDestinoFinal)
       await supabase
         .from('inventario_visceras')
         .update({ estado: 'despachada', fecha_despacho: hoy })
@@ -1141,16 +1249,26 @@ export default function Beneficio() {
           viscera_id: v.id,
           tipo_despacho: 'viscera',
           fecha_despacho: hoy,
-          // Misma ruta, código destino, carro y fecha de entrega que los canales del lote
-          // (sin cabeza/patas): las vísceras viajan en ese camión.
+          // Misma ruta, carro y fecha de entrega que los canales del lote (sin cabeza/patas):
+          // las vísceras viajan en ese camión. El DESTINO ya no se hereda: el adelanto puede
+          // ir a otro cliente.
           fecha_entrega: fechaEntrega,
           ruta: despRuta,
-          codigo_destino: codigoDestinoFinal,
+          codigo_destino: destinoVisceras,
           carro_id: carroId,
           // Misma dirección que el canal de SU código (ver direccionDeViscera). Se escribe
           // acá para que sobreviva al archivado, no solo al fallback de documentoRuta.ts.
           direccion: direccionDeViscera(v),
         }))
+      )
+      // Adelanto: las vísceras marcadas cuya raya NO sale en este lote.
+      await escribirAdelanto(
+        visceraADespachar,
+        new Set(idsADespachar),
+        despRuta,
+        fechaEntrega,
+        carroId,
+        destinoVisceras
       )
     }
 
@@ -1295,6 +1413,7 @@ export default function Beneficio() {
                 <p className="text-sm text-gray-500">Estos códigos no tienen vísceras en cava.</p>
               ) : (
                 <>
+                  {campoDestinoVisceras(despVisceraSelected.size > 0)}
                   <div className="flex gap-2 mb-2">
                     <button
                       type="button"
@@ -1584,6 +1703,7 @@ export default function Beneficio() {
                     </button>
                   </div>
                 </div>
+                {campoDestinoVisceras(visceraSelected.size > 0)}
                 <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
                   {visceraModal.visceras.map(v => (
                     <label key={v.id} className="flex items-center gap-3 cursor-pointer">
@@ -1700,6 +1820,21 @@ export default function Beneficio() {
                 </span>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* El despacho SÍ se guardó; lo que falló es la nota de adelanto en la observación.
+            Va acá y no en el modal porque el modal ya se cerró al despachar. */}
+        {adelantoError && (
+          <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 flex items-start gap-2">
+            <p className="text-sm text-amber-800 flex-1">{adelantoError}</p>
+            <button
+              type="button"
+              onClick={() => setAdelantoError('')}
+              className="text-xs font-semibold text-amber-800 hover:text-amber-900 shrink-0"
+            >
+              Cerrar
+            </button>
           </div>
         )}
 

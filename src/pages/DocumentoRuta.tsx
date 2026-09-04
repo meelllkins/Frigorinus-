@@ -221,6 +221,11 @@ export default function DocumentoRuta() {
   // Escrituras del encabezado todavía no confirmadas contra la base, por clave de bloque.
   // Va en un ref y no en estado: se lee desde el cleanup del desmontaje, donde un
   // valor capturado por render ya sería viejo.
+  // Bloques cuyo encabezado Rafa tocó y todavía no se confirmó contra la base. Solo esos se
+  // protegen de un refresco: los demás adoptan lo que venga del servidor, que es lo que hace
+  // aparecer una línea de adelanto agregada desde Beneficios en vez de quedar tapada por la
+  // copia vieja de esta pantalla (y pisada en el próximo guardado).
+  const sucioRef = useRef<Set<string>>(new Set())
   const pendientesRef = useRef<Map<string, EscrituraPendiente>>(new Map())
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Último fallo de guardado del encabezado. Antes se descartaba: el dato se veía en
@@ -251,7 +256,8 @@ export default function DocumentoRuta() {
       const next = { ...prev }
       for (const b of d.bloques) {
         const k = claveBloque(b)
-        if (!(k in next)) next[k] = b.manual ?? manualVacio()
+        // Se adopta lo de la base salvo que ese bloque tenga cambios sin guardar.
+        if (!(k in next) || !sucioRef.current.has(k)) next[k] = b.manual ?? manualVacio()
       }
       return next
     })
@@ -298,13 +304,20 @@ export default function DocumentoRuta() {
     if (pendientesRef.current.size === 0) return
     // Se vacía ANTES de esperar: lo que se tipee durante el viaje a la base entra como
     // pendiente nuevo en vez de perderse dentro de este lote.
-    const lote = [...pendientesRef.current.values()]
+    const lote = [...pendientesRef.current.entries()]
     pendientesRef.current.clear()
 
     const fallas: string[] = []
-    for (const p of lote) {
+    for (const [clave, p] of lote) {
       const r = await guardarDatosManuales(p.fechaEntrega, p.ruta, p.datos, p.carroId)
-      if (!r.ok) fallas.push(`${p.ruta}: ${r.mensaje}`)
+      if (!r.ok) {
+        fallas.push(`${p.ruta}: ${r.mensaje}`)
+        continue
+      }
+      // Ya está guardado: deja de estar sucio y el próximo refresco puede traer lo que se
+      // haya agregado del lado del servidor. Si se volvió a tipear durante el viaje, la
+      // clave ya está pendiente otra vez y sigue protegida.
+      if (!pendientesRef.current.has(clave)) sucioRef.current.delete(clave)
     }
     setErrorGuardado(fallas.length > 0 ? fallas.join(' · ') : null)
   }, [])
@@ -313,6 +326,7 @@ export default function DocumentoRuta() {
    *  encabezado quedan sucios a la vez (sin blur de por medio), salen en un solo upsert. */
   function encolarManual(b: BloqueRuta, key: keyof DatosManuales, valor: string) {
     const k = claveBloque(b)
+    sucioRef.current.add(k) // tocado: un refresco no lo pisa hasta que se confirme
     const previo = pendientesRef.current.get(k)
     pendientesRef.current.set(k, {
       // La fecha de entrega viaja con la escritura: si se mueve el selector, lo pendiente
