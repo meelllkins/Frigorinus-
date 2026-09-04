@@ -312,13 +312,16 @@ function agregarHojaDocumento(
 
   // Bloques lado a lado con ANCHO VARIABLE: el de Nacional lleva una columna extra a la
   // derecha para las direcciones, así que el offset se acumula en vez de ser 1 + i*7 fijo.
-  // A queda de margen; entre bloque y bloque va una columna separadora.
+  // A y la que sigue a cada bloque son columnas separadoras: van en negro y cierran la hoja
+  // por los dos lados, igual que en el maestro.
   const cols: { wch: number }[] = [{ wch: ANCHO_SEP }]
   // Columnas que hay que pintar de negro. Se anotan acá y se pintan al final: recién cuando
   // están todos los bloques se sabe hasta qué fila llega el más largo.
-  const colsSeparadoras: number[] = []
+  // La columna A también va en negro: en el maestro la banda cierra la hoja por los dos
+  // lados, no solo entre rutas.
+  const colsSeparadoras: number[] = [0]
   let c = 1
-  doc.bloques.forEach((b, i) => {
+  for (const b of doc.bloques) {
     const llevaDireccion = [...b.bovinos.filas, ...b.porcinos.filas].some(f => f.direccion)
     const ancho = llevaDireccion ? COLS_TABLA + 1 : COLS_TABLA
 
@@ -327,17 +330,21 @@ function agregarHojaDocumento(
     for (const w of ANCHOS_BLOQUE) cols.push({ wch: w })
     if (llevaDireccion) cols.push({ wch: ANCHO_DIRECCION })
     cols.push({ wch: ANCHO_SEP })
-    // La columna que sigue al bloque separa DOS rutas solo si hay otra atrás. La del último
-    // queda contra el borde derecho de la hoja y no separa nada, así que no se pinta.
-    if (i < doc.bloques.length - 1) colsSeparadoras.push(c + ancho)
+    // TODAS las columnas que siguen a un bloque van en negro, la del último incluida: esa es
+    // la que cierra la hoja por la derecha.
+    colsSeparadoras.push(c + ancho)
     c += ancho + 1
-  })
+  }
 
   // Negro de punta a punta: de la primera fila a la última con contenido de CUALQUIER bloque,
   // así la banda no queda cortada al lado de una ruta con menos filas que su vecina.
-  const ultima = h.ultimaFila
-  for (const col of colsSeparadoras) {
-    for (let r = 0; r <= ultima; r++) h.celda(r, col, { v: '', t: 's', s: S_SEPARADOR })
+  // Sin bloques no se pinta nada: si no, un día sin despachos saldría con una sola celda
+  // negra suelta en A1.
+  if (doc.bloques.length > 0) {
+    const ultima = h.ultimaFila
+    for (const col of colsSeparadoras) {
+      for (let r = 0; r <= ultima; r++) h.celda(r, col, { v: '', t: 's', s: S_SEPARADOR })
+    }
   }
 
   XLSX.utils.book_append_sheet(wb, h.toSheet(cols), textoNombreHoja(entrega))

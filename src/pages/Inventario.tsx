@@ -6,6 +6,7 @@ import { fetchClientesMap, type ClienteInfo } from '../lib/clientes'
 import CeldasCliente from '../components/CeldasCliente'
 import ClienteModal from '../components/ClienteModal'
 import RutaFields from '../components/RutaFields'
+import { normalizarCodigoDestino } from '../lib/codigoDestino'
 import DireccionNacionalField from '../components/DireccionNacionalField'
 import {
   RUTA_NACIONAL,
@@ -268,7 +269,7 @@ export default function Inventario() {
     const v = despachoUnica
     setDispatching(true)
     const hoy = localToday()
-    const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
+    const codigoDestinoFinal = despOtroCodigo ? normalizarCodigoDestino(despCodigoDestino) : null
     await persistirDirecciones([v.registros_beneficio.codigo_cliente])
     await supabase
       .from('inventario_visceras')
@@ -300,7 +301,7 @@ export default function Inventario() {
     const ids = Array.from(selected)
     const candidates = visceras.filter(v => selected.has(v.id))
 
-    const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
+    const codigoDestinoFinal = despOtroCodigo ? normalizarCodigoDestino(despCodigoDestino) : null
     // Un solo carro para todo el lote: salen juntas en el mismo camión.
     const carroId = despRuta === 'Externo' ? crypto.randomUUID() : null
     await persistirDirecciones(candidates.map(v => v.registros_beneficio.codigo_cliente))

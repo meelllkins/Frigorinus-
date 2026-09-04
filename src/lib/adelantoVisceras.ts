@@ -14,6 +14,7 @@
  * Este módulo es PURO a propósito (sin Supabase, sin React): la regla se puede verificar
  * suelta y la usan igual el despacho individual y el múltiple.
  */
+import { normalizarCodigoDestino } from './codigoDestino'
 
 /** Lo mínimo que hace falta de una víscera marcada para despacho. */
 export interface VisceraAdelantada {
@@ -64,7 +65,9 @@ export function lineasDeAdelanto(
   registrosDespachados: Set<string>,
   codigoDestino: string | null
 ): LineaAdelanto[] {
-  const destino = (codigoDestino ?? '').trim()
+  // Igual que formatearCod: el rótulo lo pone esta función, así que si el valor ya lo trae
+  // escrito adentro se le saca. Si no, sale "PARA COD PARA COD 602".
+  const destino = normalizarCodigoDestino(codigoDestino) ?? ''
 
   // Por código, las rayas SIN repetir: una raya tiene roja y blanca, y las dos marcadas
   // siguen siendo UN paquete de adelanto. Por eso el conteo es de rayas, no de vísceras.

@@ -17,6 +17,7 @@ import {
 import { entregaPorDefecto } from '../lib/fechaEntrega'
 import { enTramoPrevioAFestivo } from '../lib/festivos'
 import { lineasDeAdelanto } from '../lib/adelantoVisceras'
+import { normalizarCodigoDestino } from '../lib/codigoDestino'
 import { agregarLineaObservacion } from '../lib/documentoRuta'
 // Solo tipos: se borran al compilar, así que sacrificioPdf.ts (y con él pdfjs-dist) no entra
 // en el chunk de arranque. El módulo se carga con import() dentro del handler del botón.
@@ -744,8 +745,10 @@ export default function Beneficio() {
    * (comportamiento de siempre); si marcó, las vísceras adelantadas salen para otro código.
    */
   function codigoDestinoDeVisceras(destinoCanal: string | null): string | null {
-    const propio = despVisceraCodigoDestino.trim()
-    return despVisceraOtroCodigo && propio !== '' ? propio : destinoCanal
+    // normalizarCodigoDestino saca el "PARA COD" si vino tipeado adentro: el rótulo lo pone
+    // el render, y si además viene en el valor sale duplicado.
+    const propio = normalizarCodigoDestino(despVisceraCodigoDestino)
+    return despVisceraOtroCodigo && propio != null ? propio : destinoCanal
   }
 
   /**
@@ -982,7 +985,7 @@ export default function Beneficio() {
     setVisceraDispatching(true)
     const hoy = localToday()
     const r = visceraModal.registro
-    const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
+    const codigoDestinoFinal = despOtroCodigo ? normalizarCodigoDestino(despCodigoDestino) : null
     const esRes = r.tipo_carne === 'res'
     const { fraccion, registroUpdate } = despachoDeCanal(r, despMediaCanal)
     const carroId = nuevoCarroId() // un carro por acto de despacho (solo Externo)
@@ -1015,7 +1018,7 @@ export default function Beneficio() {
     setVisceraDispatching(true)
     const hoy = localToday()
     const r = visceraModal.registro
-    const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
+    const codigoDestinoFinal = despOtroCodigo ? normalizarCodigoDestino(despCodigoDestino) : null
     const esRes = r.tipo_carne === 'res'
     const { fraccion, registroUpdate } = despachoDeCanal(r, despMediaCanal)
     const carroId = nuevoCarroId() // un carro por acto de despacho (solo Externo)
@@ -1192,7 +1195,7 @@ export default function Beneficio() {
       await supabase.from('registros_beneficio').update(lote.update).in('id', lote.ids)
     }
 
-    const codigoDestinoFinal = despOtroCodigo && despCodigoDestino.trim() ? despCodigoDestino.trim() : null
+    const codigoDestinoFinal = despOtroCodigo ? normalizarCodigoDestino(despCodigoDestino) : null
     const carroId = nuevoCarroId() // todo el lote viaja en el MISMO carro
     const fechaEntrega = fechaEntregaAEscribir(hoy) // ...y para el MISMO día de entrega
     await persistirDirecciones(idsADespachar.map(id => ({ registroId: id, codigo: regById.get(id)?.codigo_cliente ?? '' })))

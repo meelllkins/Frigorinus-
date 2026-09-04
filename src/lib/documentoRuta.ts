@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 import { RUTAS } from './rutas'
 import { sumarDias, DIAS_HASTA_ENTREGA } from './fechaEntrega'
+import { normalizarCodigoDestino } from './codigoDestino'
 
 // ════════════════════════════════════════════════════════════════
 // TIPOS EXPORTADOS
@@ -156,7 +157,9 @@ export function formatearCod(
 
   if (esMediaCanal) base += ` MEDIA CANAL DE ${tipoCarne === 'res' ? 'RES' : 'CERDO'}`
 
-  const destino = (codigoDestino ?? '').trim()
+  // Se normaliza acá y no solo al guardar: hay filas viejas con el rótulo escrito adentro
+  // del valor ("PARA COD 602"), y sin esto saldrían como "PARA COD PARA COD 602".
+  const destino = normalizarCodigoDestino(codigoDestino) ?? ''
   if (destino !== '') base += ` PARA COD ${destino}`
   return base
 }
