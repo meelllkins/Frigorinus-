@@ -90,6 +90,13 @@ function getInitialRegForm() {
   return { codigo_cliente: '', numero_animal: '', fecha_beneficio: localTodayStr() }
 }
 
+/**
+ * Cada res lleva DOS vísceras, una de cada tipo — lo mismo que crea el trigger
+ * crear_viscera_automatica. Los strings son EXACTAMENTE los que compara documentoRuta.ts
+ * para sumar V/B y V/R: una víscera con otro valor (o con NULL) no se cuenta en el documento.
+ */
+const TIPOS_VISCERA = ['roja', 'blanca'] as const
+
 const inputClass =
   'w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-700 focus:ring-1 focus:ring-green-700 transition-colors'
 export default function Inventario() {
@@ -160,6 +167,13 @@ export default function Inventario() {
     const numero = regForm.numero_animal.trim()
     const fecha = regForm.fecha_beneficio
 
+    const fallar = (msg: string) => {
+      setRegError(msg)
+      if (regErrorTimerRef.current) clearTimeout(regErrorTimerRef.current)
+      regErrorTimerRef.current = setTimeout(() => setRegError(''), 4000)
+      setRegSaving(false)
+    }
+
     // Buscar si ya existe un registro con esos datos
     const { data: existente } = await supabase
       .from('registros_beneficio')
@@ -173,22 +187,6 @@ export default function Inventario() {
     let isNewRegistro = false
 
     if (existente) {
-      // Verificar que no tenga ya una víscera activa
-      const { data: visceraActiva } = await supabase
-        .from('inventario_visceras')
-        .select('id')
-        .eq('registro_id', existente.id)
-        .eq('estado', 'en_inventario')
-        .maybeSingle()
-
-      if (visceraActiva) {
-        setRegError('Este animal ya tiene una víscera activa en inventario.')
-        if (regErrorTimerRef.current) clearTimeout(regErrorTimerRef.current)
-        regErrorTimerRef.current = setTimeout(() => setRegError(''), 4000)
-        setRegSaving(false)
-        return
-      }
-
       registroId = existente.id
     } else {
       const { data: nuevo, error: err } = await supabase
@@ -205,10 +203,7 @@ export default function Inventario() {
         .single()
 
       if (err || !nuevo) {
-        setRegError('Error al registrar. Intenta de nuevo.')
-        if (regErrorTimerRef.current) clearTimeout(regErrorTimerRef.current)
-        regErrorTimerRef.current = setTimeout(() => setRegError(''), 4000)
-        setRegSaving(false)
+        fallar('Error al registrar. Intenta de nuevo.')
         return
       }
 
@@ -216,10 +211,53 @@ export default function Inventario() {
       isNewRegistro = true
     }
 
-    await supabase.from('inventario_visceras').insert({
-      registro_id: registroId,
-      estado: 'en_inventario',
-    })
+    // Qué vísceras tiene YA este animal en inventario.
+    //
+    // Se lee DESPUÉS de asegurar el registro, no antes: si el registro es nuevo, el trigger
+    // crear_viscera_automatica pudo haberlas creado él. Preguntando acá, el alta funciona
+    // igual esté el trigger activo o no, y nunca deja cuatro vísceras.
+    //
+    // Y se lee la LISTA, no .maybeSingle(): con dos filas maybeSingle devuelve error y data
+    // null, así que el guard viejo pasaba de largo y habría dejado duplicar.
+    const { data: enInventario, error: errLectura } = await supabase
+      .from('inventario_visceras')
+      .select('id, tipo')
+      .eq('registro_id', registroId)
+      .eq('estado', 'en_inventario')
+
+    if (errLectura) {
+      fallar('No pude verificar las vísceras de este animal. Probá de nuevo.')
+      return
+    }
+
+    const actuales = enInventario ?? []
+    // Fila sin tipo: viene del bug viejo de esta misma pantalla. No hay forma de saber si era
+    // la roja o la blanca, así que no se le agrega nada encima — se corrige aparte.
+    if (actuales.some(v => v.tipo == null)) {
+      fallar('Este animal tiene vísceras sin tipo cargadas antes. Hay que corregirlas primero.')
+      return
+    }
+
+    const tipos = new Set(actuales.map(v => v.tipo))
+    const faltantes = TIPOS_VISCERA.filter(t => !tipos.has(t))
+
+    if (faltantes.length === 0) {
+      // Nada que crear. Si el animal ya existía es un alta repetida y se avisa; si es nuevo,
+      // las creó el trigger y el resultado es el que se buscaba, así que no es un error.
+      if (!isNewRegistro) {
+        fallar('Este animal ya tiene sus vísceras en inventario.')
+        return
+      }
+    } else {
+      // Las dos (o la que falte) en UNA sola llamada.
+      const { error: errInsert } = await supabase.from('inventario_visceras').insert(
+        faltantes.map(tipo => ({ registro_id: registroId, estado: 'en_inventario', tipo }))
+      )
+      if (errInsert) {
+        fallar('Error al registrar las vísceras. Intenta de nuevo.')
+        return
+      }
+    }
 
     if (isNewRegistro) {
       await new Promise(r => setTimeout(r, 800))
