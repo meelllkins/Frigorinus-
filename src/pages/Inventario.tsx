@@ -29,6 +29,19 @@ interface VisceraCon {
   }
 }
 
+/**
+ * Las vísceras de UN animal. Es la unidad con la que se opera el inventario: Rafa nunca
+ * manda la roja sin la blanca, así que se selecciona y se despacha el animal entero.
+ *
+ * En la base cada víscera sigue siendo su propia fila y el despacho crea una fila por
+ * víscera con su `viscera_id` — el agrupamiento es de la pantalla, no del modelo.
+ */
+interface GrupoViscera {
+  registroId: string
+  rb: VisceraCon['registros_beneficio']
+  visceras: VisceraCon[]
+}
+
 function localToday(): Date {
   const d = new Date()
   return new Date(d.getFullYear(), d.getMonth(), d.getDate())
@@ -112,9 +125,12 @@ const inputClass =
 export default function Inventario() {
   const [visceras, setVisceras] = useState<VisceraCon[]>([])
   const [search, setSearch] = useState('')
+  // Selección por ANIMAL: guarda `registro_id`, no ids de víscera. La roja y la blanca
+  // siempre viajan juntas, así que seleccionar una sola no corresponde a ningún flujo real.
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showModal, setShowModal] = useState(false)
   const [dispatching, setDispatching] = useState(false)
+  // También por animal: la confirmación de borrado elimina las vísceras del animal entero.
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -124,7 +140,8 @@ export default function Inventario() {
   const [despRuta, setDespRuta] = useState('')
   const [despOtroCodigo, setDespOtroCodigo] = useState(false)
   const [despCodigoDestino, setDespCodigoDestino] = useState('')
-  const [despachoUnica, setDespachoUnica] = useState<VisceraCon | null>(null)
+  // Despacho desde el botón de una fila: es el ANIMAL, con todas sus vísceras.
+  const [despachoUnica, setDespachoUnica] = useState<GrupoViscera | null>(null)
   // Dirección SOLO de la ruta Nacional (adelanto de víscera sin canal): catálogo guardado
   // y lo elegido por código. Sin canal en el mismo acto no hay reparto por raya (eso es
   // decisión del código completo, no de una víscera suelta).
@@ -152,8 +169,10 @@ export default function Inventario() {
     const visible = visceras.filter(v =>
       !q || `${v.registros_beneficio.codigo_cliente}-${v.registros_beneficio.numero_animal}`.toLowerCase().includes(q)
     )
-    const selectedCount = visible.filter(v => selected.has(v.id)).length
-    selectAllRef.current.indeterminate = selectedCount > 0 && selectedCount < visible.length
+    // Se cuenta por ANIMAL, no por víscera: el checkbox del encabezado selecciona animales.
+    const animalesVisibles = new Set(visible.map(v => v.registro_id))
+    const marcados = [...animalesVisibles].filter(id => selected.has(id)).length
+    selectAllRef.current.indeterminate = marcados > 0 && marcados < animalesVisibles.size
   }, [selected, visceras, search])
 
   async function fetchVisceras() {
@@ -285,10 +304,10 @@ export default function Inventario() {
     setDespDireccionPorCodigo({})
   }
 
-  // El botón "Despachar" de la fila ahora abre el modal de ruta (obligatoria).
-  function handleDespachar(v: VisceraCon) {
+  // El botón "Despachar" de la fila abre el modal de ruta (obligatoria) para TODO el animal.
+  function handleDespachar(g: GrupoViscera) {
     resetDespFields()
-    setDespachoUnica(v)
+    setDespachoUnica(g)
   }
 
   /** Dirección elegida para un código (solo Nacional). Sin reparto por raya: acá no hay
@@ -312,32 +331,38 @@ export default function Inventario() {
     }
   }
 
+  /** Despacha TODAS las vísceras en inventario del animal elegido con el botón de la fila. */
   async function handleConfirmDespachoUnica() {
     if (!despachoUnica || !despRuta) return
-    const v = despachoUnica
+    const g = despachoUnica
     setDispatching(true)
     const hoy = localToday()
     const codigoDestinoFinal = despOtroCodigo ? normalizarCodigoDestino(despCodigoDestino) : null
-    await persistirDirecciones([v.registros_beneficio.codigo_cliente])
+    // Un solo carro para el animal: sus vísceras salen en el mismo camión.
+    const carroId = despRuta === 'Externo' ? crypto.randomUUID() : null
+    await persistirDirecciones([g.rb.codigo_cliente])
     await supabase
       .from('inventario_visceras')
       .update({ estado: 'despachada', fecha_despacho: hoy })
-      .eq('id', v.id)
-    await supabase.from('despachos').insert({
-      registro_id: v.registro_id,
-      viscera_id: v.id,
-      tipo_despacho: 'viscera',
-      fecha_despacho: hoy,
-      ruta: despRuta,
-      codigo_destino: codigoDestinoFinal,
-      // Adelanto de vísceras a Externo: es su propio carro (nadie más viaja con ellas).
-      carro_id: despRuta === 'Externo' ? crypto.randomUUID() : null,
-      // Solo Nacional: para que el código no salga partido en el documento de ruta si
-      // esta víscera se adelantó y su canal (con dirección propia) sale otro día.
-      direccion: direccionDeCodigo(v.registros_beneficio.codigo_cliente),
-    })
+      .in('id', g.visceras.map(v => v.id))
+    // UNA fila de despacho por VÍSCERA, cada una con su viscera_id: lo que cambió es que la
+    // unidad de selección es el animal, no cómo se persiste.
+    await supabase.from('despachos').insert(
+      g.visceras.map(v => ({
+        registro_id: v.registro_id,
+        viscera_id: v.id,
+        tipo_despacho: 'viscera',
+        fecha_despacho: hoy,
+        ruta: despRuta,
+        codigo_destino: codigoDestinoFinal,
+        carro_id: carroId,
+        // Solo Nacional: para que el código no salga partido en el documento de ruta si
+        // estas vísceras se adelantaron y su canal (con dirección propia) sale otro día.
+        direccion: direccionDeCodigo(g.rb.codigo_cliente),
+      }))
+    )
     // El despacho de víscera es independiente: no se toca el estado del animal/canal.
-    setSelected(prev => { const next = new Set(prev); next.delete(v.id); return next })
+    setSelected(prev => { const next = new Set(prev); next.delete(g.registroId); return next })
     setDespachoUnica(null)
     setDispatching(false)
     fetchVisceras()
@@ -346,8 +371,11 @@ export default function Inventario() {
   async function handleDespacharMultiple() {
     setDispatching(true)
     const hoy = localToday()
-    const ids = Array.from(selected)
-    const candidates = visceras.filter(v => selected.has(v.id))
+    // `selected` tiene registro_id: se resuelven acá las vísceras de esos animales. Se filtra
+    // sobre la lista COMPLETA y no sobre la visible, para que escribir en el buscador después
+    // de marcar no deje afuera lo seleccionado.
+    const candidates = visceras.filter(v => selected.has(v.registro_id))
+    const ids = candidates.map(v => v.id)
 
     const codigoDestinoFinal = despOtroCodigo ? normalizarCodigoDestino(despCodigoDestino) : null
     // Un solo carro para todo el lote: salen juntas en el mismo camión.
@@ -426,7 +454,7 @@ export default function Inventario() {
   // dirección cuando la ruta es Nacional). Como string join -> no dispara el efecto de
   // abajo en cada render, solo cuando el conjunto de códigos realmente cambia.
   const codigosSeleccionados = [...new Set(
-    visceras.filter(v => selected.has(v.id)).map(v => v.registros_beneficio.codigo_cliente)
+    visceras.filter(v => selected.has(v.registro_id)).map(v => v.registros_beneficio.codigo_cliente)
   )]
   const codigosSeleccionadosKey = codigosSeleccionados.join('|')
 
@@ -436,7 +464,7 @@ export default function Inventario() {
   useEffect(() => {
     if (despRuta !== RUTA_NACIONAL) return
     const codigos = despachoUnica
-      ? [despachoUnica.registros_beneficio.codigo_cliente]
+      ? [despachoUnica.rb.codigo_cliente]
       : codigosSeleccionadosKey.split('|').filter(c => c !== '')
     if (codigos.length === 0) return
     let vigente = true
@@ -447,48 +475,58 @@ export default function Inventario() {
     return () => { vigente = false }
   }, [despRuta, despachoUnica, codigosSeleccionadosKey, catalogoVersion])
 
+  // Animales visibles: la unidad de selección. Se deriva de gruposVisceras, que ya está
+  // filtrado por la búsqueda.
+  const animalesVisibles = gruposVisceras.map(g => g.registroId)
   const allVisibleSelected =
-    visibleVisceras.length > 0 && visibleVisceras.every(v => selected.has(v.id))
+    animalesVisibles.length > 0 && animalesVisibles.every(id => selected.has(id))
 
   function toggleAll() {
-    const visibleIds = visibleVisceras.map(v => v.id)
-    const allSelected = visibleIds.length > 0 && visibleIds.every(id => selected.has(id))
-    if (allSelected) {
-      setSelected(prev => {
-        const next = new Set(prev)
-        visibleIds.forEach(id => next.delete(id))
-        return next
-      })
-    } else {
-      setSelected(prev => {
-        const next = new Set(prev)
-        visibleIds.forEach(id => next.add(id))
-        return next
-      })
-    }
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (allVisibleSelected) animalesVisibles.forEach(id => next.delete(id))
+      else animalesVisibles.forEach(id => next.add(id))
+      return next
+    })
   }
 
-  async function handleEliminar(id: string) {
-    await supabase.from('inventario_visceras').delete().eq('id', id)
+  /**
+   * Borra TODAS las vísceras en inventario del animal.
+   *
+   * El filtro por estado es obligatorio: sin él se borrarían también las ya despachadas, y
+   * cada una de esas está referenciada por su fila en `despachos` (viscera_id), que quedaría
+   * huérfana y rompería el conteo de V/B y V/R de documentos ya emitidos.
+   */
+  async function handleEliminar(registroId: string) {
+    await supabase
+      .from('inventario_visceras')
+      .delete()
+      .eq('registro_id', registroId)
+      .eq('estado', 'en_inventario')
     setDeleteConfirm(null)
-    setSelected(prev => { const next = new Set(prev); next.delete(id); return next })
+    setSelected(prev => { const next = new Set(prev); next.delete(registroId); return next })
     fetchVisceras()
   }
 
   async function handleEliminarMultiple() {
     setDeleting(true)
-    const ids = Array.from(selected)
-    await supabase.from('inventario_visceras').delete().in('id', ids)
+    // Mismo criterio: solo lo que está en inventario, de los animales seleccionados.
+    await supabase
+      .from('inventario_visceras')
+      .delete()
+      .in('registro_id', Array.from(selected))
+      .eq('estado', 'en_inventario')
     setSelected(new Set())
     setShowDeleteModal(false)
     setDeleting(false)
     fetchVisceras()
   }
 
-  function toggleOne(id: string) {
+  /** Marca o desmarca un ANIMAL entero (registro_id). */
+  function toggleAnimal(registroId: string) {
     const next = new Set(selected)
-    if (next.has(id)) next.delete(id)
-    else next.add(id)
+    if (next.has(registroId)) next.delete(registroId)
+    else next.add(registroId)
     setSelected(next)
   }
 
@@ -506,6 +544,9 @@ export default function Inventario() {
   }
 
   const someSelected = selected.size > 0
+  // Cuántas vísceras salen realmente con lo seleccionado. La unidad de selección es el
+  // animal, pero este número es el que se despacha (2 por animal, o 1 en media pareja).
+  const visceraseleccionadas = visceras.filter(v => selected.has(v.registro_id)).length
 
   return (
     <div className="space-y-8 overflow-x-hidden touch-pan-y">
@@ -517,8 +558,8 @@ export default function Inventario() {
             <p className="text-sm text-gray-600 mb-6">
               ¿Estás seguro de eliminar{' '}
               <span className="font-semibold text-gray-900">
-                {selected.size} {selected.size === 1 ? 'víscera' : 'vísceras'}
-              </span>? Esta acción no se puede deshacer.
+                {selected.size} {selected.size === 1 ? 'animal' : 'animales'}
+              </span> y sus vísceras en inventario? Esta acción no se puede deshacer.
             </p>
             <div className="flex gap-3 justify-end">
               <button
@@ -547,8 +588,9 @@ export default function Inventario() {
             <p className="text-sm text-gray-600 mb-4">
               ¿Estás seguro de despachar{' '}
               <span className="font-semibold text-gray-900">
-                {selected.size} {selected.size === 1 ? 'víscera' : 'vísceras'}
-              </span>?
+                {selected.size} {selected.size === 1 ? 'animal' : 'animales'}
+              </span>
+              {visceraseleccionadas > 0 && ` (${visceraseleccionadas} ${visceraseleccionadas === 1 ? 'víscera' : 'vísceras'})`}?
             </p>
             <RutaFields
               ruta={despRuta}
@@ -593,11 +635,13 @@ export default function Inventario() {
       {despachoUnica && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 animate-fadeIn">
           <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 animate-scaleIn">
-            <h3 className="text-base font-bold text-gray-900 mb-2">Despachar víscera</h3>
+            <h3 className="text-base font-bold text-gray-900 mb-2">
+              {despachoUnica.visceras.length === 1 ? 'Despachar víscera' : 'Despachar vísceras'}
+            </h3>
             <p className="text-sm text-gray-600 mb-4">
               <span className="font-semibold text-gray-900">
-                {despachoUnica.registros_beneficio.codigo_cliente}-{despachoUnica.registros_beneficio.numero_animal}
-              </span>{' '}— {tipoBadge(despachoUnica.tipo).label}
+                {despachoUnica.rb.codigo_cliente}-{despachoUnica.rb.numero_animal}
+              </span>{' '}— {despachoUnica.visceras.map(v => tipoBadge(v.tipo).label).join(' + ')}
             </p>
             <RutaFields
               ruta={despRuta}
@@ -610,11 +654,11 @@ export default function Inventario() {
             />
             {despRuta === RUTA_NACIONAL && (
               <DireccionNacionalField
-                codigo={despachoUnica.registros_beneficio.codigo_cliente}
-                guardadas={direccionesGuardadas[despachoUnica.registros_beneficio.codigo_cliente] ?? []}
-                valor={despDireccionPorCodigo[despachoUnica.registros_beneficio.codigo_cliente] ?? ''}
+                codigo={despachoUnica.rb.codigo_cliente}
+                guardadas={direccionesGuardadas[despachoUnica.rb.codigo_cliente] ?? []}
+                valor={despDireccionPorCodigo[despachoUnica.rb.codigo_cliente] ?? ''}
                 onValor={v =>
-                  setDespDireccionPorCodigo(prev => ({ ...prev, [despachoUnica.registros_beneficio.codigo_cliente]: v }))
+                  setDespDireccionPorCodigo(prev => ({ ...prev, [despachoUnica.rb.codigo_cliente]: v }))
                 }
                 onCatalogoCambiado={() => setCatalogoVersion(v => v + 1)}
               />
@@ -747,7 +791,7 @@ export default function Inventario() {
         {someSelected && (
           <div className="mb-4 flex items-center justify-between bg-gray-900 text-white rounded-xl px-4 py-3 gap-3 animate-slideDown">
             <span className="text-sm font-semibold">
-              <span className="hidden sm:inline">{selected.size} {selected.size === 1 ? 'víscera seleccionada' : 'vísceras seleccionadas'}</span>
+              <span className="hidden sm:inline">{selected.size} {selected.size === 1 ? 'animal seleccionado' : 'animales seleccionados'}{visceraseleccionadas > 0 && ` (${visceraseleccionadas} ${visceraseleccionadas === 1 ? 'víscera' : 'vísceras'})`}</span>
               <span className="sm:hidden">{selected.size} sel.</span>
             </span>
             <div className="flex items-center gap-2">
@@ -755,14 +799,14 @@ export default function Inventario() {
                 onClick={() => setShowDeleteModal(true)}
                 className="text-sm font-bold text-red-400 hover:text-red-300 transition-all duration-200 whitespace-nowrap"
               >
-                <span className="hidden sm:inline">Eliminar {selected.size} seleccionadas</span>
+                <span className="hidden sm:inline">Eliminar {selected.size} {selected.size === 1 ? 'seleccionado' : 'seleccionados'}</span>
                 <span className="sm:hidden">Eliminar</span>
               </button>
               <button
                 onClick={() => { resetDespFields(); setShowModal(true) }}
                 className="bg-red-600 hover:bg-red-500 text-white text-sm font-bold rounded-lg px-3 sm:px-4 py-2 transition-all duration-200 active:scale-95 whitespace-nowrap"
               >
-                <span className="hidden sm:inline">Despachar {selected.size} seleccionadas</span>
+                <span className="hidden sm:inline">Despachar {selected.size} {selected.size === 1 ? 'seleccionado' : 'seleccionados'}</span>
                 <span className="sm:hidden">Despachar</span>
               </button>
             </div>
@@ -785,19 +829,19 @@ export default function Inventario() {
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Código animal</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Cliente</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Municipio</th>
-                {/* Cada víscera del animal va acá con su checkbox y sus acciones: la columna
-                    de acciones suelta desapareció, porque alinear sub-filas entre dos celdas
-                    distintas se rompe apenas cambia el alto de una. */}
+                {/* Solo indicador: qué vísceras tiene el animal en cava. Sin controles — se
+                    selecciona y se despacha el animal entero. */}
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Vísceras</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Estado</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Fecha de sacrificio</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Días en cava</th>
+                <th className="px-4 py-3" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {gruposVisceras.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-gray-400 text-sm">
+                  <td colSpan={9} className="px-4 py-10 text-center text-gray-400 text-sm">
                     {visceras.length === 0
                       ? 'No hay vísceras en inventario'
                       : 'Sin resultados para la búsqueda'}
@@ -805,34 +849,22 @@ export default function Inventario() {
                 </tr>
               ) : (
                 gruposVisceras.map((g, i) => {
-                  const ids = g.visceras.map(v => v.id)
-                  const todasMarcadas = ids.every(id => selected.has(id))
-                  const algunaMarcada = ids.some(id => selected.has(id))
+                  const isSelected = selected.has(g.registroId)
                   const fecha = g.rb.fecha_beneficio + 'T00:00:00'
                   const dias = diasEnCava(fecha)
                   return (
                     <tr
                       key={g.registroId}
                       className={`transition-colors duration-150 hover:bg-blue-50 ${
-                        algunaMarcada ? 'bg-blue-50' : i % 2 === 1 ? 'bg-gray-50' : 'bg-white'
+                        isSelected ? 'bg-blue-50' : i % 2 === 1 ? 'bg-gray-50' : 'bg-white'
                       }`}
                     >
-                      {/* Checkbox del ANIMAL: marca o desmarca sus vísceras de una. El detalle
-                          por víscera sigue estando abajo, en la columna Vísceras. */}
+                      {/* UNA checkbox por fila: la unidad es el ANIMAL. */}
                       <td className="px-4 py-3">
                         <input
                           type="checkbox"
-                          checked={todasMarcadas}
-                          ref={el => { if (el) el.indeterminate = algunaMarcada && !todasMarcadas }}
-                          onChange={() =>
-                            setSelected(prev => {
-                              const next = new Set(prev)
-                              if (todasMarcadas) ids.forEach(id => next.delete(id))
-                              else ids.forEach(id => next.add(id))
-                              return next
-                            })
-                          }
-                          title="Seleccionar las vísceras de este animal"
+                          checked={isSelected}
+                          onChange={() => toggleAnimal(g.registroId)}
                           className="w-4 h-4 rounded accent-gray-900 cursor-pointer"
                         />
                       </td>
@@ -840,58 +872,17 @@ export default function Inventario() {
                         {g.rb.codigo_cliente}-{g.rb.numero_animal}
                       </td>
                       <CeldasCliente codigo={g.rb.codigo_cliente} info={clientesMap[g.rb.codigo_cliente]} onEditar={setModalCodigo} />
-                      {/* Una línea por víscera. Cada una conserva su checkbox y sus acciones:
-                          `selected` sigue siendo un Set de ids de VÍSCERA y handleDespachar /
-                          handleEliminar siguen recibiendo la víscera suelta, así que se puede
-                          mandar solo la roja (que es lo que pasa en un adelanto). */}
+                      {/* Indicador puro: qué tiene el animal en cava. En media pareja se ve un
+                          solo badge, que ya dice todo — no hace falta marcar la que falta. */}
                       <td className="px-4 py-3">
-                        <div className="space-y-1.5">
+                        <div className="flex flex-wrap items-center gap-1.5">
                           {g.visceras.map(v => (
-                            <div key={v.id} className="flex items-center gap-2">
-                              <input
-                                type="checkbox"
-                                checked={selected.has(v.id)}
-                                onChange={() => toggleOne(v.id)}
-                                className="w-4 h-4 rounded accent-gray-900 cursor-pointer shrink-0"
-                              />
-                              <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 shrink-0 ${tipoBadge(v.tipo).cls}`}>
-                                {tipoBadge(v.tipo).label}
-                              </span>
-                              {deleteConfirm === v.id ? (
-                                <>
-                                  <span className="text-xs text-gray-500 whitespace-nowrap">¿Eliminar?</span>
-                                  <button
-                                    onClick={() => handleEliminar(v.id)}
-                                    className="text-xs font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg px-2.5 py-1 transition-all duration-200 active:scale-95"
-                                  >
-                                    Sí
-                                  </button>
-                                  <button
-                                    onClick={() => setDeleteConfirm(null)}
-                                    className="text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg px-2.5 py-1 transition-all duration-200"
-                                  >
-                                    No
-                                  </button>
-                                </>
-                              ) : (
-                                <>
-                                  <button
-                                    onClick={() => handleDespachar(v)}
-                                    className="flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-2 py-1 transition-all duration-200 active:scale-95 whitespace-nowrap"
-                                  >
-                                    <Truck size={12} />
-                                    <span className="hidden sm:inline">Despachar</span>
-                                  </button>
-                                  <button
-                                    onClick={() => setDeleteConfirm(v.id)}
-                                    className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200 active:scale-95"
-                                    title="Eliminar"
-                                  >
-                                    <Trash2 size={13} />
-                                  </button>
-                                </>
-                              )}
-                            </div>
+                            <span
+                              key={v.id}
+                              className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${tipoBadge(v.tipo).cls}`}
+                            >
+                              {tipoBadge(v.tipo).label}
+                            </span>
                           ))}
                         </div>
                       </td>
@@ -905,6 +896,47 @@ export default function Inventario() {
                         <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${diasBadge(dias)} ${dias >= 5 ? 'animate-pulse' : ''}`}>
                           {dias} {dias === 1 ? 'día' : 'días'}
                         </span>
+                      </td>
+                      {/* Acciones del ANIMAL: las dos operan sobre todas sus vísceras. */}
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-2">
+                          {deleteConfirm === g.registroId ? (
+                            <>
+                              <span className="text-xs text-gray-500 whitespace-nowrap">
+                                ¿Eliminar {g.visceras.length === 1 ? 'la víscera' : `las ${g.visceras.length}`}?
+                              </span>
+                              <button
+                                onClick={() => handleEliminar(g.registroId)}
+                                className="text-xs font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg px-2.5 py-1.5 transition-all duration-200 active:scale-95"
+                              >
+                                Sí
+                              </button>
+                              <button
+                                onClick={() => setDeleteConfirm(null)}
+                                className="text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg px-2.5 py-1.5 transition-all duration-200"
+                              >
+                                No
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => setDeleteConfirm(g.registroId)}
+                                className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200 hover:scale-105 active:scale-95"
+                                title="Eliminar"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                              <button
+                                onClick={() => handleDespachar(g)}
+                                className="flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-2 sm:px-3 py-1.5 transition-all duration-200 hover:scale-105 active:scale-95"
+                              >
+                                <Truck size={12} />
+                                <span className="hidden sm:inline">Despachar</span>
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )
