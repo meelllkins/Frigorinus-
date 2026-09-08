@@ -86,6 +86,16 @@ function tipoBadge(tipo: 'roja' | 'blanca' | null): { label: string; cls: string
   return { label: 'Sin tipo', cls: 'bg-gray-100 text-gray-400' }
 }
 
+/** Orden natural: numérico cuando los dos son números ("2" antes que "10"), si no alfabético. */
+function compararNatural(a: string, b: string): number {
+  const na = Number(a), nb = Number(b)
+  if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) return na - nb
+  return a.localeCompare(b, 'es', { numeric: true, sensitivity: 'base' })
+}
+
+/** Orden de los badges dentro de un animal: primero roja, después blanca, al final sin tipo. */
+const ORDEN_TIPO: Record<string, number> = { roja: 0, blanca: 1 }
+
 function getInitialRegForm() {
   return { codigo_cliente: '', numero_animal: '', fecha_beneficio: localTodayStr() }
 }
@@ -375,6 +385,36 @@ export default function Inventario() {
   const visibleVisceras = visceras.filter(v =>
     !q || `${v.registros_beneficio.codigo_cliente}-${v.registros_beneficio.numero_animal}`.toLowerCase().includes(q)
   )
+
+  // UNA fila por ANIMAL. Se agrupa DESPUÉS del filtro a propósito: la búsqueda compara
+  // `codigo-numero`, que es el animal entero, así que un animal entra o sale completo y el
+  // filtro nunca deja media pareja.
+  //
+  // La clave es `registro_id` y no `codigo_cliente`: dos animales distintos del mismo cliente
+  // comparten código, y agrupar por el texto los fusionaría en una sola fila.
+  const gruposVisceras = (() => {
+    const porRegistro = new Map<string, VisceraCon[]>()
+    for (const v of visibleVisceras) {
+      const lista = porRegistro.get(v.registro_id)
+      if (lista) lista.push(v)
+      else porRegistro.set(v.registro_id, [v])
+    }
+    return [...porRegistro.entries()]
+      .map(([registroId, lista]) => ({
+        registroId,
+        rb: lista[0].registros_beneficio,
+        visceras: [...lista].sort(
+          (a, b) => (ORDEN_TIPO[a.tipo ?? ''] ?? 9) - (ORDEN_TIPO[b.tipo ?? ''] ?? 9)
+        ),
+      }))
+      // Por código y número de animal, NO por created_at: con el orden viejo las dos vísceras
+      // de un animal quedaban juntas solo por haberse creado en el mismo instante.
+      .sort(
+        (a, b) =>
+          compararNatural(a.rb.codigo_cliente, b.rb.codigo_cliente) ||
+          compararNatural(a.rb.numero_animal, b.rb.numero_animal)
+      )
+  })()
 
   const codigosConVisceras = [...new Set(visceras.map(v => v.registros_beneficio.codigo_cliente))].sort((a, b) => {
     const na = Number(a), nb = Number(b)
@@ -745,97 +785,126 @@ export default function Inventario() {
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Código animal</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Cliente</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Municipio</th>
-                <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Tipo</th>
+                {/* Cada víscera del animal va acá con su checkbox y sus acciones: la columna
+                    de acciones suelta desapareció, porque alinear sub-filas entre dos celdas
+                    distintas se rompe apenas cambia el alto de una. */}
+                <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Vísceras</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Estado</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Fecha de sacrificio</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Días en cava</th>
-                <th className="px-4 py-3" />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {visibleVisceras.length === 0 ? (
+              {gruposVisceras.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-gray-400 text-sm">
+                  <td colSpan={8} className="px-4 py-10 text-center text-gray-400 text-sm">
                     {visceras.length === 0
                       ? 'No hay vísceras en inventario'
                       : 'Sin resultados para la búsqueda'}
                   </td>
                 </tr>
               ) : (
-                visibleVisceras.map((v, i) => {
-                  const isSelected = selected.has(v.id)
+                gruposVisceras.map((g, i) => {
+                  const ids = g.visceras.map(v => v.id)
+                  const todasMarcadas = ids.every(id => selected.has(id))
+                  const algunaMarcada = ids.some(id => selected.has(id))
+                  const fecha = g.rb.fecha_beneficio + 'T00:00:00'
+                  const dias = diasEnCava(fecha)
                   return (
                     <tr
-                      key={v.id}
+                      key={g.registroId}
                       className={`transition-colors duration-150 hover:bg-blue-50 ${
-                        isSelected ? 'bg-blue-50' : i % 2 === 1 ? 'bg-gray-50' : 'bg-white'
+                        algunaMarcada ? 'bg-blue-50' : i % 2 === 1 ? 'bg-gray-50' : 'bg-white'
                       }`}
                     >
+                      {/* Checkbox del ANIMAL: marca o desmarca sus vísceras de una. El detalle
+                          por víscera sigue estando abajo, en la columna Vísceras. */}
                       <td className="px-4 py-3">
                         <input
                           type="checkbox"
-                          checked={isSelected}
-                          onChange={() => toggleOne(v.id)}
+                          checked={todasMarcadas}
+                          ref={el => { if (el) el.indeterminate = algunaMarcada && !todasMarcadas }}
+                          onChange={() =>
+                            setSelected(prev => {
+                              const next = new Set(prev)
+                              if (todasMarcadas) ids.forEach(id => next.delete(id))
+                              else ids.forEach(id => next.add(id))
+                              return next
+                            })
+                          }
+                          title="Seleccionar las vísceras de este animal"
                           className="w-4 h-4 rounded accent-gray-900 cursor-pointer"
                         />
                       </td>
                       <td className="px-4 py-3 font-mono font-semibold text-gray-900">
-                        {v.registros_beneficio.codigo_cliente}-{v.registros_beneficio.numero_animal}
+                        {g.rb.codigo_cliente}-{g.rb.numero_animal}
                       </td>
-                      <CeldasCliente codigo={v.registros_beneficio.codigo_cliente} info={clientesMap[v.registros_beneficio.codigo_cliente]} onEditar={setModalCodigo} />
+                      <CeldasCliente codigo={g.rb.codigo_cliente} info={clientesMap[g.rb.codigo_cliente]} onEditar={setModalCodigo} />
+                      {/* Una línea por víscera. Cada una conserva su checkbox y sus acciones:
+                          `selected` sigue siendo un Set de ids de VÍSCERA y handleDespachar /
+                          handleEliminar siguen recibiendo la víscera suelta, así que se puede
+                          mandar solo la roja (que es lo que pasa en un adelanto). */}
                       <td className="px-4 py-3">
-                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${tipoBadge(v.tipo).cls}`}>
-                          {tipoBadge(v.tipo).label}
-                        </span>
+                        <div className="space-y-1.5">
+                          {g.visceras.map(v => (
+                            <div key={v.id} className="flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={selected.has(v.id)}
+                                onChange={() => toggleOne(v.id)}
+                                className="w-4 h-4 rounded accent-gray-900 cursor-pointer shrink-0"
+                              />
+                              <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 shrink-0 ${tipoBadge(v.tipo).cls}`}>
+                                {tipoBadge(v.tipo).label}
+                              </span>
+                              {deleteConfirm === v.id ? (
+                                <>
+                                  <span className="text-xs text-gray-500 whitespace-nowrap">¿Eliminar?</span>
+                                  <button
+                                    onClick={() => handleEliminar(v.id)}
+                                    className="text-xs font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg px-2.5 py-1 transition-all duration-200 active:scale-95"
+                                  >
+                                    Sí
+                                  </button>
+                                  <button
+                                    onClick={() => setDeleteConfirm(null)}
+                                    className="text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg px-2.5 py-1 transition-all duration-200"
+                                  >
+                                    No
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={() => handleDespachar(v)}
+                                    className="flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-2 py-1 transition-all duration-200 active:scale-95 whitespace-nowrap"
+                                  >
+                                    <Truck size={12} />
+                                    <span className="hidden sm:inline">Despachar</span>
+                                  </button>
+                                  <button
+                                    onClick={() => setDeleteConfirm(v.id)}
+                                    className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200 active:scale-95"
+                                    title="Eliminar"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          ))}
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 bg-blue-100 text-blue-700">
                           En inventario
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-gray-700">{formatFecha(new Date(v.registros_beneficio.fecha_beneficio + 'T00:00:00'))}</td>
+                      <td className="px-4 py-3 text-gray-700">{formatFecha(new Date(fecha))}</td>
                       <td className="px-4 py-3">
-                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${diasBadge(diasEnCava(v.registros_beneficio.fecha_beneficio + 'T00:00:00'))} ${diasEnCava(v.registros_beneficio.fecha_beneficio + 'T00:00:00') >= 5 ? 'animate-pulse' : ''}`}>
-                          {diasEnCava(v.registros_beneficio.fecha_beneficio + 'T00:00:00')} {diasEnCava(v.registros_beneficio.fecha_beneficio + 'T00:00:00') === 1 ? 'día' : 'días'}
+                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${diasBadge(dias)} ${dias >= 5 ? 'animate-pulse' : ''}`}>
+                          {dias} {dias === 1 ? 'día' : 'días'}
                         </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-end gap-2">
-                          {deleteConfirm === v.id ? (
-                            <>
-                              <span className="text-xs text-gray-500">¿Eliminar?</span>
-                              <button
-                                onClick={() => handleEliminar(v.id)}
-                                className="text-xs font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg px-2.5 py-1.5 transition-all duration-200 active:scale-95"
-                              >
-                                Sí
-                              </button>
-                              <button
-                                onClick={() => setDeleteConfirm(null)}
-                                className="text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg px-2.5 py-1.5 transition-all duration-200"
-                              >
-                                No
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <button
-                                onClick={() => setDeleteConfirm(v.id)}
-                                className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200 hover:scale-105 active:scale-95"
-                                title="Eliminar"
-                              >
-                                <Trash2 size={13} />
-                              </button>
-                              <button
-                                onClick={() => handleDespachar(v)}
-                                className="flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-2 sm:px-3 py-1.5 transition-all duration-200 hover:scale-105 active:scale-95"
-                              >
-                                <Truck size={12} />
-                                <span className="hidden sm:inline">Despachar</span>
-                              </button>
-                            </>
-                          )}
-                        </div>
                       </td>
                     </tr>
                   )
