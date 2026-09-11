@@ -236,11 +236,17 @@ function armarLineas(trozos: TrozoPdf[], pagina: number): Linea[] {
 
 // ── Reglas del cuadro ────────────────────────────────────────────────────────
 /**
- * `258-07`, `17-01`, `520-03`, `134-005`, `809-005`. 2 o 3 dígitos por lado: el ERP usa códigos
- * NNN-NNN legítimos que conviven con los NN-NN en la misma jornada (`809-005` y `809-05` son
- * animales distintos). El id interno (`2608029608`) no matchea: no tiene `-`.
+ * `1-09`, `258-07`, `17-01`, `520-03`, `134-005`, `809-005`.
+ *
+ * 1 a 3 dígitos ANTES del guion y 2 a 3 DESPUÉS. Los de un solo dígito son códigos de
+ * cliente reales: el informe del 11 SEP arranca con catorce renglones `1-NN` y con el
+ * mínimo en 2 caían todos al modal de "no se pudieron leer".
+ *
+ * Los NNN-NNN conviven con los NN-NN en la misma jornada (`809-005` y `809-05` son animales
+ * distintos), por eso el lado derecho admite las dos anchuras. El id interno del ERP
+ * (`2608029608`) no matchea: no tiene `-`.
  */
-const RE_CODIGO_ALTERNO = /^(\d{2,3})-(\d{2,3})$/
+const RE_CODIGO_ALTERNO = /^(\d{1,3})-(\d{2,3})$/
 /** Mitad de un `Codigo Alterno` partido en dos líneas físicas. Ver SALTO_MEDIA_CELDA. */
 const RE_MITAD_CON_GUION = /^\d{2,3}-$/
 const RE_MITAD_DIGITOS = /^\d{2,3}$/
