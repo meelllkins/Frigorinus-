@@ -10,6 +10,7 @@ import Inventario from './pages/Inventario'
 import Despachos from './pages/Despachos'
 import Notas from './pages/Notas'
 import DocumentoRuta from './pages/DocumentoRuta'
+import Remisiones from './pages/Remisiones'
 
 function App() {
   const [session, setSession] = useState<Session | null>(null)
@@ -46,6 +47,7 @@ function App() {
         <Route path="despachos" element={<Despachos />} />
         <Route path="notas" element={<Notas />} />
         <Route path="documento" element={<DocumentoRuta />} />
+        <Route path="remisiones" element={<Remisiones />} />
       </Route>
     </Routes>
   )

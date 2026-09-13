@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { ClipboardList, AlertTriangle, Package, Truck, LogOut, Download, Trash2, NotebookPen, FileText } from 'lucide-react'
+import { ClipboardList, AlertTriangle, Package, Truck, LogOut, Download, Trash2, NotebookPen, FileText, FileSignature } from 'lucide-react'
 import logo from '../assets/logo.png'
 
 export default function Layout() {
@@ -173,6 +173,7 @@ export default function Layout() {
             { to: '/despachos', label: 'Despachos', icon: Truck },
             { to: '/notas', label: 'Notas', icon: NotebookPen },
             { to: '/documento', label: 'Documento de ruta', icon: FileText },
+            { to: '/remisiones', label: 'Remisiones', icon: FileSignature },
           ].map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
