@@ -111,26 +111,38 @@
     overflow: visible;
   }
 
-  /* Lo que dentro de la plantilla igual no va al papel: botones de acción,
-     "+ Agregar fila", la X de cerrar. */
+  /* Lo que no va al papel: el header y la nav de la app, el título y la lista
+     de remisiones, y dentro de la plantilla los botones de acción, el
+     "+ Agregar fila" y la X de cerrar.
+
+     Va con `display: none` y no con `visibility`: ocultar por visibilidad deja
+     el hueco: el header, la nav y la lista seguían reservando su alto y
+     empujaban la plantilla a media hoja y a una segunda página. Acá sí se puede
+     sacar del flujo porque son HERMANOS de la plantilla, no ancestros suyos:
+     los contenedores que le dan el ancho quedan intactos. */
   .no-imprimir {
     display: none !important;
   }
 
-  /* Los inputs se imprimen como texto: sin borde de control ni fondo gris. */
+  /* El <main> del Layout: su padding y su ancho máximo son de pantalla. En papel
+     el área útil ya la define @page y no hace falta acotarla otra vez. */
+  main {
+    padding: 0 !important;
+    max-width: none !important;
+  }
+
+  /* Los inputs se imprimen como texto: sin borde de control ni fondo gris. Se
+     les deja un respiro horizontal para que lo escrito no toque la raya de la
+     celda; vertical no, de eso se encarga el alto de renglón. */
   #remision-imprimible input {
     border: none !important;
     background: transparent !important;
-    padding: 0 !important;
+    padding: 0 0.15cm !important;
     color: #000 !important;
   }
 
   /* Una fila del cuadro nunca se parte entre hojas, y si la remisión pasa a una
      segunda página los encabezados de columna se repiten arriba. */
-  #remision-imprimible table {
-    page-break-inside: auto;
-  }
-
   #remision-imprimible tr {
     page-break-inside: avoid;
     break-inside: avoid;
@@ -146,6 +158,65 @@
     margin-top: 1.5rem;
     page-break-inside: avoid;
     break-inside: avoid;
+  }
+
+  /* ── Que llene la hoja ────────────────────────────────────────────────────
+     Las medidas van en cm y pt, no en vw/vh: en papel son medidas físicas y
+     dan el mismo resultado siempre, mientras que Chromium resuelve las
+     unidades de viewport contra la ventana de pantalla al imprimir y el
+     tamaño cambia según cómo esté la ventana. */
+
+  /* El scroll horizontal del cuadro es de pantalla chica; en papel estorba,
+     porque recortaría la tabla en vez de dejarla fluir. */
+  #remision-imprimible .overflow-x-auto {
+    overflow: visible !important;
+  }
+
+  #remision-imprimible table {
+    width: 100%;
+    min-width: 0;
+    page-break-inside: auto;
+  }
+
+  /* Los fondos grises del encabezado del cuadro y de la fila TOTAL son parte
+     del formulario, no decoración: sin esto el navegador los descarta. */
+  #remision-imprimible {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  /* Alto de renglón fijo: con las 5 filas base el cuadro ocupa ~6cm y el
+     conjunto llena la hoja de forma pareja, en vez de quedar apelmazado
+     arriba. Es también el alto que hace falta para escribir a mano encima. */
+  #remision-imprimible tbody td {
+    height: 1.2cm;
+  }
+
+  /* Tipografías en pt, que es la unidad del papel. */
+  #remision-imprimible th {
+    font-size: 9.5pt;
+  }
+
+  #remision-imprimible td,
+  #remision-imprimible input {
+    font-size: 11pt;
+  }
+
+  #remision-imprimible h2 {
+    font-size: 16pt;
+  }
+
+  /* El aviso al conductor dentro de la fila TOTAL: chico a propósito, es letra
+     de pie de formulario. */
+  #remision-imprimible td p {
+    font-size: 8pt;
+  }
+
+  /* El logo al mismo ancho que ocupa en pantalla (~3cm). No se agranda más:
+     el archivo es de 185px de ancho y estirarlo lo pixela. */
+  .logo-remision {
+    width: 3cm;
+    height: auto;
   }
 
   /* Carta HORIZONTAL: es como Rafa imprime el talonario. Chromium (donde corre

@@ -115,7 +115,10 @@ export default function Layout() {
         </div>
       )}
 
-      <header className="bg-gray-900 px-3 sm:px-6 py-4 flex items-center justify-between shadow-lg">
+      {/* `no-imprimir` en el header y la nav: al imprimir (hoy solo la remisión)
+          el cromo de la app no va al papel, y sobre todo no deja su alto en
+          blanco arriba de la hoja. */}
+      <header className="no-imprimir bg-gray-900 px-3 sm:px-6 py-4 flex items-center justify-between shadow-lg">
         <div className="flex items-center gap-3">
           {/* Mismo icono que la PWA: la marca sobre el azul del propio logo. */}
           <img
@@ -164,7 +167,7 @@ export default function Layout() {
         </div>
       </header>
 
-      <nav className="bg-white shadow-sm border-b border-gray-200 px-1 sm:px-6">
+      <nav className="no-imprimir bg-white shadow-sm border-b border-gray-200 px-1 sm:px-6">
         <div className="flex">
           {[
             { to: '/', label: 'Inventario Actual', icon: ClipboardList },

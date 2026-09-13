@@ -316,9 +316,14 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
       <div id="remision-imprimible" className="w-full max-w-4xl rounded-2xl bg-white p-6 shadow-xl animate-scaleIn">
         {/* ── Encabezado: logo + datos de la empresa ── */}
         <div className="relative mb-4 flex items-start gap-4">
-          {/* TODO: el logo va acá. El archivo todavía no está en public/; queda
-              el espacio reservado con la misma caja que va a ocupar. */}
-          <div className="h-20 w-28 shrink-0 rounded border border-dashed border-gray-300" aria-hidden="true" />
+          {/* El logo ya trae adentro "La Integración de la Cadena Cárnica": no
+              va como texto aparte. Ancho fijo y alto automático para que no se
+              deforme; `logo-remision` lo agranda un poco al imprimir. */}
+          <img
+            src="/logo-frigorinus.jpg"
+            alt="Frigorinus"
+            className="logo-remision h-auto w-28 shrink-0"
+          />
           <div className="flex-1 text-center text-[13px] leading-tight text-gray-800">
             <p className="font-bold">Frigorinus SAS.</p>
             <p>Nit.900909162-2</p>
@@ -585,7 +590,11 @@ export default function Remisiones() {
         ))}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* El título y la lista llevan `no-imprimir` porque al imprimir una
+          remisión seguían reservando su alto en blanco arriba de la hoja
+          (se ocultan con `visibility`, que no saca del flujo) y empujaban la
+          plantilla a media hoja y a una segunda página. */}
+      <div className="no-imprimir flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-xl font-bold text-gray-900">Remisiones</h2>
         <BotonAccion
           onClick={abrirNueva}
@@ -595,69 +604,71 @@ export default function Remisiones() {
         </BotonAccion>
       </div>
 
-      {lista === null ? (
-        <p className="text-sm text-gray-400">Cargando remisiones...</p>
-      ) : lista.length === 0 ? (
-        <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
-          <div className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
-            <FileSignature size={40} className="text-gray-300" />
-            <p className="text-sm font-semibold text-gray-600">No hay remisiones registradas</p>
-            <p className="max-w-sm text-sm text-gray-400">
-              Cada camión que sale lleva una. La primera pide el número de tu talonario; de ahí en
-              adelante la app lo asigna sola.
-            </p>
-            <BotonAccion
-              onClick={abrirNueva}
-              className="mt-3 rounded-lg bg-green-800 px-4 py-2 text-sm font-bold text-white hover:bg-green-700"
-            >
-              <Plus size={15} /> Crear la primera
-            </BotonAccion>
+      <div className="no-imprimir">
+        {lista === null ? (
+          <p className="text-sm text-gray-400">Cargando remisiones...</p>
+        ) : lista.length === 0 ? (
+          <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+            <div className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
+              <FileSignature size={40} className="text-gray-300" />
+              <p className="text-sm font-semibold text-gray-600">No hay remisiones registradas</p>
+              <p className="max-w-sm text-sm text-gray-400">
+                Cada camión que sale lleva una. La primera pide el número de tu talonario; de ahí en
+                adelante la app lo asigna sola.
+              </p>
+              <BotonAccion
+                onClick={abrirNueva}
+                className="mt-3 rounded-lg bg-green-800 px-4 py-2 text-sm font-bold text-white hover:bg-green-700"
+              >
+                <Plus size={15} /> Crear la primera
+              </BotonAccion>
+            </div>
           </div>
-        </div>
-      ) : (
-        <div className="w-full overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
-          <table className="w-full min-w-[720px] text-sm">
-            <thead>
-              <tr className="bg-gray-800 text-white">
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">N°</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Fecha</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Conductor</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Placa</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Filas</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {lista.map((r, i) => (
-                <tr key={r.id} className={i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}>
-                  <td className="px-4 py-3 font-mono font-bold text-gray-900">{r.numero}</td>
-                  <td className="px-4 py-3 text-gray-700">{r.fecha}</td>
-                  <td className="px-4 py-3 text-gray-700">{r.conductor || '—'}</td>
-                  <td className="px-4 py-3 text-gray-700">{r.placa || '—'}</td>
-                  <td className="px-4 py-3 text-gray-700">{conteos[r.id] ?? 0}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-2">
-                      <BotonAccion
-                        onClick={() => abrir(r.id)}
-                        className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-                      >
-                        {puedeEditarse(r.fecha) ? 'Editar' : 'Ver'}
-                      </BotonAccion>
-                      <BotonAccion
-                        onClick={() => imprimirDirecto(r.id)}
-                        title="Abre la remisión para imprimirla"
-                        className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-                      >
-                        <Printer size={13} />
-                      </BotonAccion>
-                    </div>
-                  </td>
+        ) : (
+          <div className="w-full overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead>
+                <tr className="bg-gray-800 text-white">
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">N°</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Fecha</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Conductor</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Placa</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Filas</th>
+                  <th className="px-4 py-3" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {lista.map((r, i) => (
+                  <tr key={r.id} className={i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}>
+                    <td className="px-4 py-3 font-mono font-bold text-gray-900">{r.numero}</td>
+                    <td className="px-4 py-3 text-gray-700">{r.fecha}</td>
+                    <td className="px-4 py-3 text-gray-700">{r.conductor || '—'}</td>
+                    <td className="px-4 py-3 text-gray-700">{r.placa || '—'}</td>
+                    <td className="px-4 py-3 text-gray-700">{conteos[r.id] ?? 0}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-2">
+                        <BotonAccion
+                          onClick={() => abrir(r.id)}
+                          className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                        >
+                          {puedeEditarse(r.fecha) ? 'Editar' : 'Ver'}
+                        </BotonAccion>
+                        <BotonAccion
+                          onClick={() => imprimirDirecto(r.id)}
+                          title="Abre la remisión para imprimirla"
+                          className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                        >
+                          <Printer size={13} />
+                        </BotonAccion>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {(creando || abierta) && (
         <ModalRemision
