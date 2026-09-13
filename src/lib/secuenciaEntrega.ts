@@ -1,6 +1,21 @@
-import * as XLSX from 'xlsx-js-style'
 import { supabase } from './supabase'
 import type { DocumentoDia, FilaDocumento, ResolverSecuencia } from './documentoRuta'
+
+import type * as XlsxTipos from 'xlsx-js-style'
+
+// La librería de planilla son ~400 kB que solo hacen falta al exportar. Se carga con
+// el mismo import() dinámico que usa sacrificioPdf.ts para pdfjs, y se guarda en este
+// binding de módulo para que los helpers de abajo la sigan usando como `XLSX.` sin
+// tener que pasarla de función en función.
+//
+// El `!` es porque TypeScript no puede ver que todos los helpers cuelgan de la función
+// de exportar, que es la que hace el await antes de llamarlos. Los tipos (WorkSheet,
+// WorkBook) vienen de `XlsxTipos`, que es un import de tipo y se borra al compilar.
+let XLSX!: typeof XlsxTipos
+
+async function cargarXLSX(): Promise<void> {
+  XLSX ??= await import('xlsx-js-style')
+}
 
 // ════════════════════════════════════════════════════════════════
 // Pieza G — SECUENCIA DE ENTREGA
@@ -308,8 +323,8 @@ export function nombreHojaValido(ruta: string): string {
 
 type Celda = { v: string | number; t: 's' | 'n'; s?: unknown }
 
-function hojaAWorksheet(h: HojaSecuencia): XLSX.WorkSheet {
-  const ws: XLSX.WorkSheet = {}
+function hojaAWorksheet(h: HojaSecuencia): XlsxTipos.WorkSheet {
+  const ws: XlsxTipos.WorkSheet = {}
   const bag = ws as Record<string, unknown>
   let maxR = 0
   const put = (r: number, c: number, celda: Celda) => {
@@ -362,7 +377,8 @@ function hojaAWorksheet(h: HojaSecuencia): XLSX.WorkSheet {
  * ordenado. El nombre del archivo usa la fecha de DESPACHO (la que se eligió en
  * pantalla), igual que el Documento de ruta.
  */
-export function exportarSecuenciaEntrega(sec: SecuenciaDia): void {
+export async function exportarSecuenciaEntrega(sec: SecuenciaDia): Promise<void> {
+  await cargarXLSX()
   const wb = XLSX.utils.book_new()
   for (const h of sec.hojas) {
     XLSX.utils.book_append_sheet(wb, hojaAWorksheet(h), nombreHojaValido(h.ruta))

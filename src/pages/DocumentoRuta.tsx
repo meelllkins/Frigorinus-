@@ -491,9 +491,9 @@ export default function DocumentoRuta() {
 
   // ── Exportar a Excel ───────────────────────────────────────────
   // Usa los datos manuales del ESTADO LOCAL (lo que Rafa ve, aunque no haya sacado el foco).
-  function exportar() {
+  async function exportar() {
     if (!doc) return
-    exportarDocumentoRuta(doc, new Map(Object.entries(manualLocal)))
+    await exportarDocumentoRuta(doc, new Map(Object.entries(manualLocal)))
   }
 
   // ── Render de una tabla de sección ─────────────────────────────

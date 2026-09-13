@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
 import { Undo2, Trash2, Archive, X, AlertTriangle } from 'lucide-react'
-import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { fetchClientesMap, type ClienteInfo } from '../lib/clientes'
 import CeldasCliente from '../components/CeldasCliente'
@@ -46,7 +45,11 @@ function localToday(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-function exportXLSX(filename: string, rows: string[][]): void {
+// La librería de planilla (~400 kB) se baja al apretar "Exportar", no al abrir la
+// app: es el mismo import() dinámico que usa sacrificioPdf.ts para pdfjs. El
+// navegador la cachea, así que a partir de la segunda exportación es instantánea.
+async function exportXLSX(filename: string, rows: string[][]): Promise<void> {
+  const XLSX = await import('xlsx')
   const ws = XLSX.utils.aoa_to_sheet(rows)
   ws['!cols'] = rows[0].map((_, ci) => ({
     wch: Math.max(...rows.map(r => (r[ci] ?? '').length))
@@ -327,7 +330,7 @@ export default function Despachos() {
     }
   }, [visiblesSeleccionados, todosVisiblesSeleccionados])
 
-  function exportCSV() {
+  async function exportCSV() {
     const today = localToday()
     const header = ['Código', 'Tipo de despacho', 'Fecha de sacrificio', 'Fecha de despacho']
     const data = visibleDespachos.map(d => [
@@ -336,10 +339,10 @@ export default function Despachos() {
       d.registros_beneficio.fecha_beneficio,
       d.fecha_despacho,
     ])
-    exportXLSX(`despachos-${today}.xlsx`, [header, ...data])
+    await exportXLSX(`despachos-${today}.xlsx`, [header, ...data])
   }
 
-  function exportArchivoXLSX() {
+  async function exportArchivoXLSX() {
     const today = localToday()
     const header = ['Código', 'Tipo de despacho', 'Fecha de sacrificio', 'Fecha de despacho', 'Archivado']
     const data = archivo.map(d => [
@@ -351,7 +354,7 @@ export default function Despachos() {
       d.fecha_despacho,
       d.archivado_at ? d.archivado_at.split('T')[0] : '—',
     ])
-    exportXLSX(`historial-despachos-${today}.xlsx`, [header, ...data])
+    await exportXLSX(`historial-despachos-${today}.xlsx`, [header, ...data])
   }
 
   return (

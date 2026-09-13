@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
 import { ChevronDown, Pencil, Trash2, Truck, Upload, X } from 'lucide-react'
-import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { fetchClientesMap, type ClienteInfo } from '../lib/clientes'
 import CeldasCliente from '../components/CeldasCliente'
@@ -74,7 +73,11 @@ function sortCodigos(codigos: string[]): string[] {
   })
 }
 
-function exportXLSX(filename: string, rows: string[][]): void {
+// La librería de planilla (~400 kB) se baja al apretar "Exportar", no al abrir la
+// app: es el mismo import() dinámico que usa sacrificioPdf.ts para pdfjs. El
+// navegador la cachea, así que a partir de la segunda exportación es instantánea.
+async function exportXLSX(filename: string, rows: string[][]): Promise<void> {
+  const XLSX = await import('xlsx')
   const ws = XLSX.utils.aoa_to_sheet(rows)
   ws['!cols'] = rows[0].map((_, ci) => ({
     wch: Math.max(...rows.map(r => (r[ci] ?? '').length))
@@ -521,7 +524,7 @@ export default function Beneficio() {
     setSelected(next)
   }
 
-  function exportCSV() {
+  async function exportCSV() {
     const today = localToday()
     const header = ['Código', 'Tipo', 'Fecha de sacrificio', 'Días en cava']
     const data = visibleRegistros.map(r => [
@@ -530,7 +533,7 @@ export default function Beneficio() {
       r.fecha_beneficio,
       String(diasEnCava(r.fecha_beneficio)),
     ])
-    exportXLSX(`inventario-${today}.xlsx`, [header, ...data])
+    await exportXLSX(`inventario-${today}.xlsx`, [header, ...data])
   }
 
   async function handleSubmit(e: React.FormEvent) {

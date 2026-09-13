@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx-js-style'
 import { claveBloque } from './documentoRuta'
 import type {
   DocumentoDia,
@@ -7,6 +6,22 @@ import type {
   FilaDocumento,
   DatosManuales,
 } from './documentoRuta'
+
+import type * as XlsxTipos from 'xlsx-js-style'
+
+// La librería de planilla son ~400 kB que solo hacen falta al exportar. Se carga con
+// el mismo import() dinámico que usa sacrificioPdf.ts para pdfjs, y se guarda en este
+// binding de módulo para que los helpers de abajo la sigan usando como `XLSX.` sin
+// tener que pasarla de función en función.
+//
+// El `!` es porque TypeScript no puede ver que todos los helpers cuelgan de la función
+// de exportar, que es la que hace el await antes de llamarlos. Los tipos (WorkSheet,
+// WorkBook) vienen de `XlsxTipos`, que es un import de tipo y se borra al compilar.
+let XLSX!: typeof XlsxTipos
+
+async function cargarXLSX(): Promise<void> {
+  XLSX ??= await import('xlsx-js-style')
+}
 
 // Exportación que imita la "alineación" real de Rafa: bloques de ruta lado a lado,
 // celdas combinadas, estilos y fórmulas SUM reales. Usa xlsx-js-style (fork de xlsx
@@ -124,8 +139,8 @@ class Hoja {
     if (c1 > c0) this.merges.push({ s: { r, c: c0 }, e: { r, c: c1 } })
   }
 
-  toSheet(cols: { wch: number }[]): XLSX.WorkSheet {
-    const ws: XLSX.WorkSheet = {}
+  toSheet(cols: { wch: number }[]): XlsxTipos.WorkSheet {
+    const ws: XlsxTipos.WorkSheet = {}
     const bag = ws as Record<string, unknown>
     for (const [addr, cell] of Object.entries(this.cells)) bag[addr] = cell
     ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: this.maxR, c: this.maxC } })
@@ -298,7 +313,7 @@ function hojaSinRuta(sinRuta: FilaDocumento[]): MatrizPlana {
 
 /** Escribe el documento de la fecha de entrega como la hoja del libro. */
 function agregarHojaDocumento(
-  wb: XLSX.WorkBook,
+  wb: XlsxTipos.WorkBook,
   doc: DocumentoDia,
   manualEnPantalla: Map<string, DatosManuales>
 ): void {
@@ -357,7 +372,8 @@ function agregarHojaDocumento(
  * `manualEnPantalla` = datos manuales del estado local de la pantalla (lo que Rafa ve,
  * aunque no haya sacado el foco de un campo), por clave de bloque (ver claveBloque).
  */
-export function exportarDocumentoRuta(doc: DocumentoDia, manualEnPantalla: Map<string, DatosManuales>): void {
+export async function exportarDocumentoRuta(doc: DocumentoDia, manualEnPantalla: Map<string, DatosManuales>): Promise<void> {
+  await cargarXLSX()
   const wb = XLSX.utils.book_new()
 
   agregarHojaDocumento(wb, doc, manualEnPantalla)

@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
 import { Truck, Trash2, PlusCircle } from 'lucide-react'
-import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { fetchClientesMap, type ClienteInfo } from '../lib/clientes'
 import CeldasCliente from '../components/CeldasCliente'
@@ -71,7 +70,11 @@ function formatFechaFilename(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-function exportXLSX(filename: string, rows: string[][]): void {
+// La librería de planilla (~400 kB) se baja al apretar "Exportar", no al abrir la
+// app: es el mismo import() dinámico que usa sacrificioPdf.ts para pdfjs. El
+// navegador la cachea, así que a partir de la segunda exportación es instantánea.
+async function exportXLSX(filename: string, rows: string[][]): Promise<void> {
+  const XLSX = await import('xlsx')
   const ws = XLSX.utils.aoa_to_sheet(rows)
   ws['!cols'] = rows[0].map((_, ci) => ({
     wch: Math.max(...rows.map(r => (r[ci] ?? '').length))
@@ -530,7 +533,7 @@ export default function Inventario() {
     setSelected(next)
   }
 
-  function exportCSV() {
+  async function exportCSV() {
     const today = formatFechaFilename(localToday())
     const header = ['Código animal', 'Tipo', 'Estado', 'Fecha de ingreso', 'Días en cava']
     const data = visibleVisceras.map(v => [
@@ -540,7 +543,7 @@ export default function Inventario() {
       formatFecha(parsearFechaLocal(v.created_at)),
       String(diasEnCava(v.created_at)),
     ])
-    exportXLSX(`inventario-visceras-${today}.xlsx`, [header, ...data])
+    await exportXLSX(`inventario-visceras-${today}.xlsx`, [header, ...data])
   }
 
   const someSelected = selected.size > 0

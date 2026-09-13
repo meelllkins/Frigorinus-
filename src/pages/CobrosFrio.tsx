@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import type { RegistroBeneficio } from '../types'
 
@@ -21,7 +20,11 @@ function localToday(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-function exportXLSX(filename: string, rows: string[][]): void {
+// La librería de planilla (~400 kB) se baja al apretar "Exportar", no al abrir la
+// app: es el mismo import() dinámico que usa sacrificioPdf.ts para pdfjs. El
+// navegador la cachea, así que a partir de la segunda exportación es instantánea.
+async function exportXLSX(filename: string, rows: string[][]): Promise<void> {
+  const XLSX = await import('xlsx')
   const ws = XLSX.utils.aoa_to_sheet(rows)
   ws['!cols'] = rows[0].map((_, ci) => ({
     wch: Math.max(...rows.map(r => (r[ci] ?? '').length))
@@ -62,7 +65,7 @@ export default function CobrosFrio() {
     return a.localeCompare(b)
   })
 
-  function exportCSV() {
+  async function exportCSV() {
     const today = localToday()
     const header = ['Código', 'Tipo', 'Fecha de sacrificio', 'Días en cava']
     const data = visibleRegistros.map(r => [
@@ -71,7 +74,7 @@ export default function CobrosFrio() {
       r.fecha_beneficio,
       String(diasEnCava(r.fecha_beneficio)),
     ])
-    exportXLSX(`cobros-frio-${today}.xlsx`, [header, ...data])
+    await exportXLSX(`cobros-frio-${today}.xlsx`, [header, ...data])
   }
 
   return (
