@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { KeyboardEvent as EventoTeclado, ReactNode } from 'react'
 import {
   AlertTriangle,
   CheckCircle,
@@ -93,6 +93,38 @@ function formatearTotal(n: number): string {
   if (!Number.isFinite(n) || n === 0) return ''
   const r = Math.round(n * 1000) / 1000
   return Number.isInteger(r) ? String(r) : String(r).replace('.', ',')
+}
+
+// ── Enter = pasar al campo siguiente ────────────────────────────────────────
+/**
+ * Se llena a mano, campo por campo, y con el talonario al lado: tabular entre
+ * seis columnas con el mouse es lo que hace lenta la carga. Enter avanza al
+ * input siguiente, que es como se llena una planilla.
+ *
+ * Va DELEGADO en el contenedor de la plantilla en vez de un handler por input:
+ * las filas del cuadro son variables (Rafa agrega las que necesite), así que
+ * mantener un ref por celda obligaría a un registro que se ensucia al agregar o
+ * quitar filas. El orden del DOM ya es el orden visual pedido —fecha, conductor,
+ * cédula, placa, y después el cuadro de izquierda a derecha y de arriba abajo—,
+ * así que alcanza con preguntarle al DOM cuál es el que sigue.
+ *
+ * Se saltean los `readonly` (el TOTAL de Und/Kg, que lo calcula la app) y los
+ * `disabled` (la remisión archivada, donde no hay nada que tipear).
+ */
+function enterAlSiguiente(e: EventoTeclado<HTMLDivElement>) {
+  if (e.key !== 'Enter') return
+  // Solo los inputs: sin esto el Enter sobre "Agregar fila" o "Guardar" también
+  // caería acá con su preventDefault y el botón dejaría de responder al teclado.
+  const actual = e.target
+  if (!(actual instanceof HTMLInputElement)) return
+
+  e.preventDefault()
+  const campos = Array.from(
+    e.currentTarget.querySelectorAll<HTMLInputElement>('input:not([readonly]):not([disabled])')
+  )
+  const i = campos.indexOf(actual)
+  // En el último no pasa nada: el foco se queda ahí y NO se agregan filas solas.
+  if (i >= 0 && i + 1 < campos.length) campos[i + 1].focus()
 }
 
 /** Lo que vuelve de la base: las mismas celdas pero nullable. */
@@ -359,7 +391,11 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
       className="overlay-remision fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 animate-fadeIn"
       onClick={e => { if (e.target === e.currentTarget) onCerrar() }}
     >
-      <div id="remision-imprimible" className="w-full max-w-4xl rounded-2xl bg-white p-6 shadow-xl animate-scaleIn">
+      <div
+        id="remision-imprimible"
+        onKeyDown={enterAlSiguiente}
+        className="w-full max-w-4xl rounded-2xl bg-white p-6 shadow-xl animate-scaleIn"
+      >
         {/* ── Encabezado: logo + datos de la empresa ──
                Grilla de tres columnas con la tercera del mismo ancho que el
                logo. Antes era un flex y los datos de la empresa, al ser

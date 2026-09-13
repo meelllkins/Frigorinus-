@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, Fragment, type ReactNode } from 'react'
+import { useState, useEffect, useCallback, useRef, Fragment, type KeyboardEvent as EventoTeclado, type ReactNode } from 'react'
 import { RefreshCw, AlertTriangle, ChevronDown, FileSpreadsheet, GripVertical } from 'lucide-react'
 import {
   DndContext,
@@ -231,6 +231,11 @@ export default function DocumentoRuta() {
   // Último fallo de guardado del encabezado. Antes se descartaba: el dato se veía en
   // pantalla (estado local) y desaparecía recién al volver, sin nada que lo explicara.
   const [errorGuardado, setErrorGuardado] = useState<string | null>(null)
+  // "Guardado ✓" del encabezado. El guardado es por debounce y sin botón: sin este
+  // aviso no hay forma de saber si lo que se tipeó llegó a la base. Solo se veía el
+  // fallo; el éxito era silencio, que es indistinguible de "todavía no salió".
+  const [guardadoOk, setGuardadoOk] = useState(false)
+  const avisoGuardadoRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Cuadrículas cuyo orden se está escribiendo (clave de sección). Es solo para el
   // cartelito "Guardando orden…": la UI NO se bloquea, así Rafa puede seguir
   // arrastrando mientras el anterior viaja a la base.
@@ -320,6 +325,17 @@ export default function DocumentoRuta() {
       if (!pendientesRef.current.has(clave)) sucioRef.current.delete(clave)
     }
     setErrorGuardado(fallas.length > 0 ? fallas.join(' · ') : null)
+
+    // Solo cuando salió TODO el lote: con una falla manda el cartel rojo, y decir
+    // "guardado" al lado sería mentira. El timer se reinicia en cada guardado para
+    // que tipear seguido no lo apague a mitad de camino.
+    // setGuardadoOk y el ref son estables, así que las deps de este useCallback
+    // siguen vacías y flushManual no se recrea en cada render.
+    if (fallas.length === 0) {
+      setGuardadoOk(true)
+      if (avisoGuardadoRef.current) clearTimeout(avisoGuardadoRef.current)
+      avisoGuardadoRef.current = setTimeout(() => setGuardadoOk(false), 3000)
+    }
   }, [])
 
   /** Agenda el guardado de un campo, acumulando por bloque: si varios campos del mismo
@@ -369,6 +385,26 @@ export default function DocumentoRuta() {
       void flushManual()
     }
   }, [flushManual])
+
+  /**
+   * Enter = pasar al campo siguiente del encabezado (Conductor → Auxiliar → Hora
+   * programada → Placa), y en el último se queda ahí.
+   *
+   * Va delegado en la grilla del bloque y NO en cada input a propósito: el
+   * encabezado se repite por ruta, y buscar "el input que sigue" en toda la
+   * pantalla saltaría del Placa de una ruta al Conductor de la siguiente. Acotado
+   * al contenedor, cada encabezado es su propio recorrido.
+   */
+  function enterAlSiguienteCampo(e: EventoTeclado<HTMLDivElement>) {
+    if (e.key !== 'Enter') return
+    const actual = e.target
+    if (!(actual instanceof HTMLInputElement)) return
+
+    e.preventDefault()
+    const campos = Array.from(e.currentTarget.querySelectorAll<HTMLInputElement>('input'))
+    const i = campos.indexOf(actual)
+    if (i >= 0 && i + 1 < campos.length) campos[i + 1].focus()
+  }
 
   function campoManual(b: BloqueRuta, campo: keyof DatosManuales, label: string) {
     return (
@@ -708,6 +744,18 @@ export default function DocumentoRuta() {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-xl font-bold text-gray-900">Documento de ruta</h2>
         <div className="flex items-center gap-2">
+          {/* Mismo cartelito que el de las notas de trabajo (ver Notas.tsx): un span
+              verde con transición de opacidad, sin caja ni icono. Acá además se apaga
+              solo a los 3 segundos, porque el guardado del encabezado es continuo y
+              dejarlo fijo haría dudar de si es de lo último que se escribió. */}
+          <span
+            aria-live="polite"
+            className={`text-sm font-medium text-green-700 transition-opacity duration-300 ${
+              guardadoOk ? 'opacity-100' : 'opacity-0'
+            }`}
+          >
+            Guardado ✓
+          </span>
           {/* Elige la fecha de ENTREGA, no la jornada: es lo que identifica al documento. */}
           <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Entrega</label>
           <input
@@ -800,7 +848,7 @@ export default function DocumentoRuta() {
                 <p className="text-sm text-gray-500 first-letter:uppercase">Entrega {fechaLarga(doc.fechaEntrega)}</p>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3" onKeyDown={enterAlSiguienteCampo}>
                 {campoManual(b, 'conductor', 'Conductor')}
                 {campoManual(b, 'auxiliar', 'Auxiliar')}
                 {campoManual(b, 'horaProgramada', 'Hora programada')}
