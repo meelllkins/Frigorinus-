@@ -125,8 +125,34 @@
     color: #000 !important;
   }
 
+  /* Una fila del cuadro nunca se parte entre hojas, y si la remisión pasa a una
+     segunda página los encabezados de columna se repiten arriba. */
+  #remision-imprimible table {
+    page-break-inside: auto;
+  }
+
+  #remision-imprimible tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  #remision-imprimible thead {
+    display: table-header-group;
+  }
+
+  /* Las firmas van pegadas al cuadro, no empujadas con el margen de pantalla:
+     con las 5 filas base todo entra en una sola hoja horizontal. */
+  #remision-imprimible .firmas-remision {
+    margin-top: 1.5rem;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Carta HORIZONTAL: es como Rafa imprime el talonario. Chromium (donde corre
+     la PWA) lo respeta y deja el diálogo ya en apaisado; Firefox históricamente
+     ignora `size`, y ahí hay que elegir horizontal a mano. */
   @page {
-    size: letter;
-    margin: 12mm;
+    size: letter landscape;
+    margin: 1cm;
   }
 }

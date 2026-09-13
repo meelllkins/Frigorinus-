@@ -23,6 +23,8 @@ export type Remision = {
   numero: number
   fecha: string // YYYY-MM-DD
   conductor: string | null
+  /** Cédula del conductor. TEXT: en el papel es un renglón a mano. */
+  cedula: string | null
   placa: string | null
   firma_responsable: string | null
   firma_conductor: string | null
@@ -69,6 +71,7 @@ export type RemisionEntrada = {
   numero: number | null
   fecha: string // YYYY-MM-DD
   conductor?: string | null
+  cedula?: string | null
   placa?: string | null
   firma_responsable?: string | null
   firma_conductor?: string | null
@@ -86,7 +89,7 @@ export type RemisionCompleta = { remision: Remision; filas: RemisionFila[] }
 export type ResultadoRemision = { ok: true } | { ok: false; mensaje: string }
 
 const COLS_ENCABEZADO =
-  'id, numero, fecha, conductor, placa, firma_responsable, firma_conductor, created_at'
+  'id, numero, fecha, conductor, cedula, placa, firma_responsable, firma_conductor, created_at'
 const COLS_FILA =
   'id, remision_id, orden, cliente, producto, und_kg, canastillas, destino, firma_recibido, es_total'
 
@@ -306,6 +309,7 @@ export async function crearRemision(
   const base = {
     fecha: datos.fecha,
     conductor: datos.conductor || null,
+    cedula: datos.cedula || null,
     placa: datos.placa || null,
     firma_responsable: datos.firma_responsable || null,
     firma_conductor: datos.firma_conductor || null,
@@ -418,6 +422,7 @@ export async function actualizarRemision(
     .update({
       fecha: datos.fecha,
       conductor: datos.conductor || null,
+      cedula: datos.cedula || null,
       placa: datos.placa || null,
       firma_responsable: datos.firma_responsable || null,
       firma_conductor: datos.firma_conductor || null,

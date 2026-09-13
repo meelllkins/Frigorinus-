@@ -217,6 +217,7 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
   )
   const [fecha, setFecha] = useState(existente?.remision.fecha ?? HOY())
   const [conductor, setConductor] = useState(existente?.remision.conductor ?? '')
+  const [cedula, setCedula] = useState(existente?.remision.cedula ?? '')
   const [placa, setPlaca] = useState(existente?.remision.placa ?? '')
   const [firmaResponsable, setFirmaResponsable] = useState(existente?.remision.firma_responsable ?? '')
   const [firmaConductor, setFirmaConductor] = useState(existente?.remision.firma_conductor ?? '')
@@ -261,6 +262,7 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
       const r = await actualizarRemision(existente.remision.id, {
         fecha,
         conductor,
+        cedula,
         placa,
         firma_responsable: firmaResponsable,
         firma_conductor: firmaConductor,
@@ -286,6 +288,7 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
       numero,
       fecha,
       conductor,
+      cedula,
       placa,
       firma_responsable: firmaResponsable,
       firma_conductor: firmaConductor,
@@ -356,20 +359,27 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
           </div>
         </div>
 
-        {/* ── Fecha / conductor / placa ── */}
-        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <label className="block">
+        {/* ── Encabezado, en dos filas como el papel: la fecha sola arriba, y
+               debajo conductor / cédula / placa. ── */}
+        <div className="mb-4 space-y-3">
+          <label className="block sm:max-w-[12rem]">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Fecha</span>
             <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} disabled={!editable} className={inputCampo} />
           </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Conductor</span>
-            <input type="text" value={conductor} onChange={e => setConductor(e.target.value)} disabled={!editable} className={inputCampo} />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Placa vehículo</span>
-            <input type="text" value={placa} onChange={e => setPlaca(e.target.value)} disabled={!editable} className={inputCampo} />
-          </label>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <label className="block">
+              <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Conductor</span>
+              <input type="text" value={conductor} onChange={e => setConductor(e.target.value)} disabled={!editable} className={inputCampo} />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Cédula</span>
+              <input type="text" value={cedula} onChange={e => setCedula(e.target.value)} disabled={!editable} className={inputCampo} />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Placa vehículo</span>
+              <input type="text" value={placa} onChange={e => setPlaca(e.target.value)} disabled={!editable} className={inputCampo} />
+            </label>
+          </div>
         </div>
 
         {/* ── Cuadro ── */}
@@ -395,9 +405,16 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
                   ))}
                 </tr>
               ))}
+              {/* Pie del cuadro, calcado del papel: "TOTAL" abarca CLIENTE +
+                  PRODUCTO, después las dos celdas editables bajo Und/Kg y
+                  CANASTILLAS, y el aviso al conductor abarca DESTINO + FIRMA.
+                  Se combina con colSpan real y no con un grid encima: así las
+                  celdas las alinea el mismo motor de tabla que calcula los
+                  anchos de las filas de arriba, y siguen cuadrando al
+                  recalcularse el layout para el tamaño de la hoja al imprimir. */}
               <tr className="bg-gray-50 font-bold">
-                <td className={`${tdCls} px-2 py-1.5 text-sm`}>TOTAL</td>
-                {(['producto', 'und_kg', 'canastillas', 'destino', 'firma_recibido'] as const).map(campo => (
+                <td colSpan={2} className={`${tdCls} px-2 py-1.5 text-sm`}>TOTAL</td>
+                {(['und_kg', 'canastillas'] as const).map(campo => (
                   <td key={campo} className={tdCls}>
                     <input
                       type="text"
@@ -408,6 +425,12 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
                     />
                   </td>
                 ))}
+                <td colSpan={2} className={`${tdCls} px-2 py-1.5`}>
+                  <p className="text-[10px] font-normal leading-snug text-gray-700">
+                    Señor conductor verifique la entrega de los productos relacionados, con la
+                    firma de este soporte se recibe a entera satisfacción en cantidad y calidad.
+                  </p>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -423,13 +446,8 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
           </button>
         )}
 
-        <p className="mt-3 text-[11px] leading-snug text-gray-700">
-          Señor conductor verifique la entrega de los productos relacionados, con la firma de este
-          soporte se recibe a entera satisfacción en cantidad y calidad.
-        </p>
-
         {/* ── Firmas: se hacen sobre el papel impreso ── */}
-        <div className="mt-10 grid grid-cols-2 gap-10">
+        <div className="firmas-remision mt-10 grid grid-cols-2 gap-10">
           {([
             ['FIRMA RESPONSABLE PLANTA', firmaResponsable, setFirmaResponsable],
             ['FIRMA CONDUCTOR', firmaConductor, setFirmaConductor],
