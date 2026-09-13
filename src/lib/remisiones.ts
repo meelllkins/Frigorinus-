@@ -177,6 +177,38 @@ export async function listarRemisiones(
 }
 
 /**
+ * Cuántas filas de CLIENTE tiene cada remisión, por id. La fila TOTAL no cuenta:
+ * es el pie del cuadro, no un despacho.
+ *
+ * Existe para que la lista pueda mostrar ese número sin abrir cada remisión (una
+ * consulta para todas, no una por fila) y sin que la pantalla toque
+ * `remisiones_filas` por su cuenta — este módulo sigue siendo el único que habla
+ * con esas tablas.
+ *
+ * Si falla devuelve un mapa vacío: la lista muestra 0 y se sigue viendo. Nunca lanza.
+ */
+export async function contarFilasPorRemision(ids: string[]): Promise<Record<string, number>> {
+  if (ids.length === 0) return {}
+
+  const { data, error } = await supabase
+    .from('remisiones_filas')
+    .select('remision_id')
+    .in('remision_id', ids)
+    .eq('es_total', false)
+
+  if (error) {
+    console.error('[remisiones] Error contando filas:', error)
+    return {}
+  }
+
+  const conteo: Record<string, number> = {}
+  for (const f of (data ?? []) as { remision_id: string }[]) {
+    conteo[f.remision_id] = (conteo[f.remision_id] ?? 0) + 1
+  }
+  return conteo
+}
+
+/**
  * Una remisión con sus filas ordenadas por `orden`. null si no existe o si la
  * consulta falla; el log distingue los dos casos. Nunca lanza.
  *
