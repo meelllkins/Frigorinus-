@@ -63,6 +63,38 @@ const celdasVacias = (): Celdas => ({
   firma_recibido: '',
 })
 
+// ── Total de Und/Kg ─────────────────────────────────────────────────────────
+// Und/Kg es texto libre: Rafa escribe "4", "2 und" o "45,5" según le sirva. Para
+// sumar la columna se sacan los números del texto y se ignora el resto.
+//
+// La coma es el separador DECIMAL, que es como se escribe acá. El punto se acepta
+// como decimal también, porque es lo que sale de un teclado numérico. La contra es
+// que "1.500" se lee como 1,5 y no como mil quinientos: no hay forma de distinguir
+// los dos casos sin adivinar, y en una remisión las cantidades son chicas, así que
+// se prefiere que el decimal ande.
+const RE_NUMERO = /\d+(?:[.,]\d+)?/g
+
+/** Suma TODOS los números que aparezcan en el texto. Sin números da 0. */
+function sumarNumeros(texto: string): number {
+  let suma = 0
+  for (const m of texto.matchAll(RE_NUMERO)) suma += Number(m[0].replace(',', '.'))
+  return suma
+}
+
+/**
+ * Formatea el total para la celda: entero sin decimales (16, no 16,0) y decimal
+ * con coma. Vacío cuando no hay nada que sumar — un formulario en blanco impreso
+ * con un "0" en el TOTAL se ve mal y no dice nada.
+ *
+ * El redondeo a 3 decimales es contra el ruido del punto flotante: sin él,
+ * 45,5 + 45,6 puede terminar en 91,10000000000001.
+ */
+function formatearTotal(n: number): string {
+  if (!Number.isFinite(n) || n === 0) return ''
+  const r = Math.round(n * 1000) / 1000
+  return Number.isInteger(r) ? String(r) : String(r).replace('.', ',')
+}
+
 /** Lo que vuelve de la base: las mismas celdas pero nullable. */
 type CeldasDeBase = { [K in keyof Celdas]?: string | null }
 
@@ -253,10 +285,20 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
   const setCelda = (i: number, campo: keyof Celdas, valor: string) =>
     setFilas(prev => prev.map((f, j) => (j === i ? { ...f, [campo]: valor } : f)))
 
+  // El total de Und/Kg se DERIVA de las filas en pleno render: no es estado, no hay
+  // efecto que lo sincronice y no puede quedar desfasado de lo que se ve arriba. Por
+  // eso se recalcula solo con cada tecla, sin que Rafa confirme nada.
+  //
+  // Canastillas NO se suma: ahí Rafa escribe cosas como "V. Blancas 3 V. Rojas 3",
+  // que no son una cantidad.
+  const totalUndKg = formatearTotal(filas.reduce((acc, f) => acc + sumarNumeros(f.und_kg), 0))
+
   function aEntradas(): RemisionFilaEntrada[] {
     return [
       ...filas.map(f => ({ ...f, es_total: false })),
-      { ...total, es_total: true },
+      // El und_kg que se guarda es el calculado, no el que trajo la base: la celda
+      // ya no se escribe a mano, así que lo que vale es lo que suman las filas.
+      { ...total, und_kg: totalUndKg, es_total: true },
     ]
   }
 
@@ -429,25 +471,36 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
                 </tr>
               ))}
               {/* Pie del cuadro, calcado del papel: "TOTAL" abarca CLIENTE +
-                  PRODUCTO, después las dos celdas editables bajo Und/Kg y
-                  CANASTILLAS, y el aviso al conductor abarca DESTINO + FIRMA.
+                  PRODUCTO, después las celdas bajo Und/Kg y CANASTILLAS, y el
+                  aviso al conductor abarca DESTINO + FIRMA.
                   Se combina con colSpan real y no con un grid encima: así las
                   celdas las alinea el mismo motor de tabla que calcula los
                   anchos de las filas de arriba, y siguen cuadrando al
                   recalcularse el layout para el tamaño de la hoja al imprimir. */}
               <tr className="bg-gray-50 font-bold">
                 <td colSpan={2} className={`${tdCls} px-2 py-1.5 text-sm`}>TOTAL</td>
-                {(['und_kg', 'canastillas'] as const).map(campo => (
-                  <td key={campo} className={tdCls}>
-                    <input
-                      type="text"
-                      value={total[campo]}
-                      onChange={e => setTotal(prev => ({ ...prev, [campo]: e.target.value }))}
-                      disabled={!editable}
-                      className={`${inputCelda} font-bold`}
-                    />
-                  </td>
-                ))}
+                {/* Und/Kg: lo suma la app. `readOnly` y no `disabled` para que se
+                    imprima y se vea igual que las demás celdas —`disabled` la
+                    grisaría— y sin resaltado de foco, que ahí no significa nada. */}
+                <td className={tdCls}>
+                  <input
+                    type="text"
+                    value={totalUndKg}
+                    readOnly
+                    title="Lo suma la app con los Und/Kg de las filas de arriba."
+                    className="w-full border-0 bg-transparent px-1.5 py-1 text-sm font-bold focus:outline-none"
+                  />
+                </td>
+                {/* Canastillas: texto libre, a mano, como en el papel. */}
+                <td className={tdCls}>
+                  <input
+                    type="text"
+                    value={total.canastillas}
+                    onChange={e => setTotal(prev => ({ ...prev, canastillas: e.target.value }))}
+                    disabled={!editable}
+                    className={`${inputCelda} font-bold`}
+                  />
+                </td>
                 <td colSpan={2} className={`${tdCls} px-2 py-1.5`}>
                   <p className="text-[10px] font-normal leading-snug text-gray-800">
                     Señor conductor verifique la entrega de los productos relacionados, con la
