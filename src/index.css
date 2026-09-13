@@ -66,6 +66,26 @@
   animation: slideDown 200ms ease-out;
 }
 
+/* ── Tipografía del formato de remisión ────────────────────────────────────
+   FUERA del @media print a propósito: el formato tiene que verse igual en
+   pantalla que en el papel.
+
+   Los stacks son de fuentes que ya están en cualquier Windows o Mac: el equipo
+   de Rafa no instala nada, y si la primera no estuviera cae a la genérica del
+   final sin cambiar la maqueta. */
+#remision-imprimible {
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* El folio va en Courier Bold y no en Arial: el número de un talonario está
+   impreso con matriz, y el ancho fijo de la monoespaciada es lo que le da ese
+   aire. El rojo lo pone la clase de Tailwind en el componente. */
+.folio-remision {
+  font-family: 'Courier New', Courier, monospace;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
 /* ── Impresión de la remisión ──────────────────────────────────────────────
    Al imprimir tiene que salir SOLO la plantilla, sin el header, la nav, la
    lista ni los botones del modal.
@@ -212,11 +232,16 @@
     font-size: 8pt;
   }
 
-  /* El logo al mismo ancho que ocupa en pantalla (~3cm). No se agranda más:
-     el archivo es de 185px de ancho y estirarlo lo pixela. */
+  /* El logo. Ahora es de 900px de ancho recortado al contenido, así que a 4.5cm
+     impresos da ~500 dpi y sale nítido. */
   .logo-remision {
-    width: 3cm;
+    width: 4.5cm;
     height: auto;
+  }
+
+  /* El folio impreso, del tamaño de un número de talonario. */
+  #remision-imprimible .folio-remision {
+    font-size: 15pt;
   }
 
   /* Carta HORIZONTAL: es como Rafa imprime el talonario. Chromium (donde corre
