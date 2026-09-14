@@ -86,6 +86,14 @@
   letter-spacing: 0.06em;
 }
 
+/* La versión de solo lectura de la plantilla, paginada a mano para imprimir
+   (ver la nota grande en Remisiones.tsx sobre `.hoja-impresion`): no va en
+   pantalla, donde se ve y se llena la plantilla interactiva de arriba. Se
+   muestra únicamente dentro de @media print, más abajo. */
+.solo-impresion {
+  display: none;
+}
+
 /* ── Impresión de la remisión ──────────────────────────────────────────────
    Al imprimir tiene que salir SOLO la plantilla, sin el header, la nav, la
    lista ni los botones del modal.
@@ -131,6 +139,20 @@
     overflow: visible;
   }
 
+  /* El `<div class="min-h-screen">` de Layout.tsx envuelve TODA la app y
+     fuerza `min-height: 100vh` (una hoja completa) incluso al imprimir.
+     Header, nav y la lista de remisiones se ocultan con `.no-imprimir`
+     (display:none), pero ese alto mínimo del contenedor RAÍZ seguía
+     reservado por dentro, como sobrante en blanco después de la plantilla —
+     y ese sobrante era lo que arrastraba una segunda hoja vacía aunque la
+     remisión entrara sobrada en una sola. Confirmado armando la plantilla
+     real en Edge headless: con esto en 0, 5 filas imprimen en una sola hoja.
+     Va acá y no en Layout.tsx (fuera del alcance de este cambio) porque
+     alcanza con anular la clase solo durante la impresión. */
+  .min-h-screen {
+    min-height: 0 !important;
+  }
+
   /* Lo que no va al papel: el header y la nav de la app, el título y la lista
      de remisiones, y dentro de la plantilla los botones de acción, el
      "+ Agregar fila" y la X de cerrar.
@@ -161,22 +183,41 @@
     color: #000 !important;
   }
 
-  /* Una fila del cuadro nunca se parte entre hojas, y si la remisión pasa a una
-     segunda página los encabezados de columna se repiten arriba. */
+  /* Una fila del cuadro nunca se parte entre hojas. */
   #remision-imprimible tr {
     page-break-inside: avoid;
     break-inside: avoid;
   }
 
-  #remision-imprimible thead {
-    display: table-header-group;
+  /* ── Una hoja impresa por bloque de filas ────────────────────────────────
+     Probamos que un <thead>/<tfoot> que se repita solo en cada hoja (vía
+     `display: table-header-group`/`table-footer-group`) deja de funcionar en
+     Chromium cuando el grupo repetido supera ~4cm de alto: lo confirmamos
+     armando la plantilla real en Edge headless e imprimiéndola a PDF, y el
+     encabezado completo (logo + datos + título + campos) mide ~7,6cm — muy
+     por encima de ese límite. El navegador simplemente lo pinta una vez y
+     sigue de largo, sin avisar.
+
+     Por eso Remisiones.tsx arma cada `.hoja-impresion` A MANO: un bloque
+     completo e independiente por cada tanda de filas (encabezado entero +
+     filas + TOTAL + firmas), y acá solo hace falta forzar el salto de
+     página ENTRE bloques — el navegador ya no tiene que repetir nada solo. */
+  .solo-impresion {
+    display: block;
   }
 
-  /* El pie (TOTAL + aviso legal + firmas) vive en <tfoot>, junto al
-     encabezado en <thead>: son las dos etiquetas que el navegador repite
-     solo, en cada hoja, cuando la tabla no entra en una sola. */
-  #remision-imprimible tfoot {
-    display: table-footer-group;
+  .hoja-impresion {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    page-break-after: always;
+    break-after: page;
+  }
+
+  /* Sin esto, la última hoja deja una página en blanco después: el salto de
+     página de arriba es ENTRE bloques, no un cierre después del último. */
+  .hoja-impresion:last-child {
+    page-break-after: auto;
+    break-after: auto;
   }
 
   /* Las firmas van pegadas al cuadro, no empujadas con el margen de pantalla:
@@ -213,11 +254,17 @@
     -webkit-print-color-adjust: exact;
   }
 
-  /* Alto de renglón fijo: con las 5 filas base el cuadro ocupa ~6cm y el
-     conjunto llena la hoja de forma pareja, en vez de quedar apelmazado
-     arriba. Es también el alto que hace falta para escribir a mano encima. */
-  #remision-imprimible tbody td {
-    height: 1.2cm;
+  /* Alto de renglón: MÍNIMO y no fijo, para que una celda con texto largo
+     (p. ej. Canastillas envuelto en dos líneas) pueda crecer en vez de
+     recortarse — igual que en pantalla (ver CeldaFila en Remisiones.tsx).
+     1.2cm es también el alto que hace falta para escribir a mano encima. */
+  .hoja-impresion tbody td {
+    min-height: 1.2cm;
+  }
+
+  .celda-impresion {
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
   }
 
   /* Tipografías en pt, que es la unidad del papel. */
@@ -253,14 +300,12 @@
     font-size: 15pt;
   }
 
-  /* ── Que quepa en una sola hoja con pocas filas ──────────────────────────
-     Con 5 filas o menos, el cuadro (~7.2cm con las 5 filas + TOTAL a 1.2cm
-     cada una) más el encabezado y las firmas se pasaban por poco del alto
-     útil de la hoja: el sobrante — apenas un renglón — arrastraba una
-     segunda hoja casi en blanco porque las firmas no entraban al final de la
-     primera y `page-break-inside: avoid` las manda enteras a la siguiente.
-     Los `mb-5`/`gap-3` de Tailwind (pensados para pantalla) no se tocan
-     fuera de acá: en papel se acortan para ganar ese margen. */
+  /* ── Achicar el encabezado y el pie ───────────────────────────────────────
+     Cuanto más chico el encabezado+pie repetidos, más filas entran por hoja
+     antes de necesitar una hoja nueva (ver FILAS_POR_HOJA_IMPRESION en
+     Remisiones.tsx, calculado justo con estas medidas). Los `mb-5`/`gap-3`
+     de Tailwind (pensados para pantalla) no se tocan fuera de acá: en papel
+     se acortan para ganar ese margen. */
   #remision-imprimible .encabezado-logo-remision,
   #remision-imprimible .titulo-remision,
   #remision-imprimible .campos-remision {
@@ -277,9 +322,7 @@
 
   /* Carta HORIZONTAL: es como Rafa imprime el talonario. Chromium (donde corre
      la PWA) lo respeta y deja el diálogo ya en apaisado; Firefox históricamente
-     ignora `size`, y ahí hay que elegir horizontal a mano. El margen de hoja
-     baja de 1cm a 0.6cm por el mismo motivo que el resto de este bloque: dar
-     el aire que falta para que 5 filas o menos entren en una sola página. */
+     ignora `size`, y ahí hay que elegir horizontal a mano. */
   @page {
     size: letter landscape;
     margin: 0.6cm;

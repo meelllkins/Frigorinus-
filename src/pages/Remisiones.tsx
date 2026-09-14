@@ -44,6 +44,24 @@ const HOY = () => {
 
 const FILAS_INICIALES = 5
 
+// Cuántas filas de datos entran por hoja impresa junto con el encabezado y el
+// pie completos (ver la nota grande sobre `.hoja-impresion` más abajo, donde
+// se arma cada bloque). Calculado con las medidas reales en @media print:
+// hoja carta horizontal con margen 0.6cm da ~20.4cm útiles; el encabezado
+// completo mide ~7.6cm y el pie (TOTAL + firmas) ~3.3cm, sobran ~9.5cm — un
+// poco más de 6 filas a 1.2cm cada una. Se deja en 6 y no en el máximo
+// (7.9) para tener margen si alguna celda envuelve a dos líneas.
+const FILAS_POR_HOJA_IMPRESION = 6
+
+/** Parte un array en bloques de a lo sumo `porBloque` elementos, para armar
+ *  una hoja impresa por bloque. Nunca vacío: sin filas, igual hay que
+ *  imprimir una hoja con el encabezado y el pie. */
+function enBloques<T>(items: T[], porBloque: number): T[][] {
+  const bloques: T[][] = []
+  for (let i = 0; i < items.length; i += porBloque) bloques.push(items.slice(i, i + porBloque))
+  return bloques.length > 0 ? bloques : [[]]
+}
+
 /** Las seis celdas de una fila del cuadro. Todo texto libre, como en el papel. */
 interface Celdas {
   cliente: string
@@ -360,27 +378,6 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
     }
   }, [existente, onInfo])
 
-  // El alto de cada celda se calcula con el ancho y la tipografía de PANTALLA.
-  // Al imprimir, Chromium recalcula el layout con otro ancho de columna y otra
-  // tipografía (pt en vez de px), así que el alto guardado puede quedar corto
-  // y tapar texto, o largo de más. `beforeprint` corre justo antes de pintar
-  // la hoja: ahí se vuelve a medir cada celda contra el layout de impresión.
-  // `afterprint` la vuelve a medir contra el de pantalla al volver.
-  useEffect(() => {
-    function ajustarTodas() {
-      document.querySelectorAll<HTMLTextAreaElement>('#remision-imprimible textarea').forEach(el => {
-        el.style.height = 'auto'
-        el.style.height = `${el.scrollHeight}px`
-      })
-    }
-    window.addEventListener('beforeprint', ajustarTodas)
-    window.addEventListener('afterprint', ajustarTodas)
-    return () => {
-      window.removeEventListener('beforeprint', ajustarTodas)
-      window.removeEventListener('afterprint', ajustarTodas)
-    }
-  }, [])
-
   const setCelda = (i: number, campo: keyof Celdas, valor: string) =>
     setFilas(prev => prev.map((f, j) => (j === i ? { ...f, [campo]: valor } : f)))
 
@@ -391,6 +388,11 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
   // Canastillas NO se suma: ahí Rafa escribe cosas como "V. Blancas 3 V. Rojas 3",
   // que no son una cantidad.
   const totalUndKg = formatearTotal(filas.reduce((acc, f) => acc + sumarNumeros(f.und_kg), 0))
+
+  // Una hoja impresa por bloque de filas: ver la nota sobre `.hoja-impresion`
+  // más abajo, donde se explica por qué esto se arma a mano en vez de
+  // confiarle la repetición del encabezado/pie a thead/tfoot.
+  const bloquesImpresion = enBloques(filas, FILAS_POR_HOJA_IMPRESION)
 
   function aEntradas(): RemisionFilaEntrada[] {
     return [
@@ -453,6 +455,17 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
 
   const numeroMostrado = existente ? existente.remision.numero : numeroSugerido
 
+  // Folio de cada hoja impresa: la remisión guarda UN solo número (`numero`
+  // en la base), pero en papel cada hoja que Rafa arranca del talonario para
+  // una misma remisión larga es una hoja física distinta, con el siguiente
+  // número del talonario — no el mismo repetido. Por eso la hoja N (0 = la
+  // primera) imprime `folioBase + N`. Es solo para lo que se ve en el papel:
+  // no cambia el `numero` guardado ni lo que calcula proximoNumero() para la
+  // PRÓXIMA remisión, así que si esta remisión ocupa varias hojas, quien siga
+  // cargando datos debe tenerlo en cuenta al usar el talonario (el folio
+  // siguiente en la app puede coincidir con uno ya mostrado acá impreso).
+  const folioBaseImpresion = numeroEditable ? Number(numeroTexto) || null : numeroMostrado
+
   return (
     <div
       className="overlay-remision fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 animate-fadeIn"
@@ -463,204 +476,307 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
         onKeyDown={enterAlSiguiente}
         className="w-full max-w-4xl rounded-2xl bg-white p-6 shadow-xl animate-scaleIn"
       >
-        {editable && (
-          <button
-            type="button"
-            onClick={() => setFilas(prev => [...prev, celdasVacias()])}
-            className="no-imprimir mb-2 inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-          >
-            <Plus size={13} /> Agregar fila
-          </button>
-        )}
+        {/* ── Pantalla: la plantilla editable, tal cual la llena Rafa ──
+               No va al papel — `no-imprimir` oculta TODO este bloque al
+               imprimir. Lo impreso es el bloque `.solo-impresion` de más
+               abajo, armado aparte (ver la nota grande ahí) para poder
+               repetir encabezado y pie completos en cada hoja real. */}
+        <div className="no-imprimir">
+          {/* ── Encabezado: logo + datos de la empresa ──
+                 Grilla de tres columnas con la tercera del mismo ancho que el
+                 logo. Antes era un flex y los datos de la empresa, al ser
+                 `flex-1 text-center`, se centraban en el espacio QUE SOBRABA a
+                 la derecha del logo: quedaban corridos, y el título de abajo —
+                 centrado en el espacio que sobraba a la izquierda del N° —
+                 quedaba corrido para el otro lado. Con la columna espejo los
+                 dos bloques comparten el eje real de la hoja. */}
+          <div className="relative mb-5 grid grid-cols-1 items-center justify-items-center gap-3 sm:grid-cols-[9rem_1fr_9rem] sm:justify-items-stretch">
+            <img src="/logo-frigorinus.jpg" alt="Frigorinus" className="h-auto w-36" />
+            <div className="text-center text-[13px] leading-tight text-gray-800">
+              <p className="font-bold">Frigorinus SAS.</p>
+              <p>Nit.900909162-2</p>
+              <p>Cgto San José del Nus</p>
+              <p>Km 1 via Caracoli</p>
+              <p>Tel:(4)855 6045</p>
+              <p>info@frigorinus.com</p>
+            </div>
+            <div className="hidden sm:block" aria-hidden="true" />
+            <button
+              type="button"
+              onClick={onCerrar}
+              className="absolute right-0 top-0 rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+              aria-label="Cerrar"
+            >
+              <X size={18} />
+            </button>
+          </div>
 
-        {/* ── Cuadro ──
-               Encabezado (logo + datos + título + N° + fecha/conductor/cédula/
-               placa) y pie (TOTAL + aviso legal + firmas) viven DENTRO de esta
-               misma tabla, en <thead> y <tfoot>: son las dos etiquetas que el
-               navegador repite solo, en cada hoja, cuando la tabla no entra en
-               una — Chromium (donde corre la PWA) las respeta de forma nativa
-               al paginar. Antes eran <div> sueltos fuera de la tabla y no había
-               forma de que se repitieran sin duplicar los inputs (lo que
-               rompería el estado controlado y la navegación con Enter). */}
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] border-collapse">
-            <thead>
-              <tr>
-                <td colSpan={6} className="border-0 p-0 text-left align-top font-normal normal-case">
-                  {/* ── Encabezado: logo + datos de la empresa ──
-                         Grilla de tres columnas con la tercera del mismo ancho
-                         que el logo. Antes era un flex y los datos de la
-                         empresa, al ser `flex-1 text-center`, se centraban en
-                         el espacio QUE SOBRABA a la derecha del logo: quedaban
-                         corridos, y el título de abajo — centrado en el
-                         espacio que sobraba a la izquierda del N° — quedaba
-                         corrido para el otro lado. Con la columna espejo los
-                         dos bloques comparten el eje real de la hoja. */}
-                  <div className="encabezado-logo-remision relative mb-5 grid grid-cols-1 items-center justify-items-center gap-3 sm:grid-cols-[9rem_1fr_9rem] sm:justify-items-stretch">
-                    {/* El logo ya trae adentro "La Integración de la Cadena
-                        Cárnica": no va como texto aparte. Ancho fijo y alto
-                        automático para que no se deforme; `logo-remision` lo
-                        agranda al imprimir. */}
-                    <img
-                      src="/logo-frigorinus.jpg"
-                      alt="Frigorinus"
-                      className="logo-remision h-auto w-36"
-                    />
-                    <div className="text-center text-[13px] leading-tight text-gray-800">
-                      <p className="font-bold">Frigorinus SAS.</p>
-                      <p>Nit.900909162-2</p>
-                      <p>Cgto San José del Nus</p>
-                      <p>Km 1 via Caracoli</p>
-                      <p>Tel:(4)855 6045</p>
-                      <p>info@frigorinus.com</p>
-                    </div>
-                    <div className="hidden sm:block" aria-hidden="true" />
-                    <button
-                      type="button"
-                      onClick={onCerrar}
-                      className="no-imprimir absolute right-0 top-0 rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
-                      aria-label="Cerrar"
-                    >
-                      <X size={18} />
-                    </button>
-                  </div>
+          {/* ── Título + número ── (misma grilla espejada que el encabezado) */}
+          <div className="mb-5 grid grid-cols-1 items-center gap-2 sm:grid-cols-[9rem_1fr_9rem]">
+            <div className="hidden sm:block" aria-hidden="true" />
+            <h2 className="text-center text-xl font-bold tracking-wide text-gray-900">
+              REMISIÓN DE SALIDA DE DESPACHOS
+            </h2>
+            <div className="flex items-center justify-center gap-1.5 text-red-600 sm:justify-end">
+              <span className="text-lg font-bold">N°</span>
+              {numeroEditable ? (
+                <input
+                  type="number"
+                  min={1}
+                  value={numeroTexto}
+                  onChange={e => setNumeroTexto(e.target.value)}
+                  placeholder="folio"
+                  className="folio-remision w-24 rounded-lg border-2 border-red-300 px-2 py-1 text-lg text-red-600 focus:border-red-500 focus:outline-none"
+                />
+              ) : (
+                <span className="folio-remision text-lg">{numeroMostrado ?? '—'}</span>
+              )}
+            </div>
+          </div>
 
-                  {/* ── Título + número ── (misma grilla espejada que el encabezado) */}
-                  <div className="titulo-remision mb-5 grid grid-cols-1 items-center gap-2 sm:grid-cols-[9rem_1fr_9rem]">
-                    <div className="hidden sm:block" aria-hidden="true" />
-                    <h2 className="text-center text-xl font-bold tracking-wide text-gray-900">
-                      REMISIÓN DE SALIDA DE DESPACHOS
-                    </h2>
-                    <div className="flex items-center justify-center gap-1.5 text-red-600 sm:justify-end">
-                      <span className="text-lg font-bold">N°</span>
-                      {numeroEditable ? (
-                        <input
-                          type="number"
-                          min={1}
-                          value={numeroTexto}
-                          onChange={e => setNumeroTexto(e.target.value)}
-                          placeholder="folio"
-                          className="folio-remision w-24 rounded-lg border-2 border-red-300 px-2 py-1 text-lg text-red-600 focus:border-red-500 focus:outline-none"
-                        />
-                      ) : (
-                        <span className="folio-remision text-lg">{numeroMostrado ?? '—'}</span>
-                      )}
-                    </div>
-                  </div>
+          {/* ── Encabezado, en dos filas como el papel: la fecha sola arriba, y
+                 debajo conductor / cédula / placa.
 
-                  {/* ── Encabezado, en dos filas como el papel: la fecha sola
-                         arriba, y debajo conductor / cédula / placa.
+                 Es UNA sola grilla de tres columnas y no dos bloques apilados: la
+                 fecha tenía su propio `max-w-[12rem]`, que no coincidía con el
+                 tercio que mide Conductor, y el borde izquierdo de las dos filas
+                 no alineaba. Acá la fecha ocupa la primera celda y una celda
+                 muda tapa las otras dos. ── */}
+          <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">Fecha</span>
+              <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} disabled={!editable} className={inputCampo} />
+            </label>
+            <div className="hidden sm:col-span-2 sm:block" aria-hidden="true" />
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">Conductor</span>
+              <input type="text" value={conductor} onChange={e => setConductor(e.target.value)} disabled={!editable} className={inputCampo} />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">Cédula</span>
+              <input type="text" value={cedula} onChange={e => setCedula(e.target.value)} disabled={!editable} className={inputCampo} />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">Placa vehículo</span>
+              <input type="text" value={placa} onChange={e => setPlaca(e.target.value)} disabled={!editable} className={inputCampo} />
+            </label>
+          </div>
 
-                         Es UNA sola grilla de tres columnas y no dos bloques
-                         apilados: la fecha tenía su propio `max-w-[12rem]`,
-                         que no coincidía con el tercio que mide Conductor, y
-                         el borde izquierdo de las dos filas no alineaba. Acá
-                         la fecha ocupa la primera celda y una celda muda tapa
-                         las otras dos. ── */}
-                  <div className="campos-remision mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                    <label className="block">
-                      <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">Fecha</span>
-                      <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} disabled={!editable} className={inputCampo} />
-                    </label>
-                    <div className="hidden sm:col-span-2 sm:block" aria-hidden="true" />
-                    <label className="block">
-                      <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">Conductor</span>
-                      <input type="text" value={conductor} onChange={e => setConductor(e.target.value)} disabled={!editable} className={inputCampo} />
-                    </label>
-                    <label className="block">
-                      <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">Cédula</span>
-                      <input type="text" value={cedula} onChange={e => setCedula(e.target.value)} disabled={!editable} className={inputCampo} />
-                    </label>
-                    <label className="block">
-                      <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">Placa vehículo</span>
-                      <input type="text" value={placa} onChange={e => setPlaca(e.target.value)} disabled={!editable} className={inputCampo} />
-                    </label>
-                  </div>
-                </td>
-              </tr>
-              <tr className="bg-gray-100 text-gray-900">
-                <th className={thCls}>Cliente</th>
-                <th className={thCls}>Producto despachado</th>
-                <th className={thCls}>Und/Kg</th>
-                <th className={thCls}>Canastillas</th>
-                <th className={thCls}>Destino</th>
-                <th className={thCls}>Firma recibido cliente<br /><span className="font-normal normal-case">(A conformidad)</span></th>
-              </tr>
-            </thead>
-            <tbody>
-              {filas.map((f, i) => (
-                <tr key={i}>
-                  {(['cliente', 'producto', 'und_kg', 'canastillas', 'destino', 'firma_recibido'] as const).map(campo => (
-                    <td key={campo} className={tdCls}>
-                      <CeldaFila value={f[campo]} onChange={v => setCelda(i, campo, v)} disabled={!editable} />
-                    </td>
-                  ))}
+          {/* ── Cuadro ── */}
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] border-collapse">
+              <thead>
+                <tr className="bg-gray-100 text-gray-900">
+                  <th className={thCls}>Cliente</th>
+                  <th className={thCls}>Producto despachado</th>
+                  <th className={thCls}>Und/Kg</th>
+                  <th className={thCls}>Canastillas</th>
+                  <th className={thCls}>Destino</th>
+                  <th className={thCls}>Firma recibido cliente<br /><span className="font-normal normal-case">(A conformidad)</span></th>
                 </tr>
-              ))}
-            </tbody>
-            {/* Pie del cuadro, calcado del papel: "TOTAL" abarca CLIENTE +
-                PRODUCTO, después las celdas bajo Und/Kg y CANASTILLAS, y el
-                aviso al conductor abarca DESTINO + FIRMA.
-                Se combina con colSpan real y no con un grid encima: así las
-                celdas las alinea el mismo motor de tabla que calcula los
-                anchos de las filas de arriba, y siguen cuadrando al
-                recalcularse el layout para el tamaño de la hoja al imprimir.
-
-                Va en <tfoot> junto con las firmas, y no en <tbody>, para que
-                el navegador repita este pie en cada hoja cuando la remisión
-                necesite más de una — el requisito es que TOTAL y firmas
-                salgan en todas, no solo en la última. */}
-            <tfoot>
-              <tr className="bg-gray-50 font-bold">
-                <td colSpan={2} className={`${tdCls} px-2 py-1.5 text-sm`}>TOTAL</td>
-                {/* Und/Kg: lo suma la app. `readOnly` y no `disabled` para que se
-                    imprima y se vea igual que las demás celdas —`disabled` la
-                    grisaría— y sin resaltado de foco, que ahí no significa nada. */}
-                <td className={tdCls}>
-                  <input
-                    type="text"
-                    value={totalUndKg}
-                    readOnly
-                    title="Lo suma la app con los Und/Kg de las filas de arriba."
-                    className="w-full border-0 bg-transparent px-1.5 py-1 text-sm font-bold focus:outline-none"
-                  />
-                </td>
-                {/* Canastillas: texto libre, a mano, como en el papel. */}
-                <td className={tdCls}>
-                  <input
-                    type="text"
-                    value={total.canastillas}
-                    onChange={e => setTotal(prev => ({ ...prev, canastillas: e.target.value }))}
-                    disabled={!editable}
-                    className={`${inputCelda} font-bold`}
-                  />
-                </td>
-                <td colSpan={2} className={`${tdCls} px-2 py-1.5`}>
-                  <p className="text-[10px] font-normal leading-snug text-gray-800">
-                    Señor conductor verifique la entrega de los productos relacionados, con la
-                    firma de este soporte se recibe a entera satisfacción en cantidad y calidad.
-                  </p>
-                </td>
-              </tr>
-              <tr>
-                <td colSpan={6} className="border-0 p-0 align-top font-normal normal-case">
-                  {/* ── Firmas: se hacen sobre el papel impreso ── */}
-                  <div className="firmas-remision mt-10 grid grid-cols-2 gap-10">
-                    {([
-                      ['FIRMA RESPONSABLE PLANTA', firmaResponsable, setFirmaResponsable],
-                      ['FIRMA CONDUCTOR', firmaConductor, setFirmaConductor],
-                    ] as const).map(([etiqueta, valor, set]) => (
-                      <div key={etiqueta}>
-                        <input type="text" value={valor} onChange={e => set(e.target.value)} disabled={!editable} className="w-full border-0 bg-transparent px-1 pb-1 text-sm focus:outline-none" />
-                        <div className="border-t border-gray-800" />
-                        <p className="mt-1 text-center text-[11px] font-bold uppercase tracking-wide text-gray-900">{etiqueta}</p>
-                      </div>
+              </thead>
+              <tbody>
+                {filas.map((f, i) => (
+                  <tr key={i}>
+                    {(['cliente', 'producto', 'und_kg', 'canastillas', 'destino', 'firma_recibido'] as const).map(campo => (
+                      <td key={campo} className={tdCls}>
+                        <CeldaFila value={f[campo]} onChange={v => setCelda(i, campo, v)} disabled={!editable} />
+                      </td>
                     ))}
+                  </tr>
+                ))}
+                {/* Pie del cuadro, calcado del papel: "TOTAL" abarca CLIENTE +
+                    PRODUCTO, después las celdas bajo Und/Kg y CANASTILLAS, y el
+                    aviso al conductor abarca DESTINO + FIRMA.
+                    Se combina con colSpan real y no con un grid encima: así las
+                    celdas las alinea el mismo motor de tabla que calcula los
+                    anchos de las filas de arriba. */}
+                <tr className="bg-gray-50 font-bold">
+                  <td colSpan={2} className={`${tdCls} px-2 py-1.5 text-sm`}>TOTAL</td>
+                  {/* Und/Kg: lo suma la app. `readOnly` y no `disabled` para que se
+                      imprima y se vea igual que las demás celdas —`disabled` la
+                      grisaría— y sin resaltado de foco, que ahí no significa nada. */}
+                  <td className={tdCls}>
+                    <input
+                      type="text"
+                      value={totalUndKg}
+                      readOnly
+                      title="Lo suma la app con los Und/Kg de las filas de arriba."
+                      className="w-full border-0 bg-transparent px-1.5 py-1 text-sm font-bold focus:outline-none"
+                    />
+                  </td>
+                  {/* Canastillas: texto libre, a mano, como en el papel. */}
+                  <td className={tdCls}>
+                    <input
+                      type="text"
+                      value={total.canastillas}
+                      onChange={e => setTotal(prev => ({ ...prev, canastillas: e.target.value }))}
+                      disabled={!editable}
+                      className={`${inputCelda} font-bold`}
+                    />
+                  </td>
+                  <td colSpan={2} className={`${tdCls} px-2 py-1.5`}>
+                    <p className="text-[10px] font-normal leading-snug text-gray-800">
+                      Señor conductor verifique la entrega de los productos relacionados, con la
+                      firma de este soporte se recibe a entera satisfacción en cantidad y calidad.
+                    </p>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {editable && (
+            <button
+              type="button"
+              onClick={() => setFilas(prev => [...prev, celdasVacias()])}
+              className="mt-2 inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+            >
+              <Plus size={13} /> Agregar fila
+            </button>
+          )}
+
+          {/* ── Firmas: se hacen sobre el papel impreso ── */}
+          <div className="mt-10 grid grid-cols-2 gap-10">
+            {([
+              ['FIRMA RESPONSABLE PLANTA', firmaResponsable, setFirmaResponsable],
+              ['FIRMA CONDUCTOR', firmaConductor, setFirmaConductor],
+            ] as const).map(([etiqueta, valor, set]) => (
+              <div key={etiqueta}>
+                <input type="text" value={valor} onChange={e => set(e.target.value)} disabled={!editable} className="w-full border-0 bg-transparent px-1 pb-1 text-sm focus:outline-none" />
+                <div className="border-t border-gray-800" />
+                <p className="mt-1 text-center text-[11px] font-bold uppercase tracking-wide text-gray-900">{etiqueta}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Impresión: una hoja por bloque de filas ──
+               Chromium deja de repetir un <thead>/<tfoot> cuando el grupo
+               repetido supera ~4cm de alto (medido armando la plantilla real
+               en Edge headless e imprimiéndola a PDF): el encabezado completo
+               —logo, datos de Frigorinus, título, N°, Fecha/Conductor/Cédula/
+               Placa— mide ~7,6cm, muy por encima de ese límite, así que
+               confiarle la repetición al motor de impresión (como se probó
+               antes con thead/tfoot) no funciona por más que esté bien
+               declarado: el navegador simplemente lo pinta una sola vez y
+               sigue de largo.
+
+               Por eso se arma A MANO: cada `.hoja-impresion` de acá abajo es
+               un bloque completo e independiente —encabezado entero + hasta
+               FILAS_POR_HOJA_IMPRESION filas + TOTAL + firmas— con un salto
+               de página forzado entre bloques (ver @media print en
+               index.css). Así el encabezado y el pie SIEMPRE salen enteros en
+               cada hoja real, sin depender de ningún límite del navegador.
+
+               Es de solo lectura y no un segundo formulario: no tiene inputs
+               (para no duplicar el estado controlado de la plantilla de
+               arriba, lo que rompería la navegación con Enter y podría
+               desincronizar valores) y lee las mismas variables de estado, así
+               que lo impreso nunca puede quedar desactualizado respecto de lo
+               que se ve en pantalla. */}
+        <div className="solo-impresion">
+          {bloquesImpresion.map((filasDeLaHoja, iHoja) => (
+            <div key={iHoja} className="hoja-impresion">
+              <div className="encabezado-logo-remision relative mb-5 grid grid-cols-1 items-center justify-items-center gap-3 sm:grid-cols-[9rem_1fr_9rem] sm:justify-items-stretch">
+                <img src="/logo-frigorinus.jpg" alt="Frigorinus" className="logo-remision h-auto w-36" />
+                <div className="text-center text-[13px] leading-tight text-gray-800">
+                  <p className="font-bold">Frigorinus SAS.</p>
+                  <p>Nit.900909162-2</p>
+                  <p>Cgto San José del Nus</p>
+                  <p>Km 1 via Caracoli</p>
+                  <p>Tel:(4)855 6045</p>
+                  <p>info@frigorinus.com</p>
+                </div>
+                <div className="hidden sm:block" aria-hidden="true" />
+              </div>
+
+              <div className="titulo-remision mb-5 grid grid-cols-1 items-center gap-2 sm:grid-cols-[9rem_1fr_9rem]">
+                <div className="hidden sm:block" aria-hidden="true" />
+                <h2 className="text-center text-xl font-bold tracking-wide text-gray-900">
+                  REMISIÓN DE SALIDA DE DESPACHOS
+                </h2>
+                <div className="flex items-center justify-center gap-1.5 text-red-600 sm:justify-end">
+                  <span className="text-lg font-bold">N°</span>
+                  <span className="folio-remision text-lg">
+                    {folioBaseImpresion != null ? folioBaseImpresion + iHoja : '—'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="campos-remision mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div>
+                  <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">Fecha</span>
+                  <div className="text-sm text-gray-900">{fecha}</div>
+                </div>
+                <div className="hidden sm:col-span-2 sm:block" aria-hidden="true" />
+                <div>
+                  <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">Conductor</span>
+                  <div className="text-sm text-gray-900">{conductor}</div>
+                </div>
+                <div>
+                  <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">Cédula</span>
+                  <div className="text-sm text-gray-900">{cedula}</div>
+                </div>
+                <div>
+                  <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">Placa vehículo</span>
+                  <div className="text-sm text-gray-900">{placa}</div>
+                </div>
+              </div>
+
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="bg-gray-100 text-gray-900">
+                    <th className={thCls}>Cliente</th>
+                    <th className={thCls}>Producto despachado</th>
+                    <th className={thCls}>Und/Kg</th>
+                    <th className={thCls}>Canastillas</th>
+                    <th className={thCls}>Destino</th>
+                    <th className={thCls}>Firma recibido cliente<br /><span className="font-normal normal-case">(A conformidad)</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filasDeLaHoja.map((f, i) => (
+                    <tr key={i}>
+                      {(['cliente', 'producto', 'und_kg', 'canastillas', 'destino', 'firma_recibido'] as const).map(campo => (
+                        <td key={campo} className={tdCls}>
+                          <div className="celda-impresion px-1.5 py-1 text-sm leading-snug">{f[campo]}</div>
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                  <tr className="bg-gray-50 font-bold">
+                    <td colSpan={2} className={`${tdCls} px-2 py-1.5 text-sm`}>TOTAL</td>
+                    <td className={tdCls}>
+                      <div className="px-1.5 py-1 text-sm font-bold">{totalUndKg}</div>
+                    </td>
+                    <td className={tdCls}>
+                      <div className="px-1.5 py-1 text-sm font-bold">{total.canastillas}</div>
+                    </td>
+                    <td colSpan={2} className={`${tdCls} px-2 py-1.5`}>
+                      <p className="text-[10px] font-normal leading-snug text-gray-800">
+                        Señor conductor verifique la entrega de los productos relacionados, con la
+                        firma de este soporte se recibe a entera satisfacción en cantidad y calidad.
+                      </p>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div className="firmas-remision mt-10 grid grid-cols-2 gap-10">
+                {([
+                  ['FIRMA RESPONSABLE PLANTA', firmaResponsable],
+                  ['FIRMA CONDUCTOR', firmaConductor],
+                ] as const).map(([etiqueta, valor]) => (
+                  <div key={etiqueta}>
+                    <div className="min-h-[1.1em] w-full px-1 pb-1 text-sm">{valor}</div>
+                    <div className="border-t border-gray-800" />
+                    <p className="mt-1 text-center text-[11px] font-bold uppercase tracking-wide text-gray-900">{etiqueta}</p>
                   </div>
-                </td>
-              </tr>
-            </tfoot>
-          </table>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
 
         {/* ── Acciones ── */}
