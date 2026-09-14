@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as EventoTeclado, ReactNode } from 'react'
 import {
   AlertTriangle,
@@ -113,14 +113,19 @@ function formatearTotal(n: number): string {
  */
 function enterAlSiguiente(e: EventoTeclado<HTMLDivElement>) {
   if (e.key !== 'Enter') return
-  // Solo los inputs: sin esto el Enter sobre "Agregar fila" o "Guardar" también
-  // caería acá con su preventDefault y el botón dejaría de responder al teclado.
+  // Solo los inputs/textareas: sin esto el Enter sobre "Agregar fila" o
+  // "Guardar" también caería acá con su preventDefault y el botón dejaría de
+  // responder al teclado. Los textarea de las celdas de fila entran acá
+  // también: sin este chequeo el Enter les metería un salto de línea en vez
+  // de pasar al campo siguiente, como siempre se hizo con los inputs.
   const actual = e.target
-  if (!(actual instanceof HTMLInputElement)) return
+  if (!(actual instanceof HTMLInputElement) && !(actual instanceof HTMLTextAreaElement)) return
 
   e.preventDefault()
   const campos = Array.from(
-    e.currentTarget.querySelectorAll<HTMLInputElement>('input:not([readonly]):not([disabled])')
+    e.currentTarget.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
+      'input:not([readonly]):not([disabled]), textarea:not([readonly]):not([disabled])'
+    )
   )
   const i = campos.indexOf(actual)
   // En el último no pasa nada: el foco se queda ahí y NO se agregan filas solas.
@@ -255,7 +260,7 @@ function ModalConfirmar({ titulo, mensaje, textoConfirmar, onCancelar, onConfirm
 // ── Plantilla (modal) ────────────────────────────────────────────────────────
 
 const inputCelda =
-  'w-full border-0 bg-transparent px-1.5 py-1 text-sm focus:outline-none focus:bg-yellow-50 disabled:bg-transparent'
+  'w-full resize-none overflow-hidden border-0 bg-transparent px-1.5 py-1 text-sm leading-snug focus:outline-none focus:bg-yellow-50 disabled:bg-transparent'
 const inputCampo =
   'w-full border-2 border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-green-700 disabled:bg-gray-50 disabled:text-gray-600'
 // Los rótulos de columna van en peso medio y no en negrita: en el formato
@@ -263,7 +268,48 @@ const inputCampo =
 // peso, para que no compitan con el título ni con las firmas.
 const thCls =
   'border border-gray-800 px-2 py-1.5 text-[11px] font-medium uppercase tracking-wide leading-tight text-gray-900'
-const tdCls = 'border border-gray-800 p-0'
+const tdCls = 'border border-gray-800 p-0 align-top'
+
+/**
+ * Celda de fila del cuadro: un <textarea> de una línea que crece con el
+ * contenido en vez de tapar el texto (Rafa escribe cosas largas en
+ * CANASTILLAS, tipo "V. Blancas 13 V. Rojas 13 Cabezas 13 Patas 42").
+ *
+ * El ajuste de alto es un efecto sobre el DOM (leer scrollHeight y escribir
+ * height), no un setState en el render: no dispara re-render ni choca con el
+ * React Compiler.
+ */
+function CeldaFila({
+  value,
+  onChange,
+  disabled,
+  className = '',
+}: {
+  value: string
+  onChange: (v: string) => void
+  disabled?: boolean
+  className?: string
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [value])
+
+  return (
+    <textarea
+      ref={ref}
+      rows={1}
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      disabled={disabled}
+      className={`${inputCelda} ${className}`}
+    />
+  )
+}
 
 interface PropsModal {
   /** null = remisión nueva. */
@@ -313,6 +359,27 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
       )
     }
   }, [existente, onInfo])
+
+  // El alto de cada celda se calcula con el ancho y la tipografía de PANTALLA.
+  // Al imprimir, Chromium recalcula el layout con otro ancho de columna y otra
+  // tipografía (pt en vez de px), así que el alto guardado puede quedar corto
+  // y tapar texto, o largo de más. `beforeprint` corre justo antes de pintar
+  // la hoja: ahí se vuelve a medir cada celda contra el layout de impresión.
+  // `afterprint` la vuelve a medir contra el de pantalla al volver.
+  useEffect(() => {
+    function ajustarTodas() {
+      document.querySelectorAll<HTMLTextAreaElement>('#remision-imprimible textarea').forEach(el => {
+        el.style.height = 'auto'
+        el.style.height = `${el.scrollHeight}px`
+      })
+    }
+    window.addEventListener('beforeprint', ajustarTodas)
+    window.addEventListener('afterprint', ajustarTodas)
+    return () => {
+      window.removeEventListener('beforeprint', ajustarTodas)
+      window.removeEventListener('afterprint', ajustarTodas)
+    }
+  }, [])
 
   const setCelda = (i: number, campo: keyof Celdas, valor: string) =>
     setFilas(prev => prev.map((f, j) => (j === i ? { ...f, [campo]: valor } : f)))
@@ -396,97 +463,121 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
         onKeyDown={enterAlSiguiente}
         className="w-full max-w-4xl rounded-2xl bg-white p-6 shadow-xl animate-scaleIn"
       >
-        {/* ── Encabezado: logo + datos de la empresa ──
-               Grilla de tres columnas con la tercera del mismo ancho que el
-               logo. Antes era un flex y los datos de la empresa, al ser
-               `flex-1 text-center`, se centraban en el espacio QUE SOBRABA a la
-               derecha del logo: quedaban corridos, y el título de abajo —
-               centrado en el espacio que sobraba a la izquierda del N° —
-               quedaba corrido para el otro lado. Con la columna espejo los dos
-               bloques comparten el eje real de la hoja. */}
-        <div className="relative mb-5 grid grid-cols-1 items-center justify-items-center gap-3 sm:grid-cols-[9rem_1fr_9rem] sm:justify-items-stretch">
-          {/* El logo ya trae adentro "La Integración de la Cadena Cárnica": no
-              va como texto aparte. Ancho fijo y alto automático para que no se
-              deforme; `logo-remision` lo agranda al imprimir. */}
-          <img
-            src="/logo-frigorinus.jpg"
-            alt="Frigorinus"
-            className="logo-remision h-auto w-36"
-          />
-          <div className="text-center text-[13px] leading-tight text-gray-800">
-            <p className="font-bold">Frigorinus SAS.</p>
-            <p>Nit.900909162-2</p>
-            <p>Cgto San José del Nus</p>
-            <p>Km 1 via Caracoli</p>
-            <p>Tel:(4)855 6045</p>
-            <p>info@frigorinus.com</p>
-          </div>
-          <div className="hidden sm:block" aria-hidden="true" />
+        {editable && (
           <button
             type="button"
-            onClick={onCerrar}
-            className="no-imprimir absolute right-0 top-0 rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
-            aria-label="Cerrar"
+            onClick={() => setFilas(prev => [...prev, celdasVacias()])}
+            className="no-imprimir mb-2 inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
           >
-            <X size={18} />
+            <Plus size={13} /> Agregar fila
           </button>
-        </div>
+        )}
 
-        {/* ── Título + número ── (misma grilla espejada que el encabezado) */}
-        <div className="mb-5 grid grid-cols-1 items-center gap-2 sm:grid-cols-[9rem_1fr_9rem]">
-          <div className="hidden sm:block" aria-hidden="true" />
-          <h2 className="text-center text-xl font-bold tracking-wide text-gray-900">
-            REMISIÓN DE SALIDA DE DESPACHOS
-          </h2>
-          <div className="flex items-center justify-center gap-1.5 text-red-600 sm:justify-end">
-            <span className="text-lg font-bold">N°</span>
-            {numeroEditable ? (
-              <input
-                type="number"
-                min={1}
-                value={numeroTexto}
-                onChange={e => setNumeroTexto(e.target.value)}
-                placeholder="folio"
-                className="folio-remision w-24 rounded-lg border-2 border-red-300 px-2 py-1 text-lg text-red-600 focus:border-red-500 focus:outline-none"
-              />
-            ) : (
-              <span className="folio-remision text-lg">{numeroMostrado ?? '—'}</span>
-            )}
-          </div>
-        </div>
-
-        {/* ── Encabezado, en dos filas como el papel: la fecha sola arriba, y
-               debajo conductor / cédula / placa.
-
-               Es UNA sola grilla de tres columnas y no dos bloques apilados: la
-               fecha tenía su propio `max-w-[12rem]`, que no coincidía con el
-               tercio que mide Conductor, y el borde izquierdo de las dos filas
-               no alineaba. Acá la fecha ocupa la primera celda y una celda
-               muda tapa las otras dos. ── */}
-        <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">Fecha</span>
-            <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} disabled={!editable} className={inputCampo} />
-          </label>
-          <div className="hidden sm:col-span-2 sm:block" aria-hidden="true" />
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">Conductor</span>
-            <input type="text" value={conductor} onChange={e => setConductor(e.target.value)} disabled={!editable} className={inputCampo} />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">Cédula</span>
-            <input type="text" value={cedula} onChange={e => setCedula(e.target.value)} disabled={!editable} className={inputCampo} />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">Placa vehículo</span>
-            <input type="text" value={placa} onChange={e => setPlaca(e.target.value)} disabled={!editable} className={inputCampo} />
-          </label>
-        </div>
-
-        {/* ── Cuadro ── */}
+        {/* ── Cuadro ──
+               Encabezado (logo + datos + título + N° + fecha/conductor/cédula/
+               placa) y pie (TOTAL + aviso legal + firmas) viven DENTRO de esta
+               misma tabla, en <thead> y <tfoot>: son las dos etiquetas que el
+               navegador repite solo, en cada hoja, cuando la tabla no entra en
+               una — Chromium (donde corre la PWA) las respeta de forma nativa
+               al paginar. Antes eran <div> sueltos fuera de la tabla y no había
+               forma de que se repitieran sin duplicar los inputs (lo que
+               rompería el estado controlado y la navegación con Enter). */}
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] border-collapse">
             <thead>
+              <tr>
+                <td colSpan={6} className="border-0 p-0 text-left align-top font-normal normal-case">
+                  {/* ── Encabezado: logo + datos de la empresa ──
+                         Grilla de tres columnas con la tercera del mismo ancho
+                         que el logo. Antes era un flex y los datos de la
+                         empresa, al ser `flex-1 text-center`, se centraban en
+                         el espacio QUE SOBRABA a la derecha del logo: quedaban
+                         corridos, y el título de abajo — centrado en el
+                         espacio que sobraba a la izquierda del N° — quedaba
+                         corrido para el otro lado. Con la columna espejo los
+                         dos bloques comparten el eje real de la hoja. */}
+                  <div className="encabezado-logo-remision relative mb-5 grid grid-cols-1 items-center justify-items-center gap-3 sm:grid-cols-[9rem_1fr_9rem] sm:justify-items-stretch">
+                    {/* El logo ya trae adentro "La Integración de la Cadena
+                        Cárnica": no va como texto aparte. Ancho fijo y alto
+                        automático para que no se deforme; `logo-remision` lo
+                        agranda al imprimir. */}
+                    <img
+                      src="/logo-frigorinus.jpg"
+                      alt="Frigorinus"
+                      className="logo-remision h-auto w-36"
+                    />
+                    <div className="text-center text-[13px] leading-tight text-gray-800">
+                      <p className="font-bold">Frigorinus SAS.</p>
+                      <p>Nit.900909162-2</p>
+                      <p>Cgto San José del Nus</p>
+                      <p>Km 1 via Caracoli</p>
+                      <p>Tel:(4)855 6045</p>
+                      <p>info@frigorinus.com</p>
+                    </div>
+                    <div className="hidden sm:block" aria-hidden="true" />
+                    <button
+                      type="button"
+                      onClick={onCerrar}
+                      className="no-imprimir absolute right-0 top-0 rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                      aria-label="Cerrar"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+
+                  {/* ── Título + número ── (misma grilla espejada que el encabezado) */}
+                  <div className="titulo-remision mb-5 grid grid-cols-1 items-center gap-2 sm:grid-cols-[9rem_1fr_9rem]">
+                    <div className="hidden sm:block" aria-hidden="true" />
+                    <h2 className="text-center text-xl font-bold tracking-wide text-gray-900">
+                      REMISIÓN DE SALIDA DE DESPACHOS
+                    </h2>
+                    <div className="flex items-center justify-center gap-1.5 text-red-600 sm:justify-end">
+                      <span className="text-lg font-bold">N°</span>
+                      {numeroEditable ? (
+                        <input
+                          type="number"
+                          min={1}
+                          value={numeroTexto}
+                          onChange={e => setNumeroTexto(e.target.value)}
+                          placeholder="folio"
+                          className="folio-remision w-24 rounded-lg border-2 border-red-300 px-2 py-1 text-lg text-red-600 focus:border-red-500 focus:outline-none"
+                        />
+                      ) : (
+                        <span className="folio-remision text-lg">{numeroMostrado ?? '—'}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* ── Encabezado, en dos filas como el papel: la fecha sola
+                         arriba, y debajo conductor / cédula / placa.
+
+                         Es UNA sola grilla de tres columnas y no dos bloques
+                         apilados: la fecha tenía su propio `max-w-[12rem]`,
+                         que no coincidía con el tercio que mide Conductor, y
+                         el borde izquierdo de las dos filas no alineaba. Acá
+                         la fecha ocupa la primera celda y una celda muda tapa
+                         las otras dos. ── */}
+                  <div className="campos-remision mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">Fecha</span>
+                      <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} disabled={!editable} className={inputCampo} />
+                    </label>
+                    <div className="hidden sm:col-span-2 sm:block" aria-hidden="true" />
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">Conductor</span>
+                      <input type="text" value={conductor} onChange={e => setConductor(e.target.value)} disabled={!editable} className={inputCampo} />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">Cédula</span>
+                      <input type="text" value={cedula} onChange={e => setCedula(e.target.value)} disabled={!editable} className={inputCampo} />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500">Placa vehículo</span>
+                      <input type="text" value={placa} onChange={e => setPlaca(e.target.value)} disabled={!editable} className={inputCampo} />
+                    </label>
+                  </div>
+                </td>
+              </tr>
               <tr className="bg-gray-100 text-gray-900">
                 <th className={thCls}>Cliente</th>
                 <th className={thCls}>Producto despachado</th>
@@ -501,18 +592,25 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
                 <tr key={i}>
                   {(['cliente', 'producto', 'und_kg', 'canastillas', 'destino', 'firma_recibido'] as const).map(campo => (
                     <td key={campo} className={tdCls}>
-                      <input type="text" value={f[campo]} onChange={e => setCelda(i, campo, e.target.value)} disabled={!editable} className={inputCelda} />
+                      <CeldaFila value={f[campo]} onChange={v => setCelda(i, campo, v)} disabled={!editable} />
                     </td>
                   ))}
                 </tr>
               ))}
-              {/* Pie del cuadro, calcado del papel: "TOTAL" abarca CLIENTE +
-                  PRODUCTO, después las celdas bajo Und/Kg y CANASTILLAS, y el
-                  aviso al conductor abarca DESTINO + FIRMA.
-                  Se combina con colSpan real y no con un grid encima: así las
-                  celdas las alinea el mismo motor de tabla que calcula los
-                  anchos de las filas de arriba, y siguen cuadrando al
-                  recalcularse el layout para el tamaño de la hoja al imprimir. */}
+            </tbody>
+            {/* Pie del cuadro, calcado del papel: "TOTAL" abarca CLIENTE +
+                PRODUCTO, después las celdas bajo Und/Kg y CANASTILLAS, y el
+                aviso al conductor abarca DESTINO + FIRMA.
+                Se combina con colSpan real y no con un grid encima: así las
+                celdas las alinea el mismo motor de tabla que calcula los
+                anchos de las filas de arriba, y siguen cuadrando al
+                recalcularse el layout para el tamaño de la hoja al imprimir.
+
+                Va en <tfoot> junto con las firmas, y no en <tbody>, para que
+                el navegador repita este pie en cada hoja cuando la remisión
+                necesite más de una — el requisito es que TOTAL y firmas
+                salgan en todas, no solo en la última. */}
+            <tfoot>
               <tr className="bg-gray-50 font-bold">
                 <td colSpan={2} className={`${tdCls} px-2 py-1.5 text-sm`}>TOTAL</td>
                 {/* Und/Kg: lo suma la app. `readOnly` y no `disabled` para que se
@@ -544,32 +642,25 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
                   </p>
                 </td>
               </tr>
-            </tbody>
+              <tr>
+                <td colSpan={6} className="border-0 p-0 align-top font-normal normal-case">
+                  {/* ── Firmas: se hacen sobre el papel impreso ── */}
+                  <div className="firmas-remision mt-10 grid grid-cols-2 gap-10">
+                    {([
+                      ['FIRMA RESPONSABLE PLANTA', firmaResponsable, setFirmaResponsable],
+                      ['FIRMA CONDUCTOR', firmaConductor, setFirmaConductor],
+                    ] as const).map(([etiqueta, valor, set]) => (
+                      <div key={etiqueta}>
+                        <input type="text" value={valor} onChange={e => set(e.target.value)} disabled={!editable} className="w-full border-0 bg-transparent px-1 pb-1 text-sm focus:outline-none" />
+                        <div className="border-t border-gray-800" />
+                        <p className="mt-1 text-center text-[11px] font-bold uppercase tracking-wide text-gray-900">{etiqueta}</p>
+                      </div>
+                    ))}
+                  </div>
+                </td>
+              </tr>
+            </tfoot>
           </table>
-        </div>
-
-        {editable && (
-          <button
-            type="button"
-            onClick={() => setFilas(prev => [...prev, celdasVacias()])}
-            className="no-imprimir mt-2 inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-          >
-            <Plus size={13} /> Agregar fila
-          </button>
-        )}
-
-        {/* ── Firmas: se hacen sobre el papel impreso ── */}
-        <div className="firmas-remision mt-10 grid grid-cols-2 gap-10">
-          {([
-            ['FIRMA RESPONSABLE PLANTA', firmaResponsable, setFirmaResponsable],
-            ['FIRMA CONDUCTOR', firmaConductor, setFirmaConductor],
-          ] as const).map(([etiqueta, valor, set]) => (
-            <div key={etiqueta}>
-              <input type="text" value={valor} onChange={e => set(e.target.value)} disabled={!editable} className="w-full border-0 bg-transparent px-1 pb-1 text-sm focus:outline-none" />
-              <div className="border-t border-gray-800" />
-              <p className="mt-1 text-center text-[11px] font-bold uppercase tracking-wide text-gray-900">{etiqueta}</p>
-            </div>
-          ))}
         </div>
 
         {/* ── Acciones ── */}

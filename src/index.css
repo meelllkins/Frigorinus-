@@ -172,10 +172,18 @@
     display: table-header-group;
   }
 
+  /* El pie (TOTAL + aviso legal + firmas) vive en <tfoot>, junto al
+     encabezado en <thead>: son las dos etiquetas que el navegador repite
+     solo, en cada hoja, cuando la tabla no entra en una sola. */
+  #remision-imprimible tfoot {
+    display: table-footer-group;
+  }
+
   /* Las firmas van pegadas al cuadro, no empujadas con el margen de pantalla:
-     con las 5 filas base todo entra en una sola hoja horizontal. */
+     con las 5 filas base todo entra en una sola hoja horizontal. El
+     margin-top en cm va más abajo, junto con el resto de los ajustes para
+     que quepa en una sola hoja. */
   #remision-imprimible .firmas-remision {
-    margin-top: 1.5rem;
     page-break-inside: avoid;
     break-inside: avoid;
   }
@@ -232,10 +240,11 @@
     font-size: 8pt;
   }
 
-  /* El logo. Ahora es de 900px de ancho recortado al contenido, así que a 4.5cm
-     impresos da ~500 dpi y sale nítido. */
+  /* El logo. A 3.6cm impresos (bajado de 4.5cm) todavía da ~400 dpi y sale
+     nítido, y libera alto de hoja para que 5 filas o menos entren en una
+     sola página junto con el resto del encabezado y las firmas. */
   .logo-remision {
-    width: 4.5cm;
+    width: 3.6cm !important;
     height: auto;
   }
 
@@ -244,11 +253,35 @@
     font-size: 15pt;
   }
 
+  /* ── Que quepa en una sola hoja con pocas filas ──────────────────────────
+     Con 5 filas o menos, el cuadro (~7.2cm con las 5 filas + TOTAL a 1.2cm
+     cada una) más el encabezado y las firmas se pasaban por poco del alto
+     útil de la hoja: el sobrante — apenas un renglón — arrastraba una
+     segunda hoja casi en blanco porque las firmas no entraban al final de la
+     primera y `page-break-inside: avoid` las manda enteras a la siguiente.
+     Los `mb-5`/`gap-3` de Tailwind (pensados para pantalla) no se tocan
+     fuera de acá: en papel se acortan para ganar ese margen. */
+  #remision-imprimible .encabezado-logo-remision,
+  #remision-imprimible .titulo-remision,
+  #remision-imprimible .campos-remision {
+    margin-bottom: 0.25cm !important;
+  }
+
+  #remision-imprimible .campos-remision {
+    gap: 0.15cm !important;
+  }
+
+  #remision-imprimible .firmas-remision {
+    margin-top: 0.6cm !important;
+  }
+
   /* Carta HORIZONTAL: es como Rafa imprime el talonario. Chromium (donde corre
      la PWA) lo respeta y deja el diálogo ya en apaisado; Firefox históricamente
-     ignora `size`, y ahí hay que elegir horizontal a mano. */
+     ignora `size`, y ahí hay que elegir horizontal a mano. El margen de hoja
+     baja de 1cm a 0.6cm por el mismo motivo que el resto de este bloque: dar
+     el aire que falta para que 5 filas o menos entren en una sola página. */
   @page {
     size: letter landscape;
-    margin: 1cm;
+    margin: 0.6cm;
   }
 }
