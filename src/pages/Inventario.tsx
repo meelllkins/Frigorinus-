@@ -137,6 +137,12 @@ export default function Inventario() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  // "Procesando" del Sí de UNA fila, aparte del `deleting` del modal múltiple: son dos
+  // acciones distintas y no deben deshabilitarse entre sí.
+  const [eliminandoFila, setEliminandoFila] = useState(false)
+  // Mismo mecanismo que Beneficios.tsx: no es un componente compartido, se calca acá tal cual.
+  const [toast, setToast] = useState('')
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [clientesMap, setClientesMap] = useState<Record<string, ClienteInfo>>({})
   const [modalCodigo, setModalCodigo] = useState<string | null>(null)
   // Campos de despacho de víscera (ruta obligatoria + código destino; sin cabeza/patas)
@@ -188,6 +194,12 @@ export default function Inventario() {
       setVisceras(data as VisceraCon[])
       setClientesMap(await fetchClientesMap((data as VisceraCon[]).map(v => v.registros_beneficio.codigo_cliente)))
     }
+  }
+
+  function showToast(msg: string) {
+    setToast(msg)
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+    toastTimerRef.current = setTimeout(() => setToast(''), 6000)
   }
 
   async function handleRegistrar(e: React.FormEvent) {
@@ -294,6 +306,7 @@ export default function Inventario() {
     if (isNewRegistro) {
       await new Promise(r => setTimeout(r, 800))
     }
+    showToast(`Víscera de ${codigo}-${numero} registrada.`)
     await fetchVisceras()
     setRegForm(getInitialRegForm())
     setRegSaving(false)
@@ -501,12 +514,14 @@ export default function Inventario() {
    * huérfana y rompería el conteo de V/B y V/R de documentos ya emitidos.
    */
   async function handleEliminar(registroId: string) {
+    setEliminandoFila(true)
     await supabase
       .from('inventario_visceras')
       .delete()
       .eq('registro_id', registroId)
       .eq('estado', 'en_inventario')
     setDeleteConfirm(null)
+    setEliminandoFila(false)
     setSelected(prev => { const next = new Set(prev); next.delete(registroId); return next })
     fetchVisceras()
   }
@@ -835,7 +850,6 @@ export default function Inventario() {
                 {/* Solo indicador: qué vísceras tiene el animal en cava. Sin controles — se
                     selecciona y se despacha el animal entero. */}
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Vísceras</th>
-                <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Estado</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Fecha de sacrificio</th>
                 <th className="text-left px-4 py-3 font-semibold text-white text-xs uppercase tracking-wider">Días en cava</th>
                 <th className="px-4 py-3" />
@@ -844,7 +858,7 @@ export default function Inventario() {
             <tbody className="divide-y divide-gray-100">
               {gruposVisceras.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-gray-400 text-sm">
+                  <td colSpan={8} className="px-4 py-10 text-center text-gray-400 text-sm">
                     {visceras.length === 0
                       ? 'No hay vísceras en inventario'
                       : 'Sin resultados para la búsqueda'}
@@ -889,11 +903,6 @@ export default function Inventario() {
                           ))}
                         </div>
                       </td>
-                      <td className="px-4 py-3">
-                        <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 bg-blue-100 text-blue-700">
-                          En inventario
-                        </span>
-                      </td>
                       <td className="px-4 py-3 text-gray-700">{formatFecha(new Date(fecha))}</td>
                       <td className="px-4 py-3">
                         <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${diasBadge(dias)} ${dias >= 5 ? 'animate-pulse' : ''}`}>
@@ -902,7 +911,7 @@ export default function Inventario() {
                       </td>
                       {/* Acciones del ANIMAL: las dos operan sobre todas sus vísceras. */}
                       <td className="px-4 py-3">
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="flex items-center justify-end gap-3 sm:gap-2">
                           {deleteConfirm === g.registroId ? (
                             <>
                               <span className="text-xs text-gray-500 whitespace-nowrap">
@@ -910,9 +919,10 @@ export default function Inventario() {
                               </span>
                               <button
                                 onClick={() => handleEliminar(g.registroId)}
-                                className="text-xs font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg px-2.5 py-1.5 transition-all duration-200 active:scale-95"
+                                disabled={eliminandoFila}
+                                className="text-xs font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg px-2.5 py-1.5 transition-all duration-200 active:scale-95 disabled:opacity-50"
                               >
-                                Sí
+                                {eliminandoFila ? '...' : 'Sí'}
                               </button>
                               <button
                                 onClick={() => setDeleteConfirm(null)}
@@ -932,7 +942,7 @@ export default function Inventario() {
                               </button>
                               <button
                                 onClick={() => handleDespachar(g)}
-                                className="flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-2 sm:px-3 py-1.5 transition-all duration-200 hover:scale-105 active:scale-95"
+                                className="flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-2.5 sm:px-3 py-2 transition-all duration-200 hover:scale-105 active:scale-95"
                               >
                                 <Truck size={12} />
                                 <span className="hidden sm:inline">Despachar</span>
@@ -958,6 +968,12 @@ export default function Inventario() {
           onClose={() => setModalCodigo(null)}
           onSaved={(cod, nuevo) => setClientesMap(prev => ({ ...prev, [cod]: nuevo }))}
         />
+      )}
+
+      {toast && (
+        <div className="fixed bottom-4 right-4 z-50 max-w-sm bg-gray-900 text-white text-sm font-semibold rounded-xl shadow-xl px-4 py-3 animate-slideDown">
+          {toast}
+        </div>
       )}
     </div>
   )
