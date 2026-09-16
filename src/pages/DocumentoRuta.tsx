@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, Fragment, type KeyboardEvent as EventoTeclado, type ReactNode } from 'react'
-import { RefreshCw, AlertTriangle, ChevronDown, FileSpreadsheet, GripVertical } from 'lucide-react'
+import { RefreshCw, AlertTriangle, ChevronDown, FileSpreadsheet, GripVertical, Check } from 'lucide-react'
 import {
   DndContext,
   MouseSensor,
@@ -208,11 +208,21 @@ export default function DocumentoRuta() {
   // despachado el día anterior o tres días antes.
   const [doc, setDoc] = useState<DocumentoDia | null>(null)
   const [showAvisos, setShowAvisos] = useState(false)
+  // Plegado de cada <section> de ruta/carro, por claveBloque. Vacío = todas abiertas
+  // (el default pedido): a diferencia de manualLocal/cpLocal, este estado NO se
+  // reinicia en cargar(), así que plegar una sección sobrevive a un refresco.
+  const [seccionesPlegadas, setSeccionesPlegadas] = useState<Set<string>>(new Set())
   // Campos manuales en estado local (un refresco NO debe borrar lo que Rafa escribe).
   // Clave por BLOQUE (ruta + carro): cada carro de Externo tiene sus propios datos manuales.
   const [manualLocal, setManualLocal] = useState<Record<string, DatosManuales>>({})
   // Edición local de cabeza/patas por fila (se limpia con cada doc nuevo → refleja lo guardado).
   const [cpLocal, setCpLocal] = useState<Record<string, { cabeza: string; patas: string }>>({})
+  // "Guardado ✓" y error de CABEZA/PATAS, por clave de fila (filaKey). Mismo patrón que
+  // guardadoOk/errorGuardado del encabezado, pero por fila: acá cada guardado es una
+  // sola fila y no un lote, así que no hace falta acumular varias claves a la vez.
+  const [cpGuardadoOk, setCpGuardadoOk] = useState<Set<string>>(new Set())
+  const [cpError, setCpError] = useState<Record<string, string>>({})
+  const cpGuardadoTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   // El maestro se guarda para poder ACTUALIZAR la secuencia de un código existente
   // (guardarSecuencia lo necesita para no duplicar filas).
   const [maestro, setMaestro] = useState<MaestroRow[]>([])
@@ -235,12 +245,18 @@ export default function DocumentoRuta() {
   // aviso no hay forma de saber si lo que se tipeó llegó a la base. Solo se veía el
   // fallo; el éxito era silencio, que es indistinguible de "todavía no salió".
   const [guardadoOk, setGuardadoOk] = useState(false)
+  // Eco del "Guardado ✓" junto al título de CADA sección que salió en el último lote
+  // (además del indicador global de arriba). Mismo timer que guardadoOk: se llenan y
+  // se vacían juntos, así el cartelito por sección nunca queda prendido de más.
+  const [guardadoOkClaves, setGuardadoOkClaves] = useState<Set<string>>(new Set())
   const avisoGuardadoRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Cuadrículas cuyo orden se está escribiendo (clave de sección). Es solo para el
   // cartelito "Guardando orden…": la UI NO se bloquea, así Rafa puede seguir
   // arrastrando mientras el anterior viaja a la base.
   const [guardandoOrden, setGuardandoOrden] = useState<ReadonlySet<string>>(new Set())
   const [errorOrden, setErrorOrden] = useState<string | null>(null)
+  // Estado de carga del botón "Actualizar". Solo visual: cargar() ya existía tal cual.
+  const [actualizando, setActualizando] = useState(false)
 
   // Sensor de arrastre. Va acá arriba y NO adentro de tabla(): tabla() se llama en un
   // bucle sobre los bloques, así que un hook ahí adentro violaría las reglas de hooks.
@@ -278,6 +294,9 @@ export default function DocumentoRuta() {
       setDoc(d)
       setMaestro(m)
       setCpLocal({})
+      // Documento nuevo: todas las secciones arrancan abiertas, no arrastran lo plegado
+      // de la fecha anterior (dos fechas pueden compartir claveBloque en rutas sin carro).
+      setSeccionesPlegadas(new Set())
       const manual: Record<string, DatosManuales> = {}
       for (const b of d.bloques) manual[claveBloque(b)] = b.manual ?? manualVacio()
       setManualLocal(manual)
@@ -313,12 +332,14 @@ export default function DocumentoRuta() {
     pendientesRef.current.clear()
 
     const fallas: string[] = []
+    const clavesOk: string[] = []
     for (const [clave, p] of lote) {
       const r = await guardarDatosManuales(p.fechaEntrega, p.ruta, p.datos, p.carroId)
       if (!r.ok) {
         fallas.push(`${p.ruta}: ${r.mensaje}`)
         continue
       }
+      clavesOk.push(clave)
       // Ya está guardado: deja de estar sucio y el próximo refresco puede traer lo que se
       // haya agregado del lado del servidor. Si se volvió a tipear durante el viaje, la
       // clave ya está pendiente otra vez y sigue protegida.
@@ -333,8 +354,12 @@ export default function DocumentoRuta() {
     // siguen vacías y flushManual no se recrea en cada render.
     if (fallas.length === 0) {
       setGuardadoOk(true)
+      setGuardadoOkClaves(new Set(clavesOk))
       if (avisoGuardadoRef.current) clearTimeout(avisoGuardadoRef.current)
-      avisoGuardadoRef.current = setTimeout(() => setGuardadoOk(false), 3000)
+      avisoGuardadoRef.current = setTimeout(() => {
+        setGuardadoOk(false)
+        setGuardadoOkClaves(new Set())
+      }, 3000)
     }
   }, [])
 
@@ -406,6 +431,16 @@ export default function DocumentoRuta() {
     if (i >= 0 && i + 1 < campos.length) campos[i + 1].focus()
   }
 
+  /** Plegado de una <section> de ruta/carro. Set vacío = todas abiertas por defecto. */
+  function toggleSeccion(clave: string) {
+    setSeccionesPlegadas(prev => {
+      const next = new Set(prev)
+      if (next.has(clave)) next.delete(clave)
+      else next.add(clave)
+      return next
+    })
+  }
+
   function campoManual(b: BloqueRuta, campo: keyof DatosManuales, label: string) {
     return (
       <div>
@@ -438,9 +473,32 @@ export default function DocumentoRuta() {
 
   async function guardarCP(f: FilaDocumento) {
     if (f.despachoIdsCanal.length === 0) return
-    const cp = cpLocal[filaKey(f)] ?? cpDe(f)
+    const key = filaKey(f)
+    const cp = cpLocal[key] ?? cpDe(f)
     const ok = await actualizarCabezaPatas(f.despachoIdsCanal, toNumOrNull(cp.cabeza), toNumOrNull(cp.patas))
-    if (ok) await cargar() // recalcula totales de la sección
+    if (ok) {
+      setCpError(prev => {
+        if (!(key in prev)) return prev
+        const next = { ...prev }
+        delete next[key]
+        return next
+      })
+      setCpGuardadoOk(prev => new Set(prev).add(key))
+      const timers = cpGuardadoTimersRef.current
+      const previo = timers.get(key)
+      if (previo) clearTimeout(previo)
+      timers.set(key, setTimeout(() => {
+        setCpGuardadoOk(prev => {
+          const next = new Set(prev)
+          next.delete(key)
+          return next
+        })
+        timers.delete(key)
+      }, 3000))
+      await cargar() // recalcula totales de la sección
+    } else {
+      setCpError(prev => ({ ...prev, [key]: 'No se pudo guardar Cabeza/Patas.' }))
+    }
   }
 
   // ── Secuencia de entrega (solo rutas regionales) ───────────────
@@ -454,7 +512,14 @@ export default function DocumentoRuta() {
     if (valor.trim() === '' || !Number.isFinite(n)) return
     if (n === f.secuencia) return // sin cambios
     const ok = await guardarSecuencia(maestro, ruta, f.codigoCliente, n, diaSemanaDe(fecha))
-    if (ok) await cargar() // recarga: el documento se reordena con la secuencia nueva
+    if (ok) {
+      setErrorOrden(null)
+      await cargar() // recarga: el documento se reordena con la secuencia nueva
+    } else {
+      // Mismo cartel que el del arrastre: guardarSecuencia solo devuelve ok/no-ok, sin
+      // mensaje propio (ver secuenciaEntrega.ts), así que el texto es genérico.
+      setErrorOrden(`${ruta}: no se pudo guardar el orden de entrega del código ${f.codigoCliente}.`)
+    }
   }
 
   // ── Reordenar filas arrastrando ────────────────────────────────
@@ -585,7 +650,8 @@ export default function DocumentoRuta() {
                 </tr>
               ) : (
                 seccion.filas.map((f, i) => {
-                  const cp = cpLocal[filaKey(f)] ?? cpDe(f)
+                  const key = filaKey(f)
+                  const cp = cpLocal[key] ?? cpDe(f)
                   const sinCanal = f.despachoIdsCanal.length === 0
                   // Separador: se dibuja UNA vez, justo antes del primer código sin orden.
                   const primeroSinOrden =
@@ -614,7 +680,7 @@ export default function DocumentoRuta() {
                               type="button"
                               onClick={() => setEditSec({ key: f.key, valor: f.secuencia != null ? String(f.secuencia) : '' })}
                               title={f.secuencia != null ? 'Cambiar el orden de entrega' : 'Asignar orden de entrega'}
-                              className={`ml-2 px-1.5 py-0.5 rounded text-[11px] font-sans font-semibold transition-colors ${
+                              className={`ml-2 px-1.5 py-1 rounded text-[11px] font-sans font-semibold transition-colors ${
                                 f.secuencia != null
                                   ? 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'
                                   : 'text-amber-700 bg-amber-100 hover:bg-amber-200'
@@ -636,9 +702,22 @@ export default function DocumentoRuta() {
                               className={cellInputCls} />
                           </td>
                           <td className="px-4 py-2 text-right">
-                            <input type="number" min={0} value={cp.patas} disabled={sinCanal}
-                              onChange={e => setCP(f, 'patas', e.target.value)} onBlur={() => guardarCP(f)}
-                              className={cellInputCls} />
+                            <div className="flex items-center justify-end gap-1">
+                              <input type="number" min={0} value={cp.patas} disabled={sinCanal}
+                                onChange={e => setCP(f, 'patas', e.target.value)} onBlur={() => guardarCP(f)}
+                                className={cellInputCls} />
+                              {/* Guardado ✓ / error de ESTA fila: actualizarCabezaPatas escribe cabeza y
+                                  patas juntas en un solo llamado, así que un solo ícono alcanza para las
+                                  dos celdas. Va en Patas, la última del par, por orden de lectura. */}
+                              {cpGuardadoOk.has(key) && (
+                                <Check size={14} className="text-green-600 shrink-0" aria-label="Guardado" />
+                              )}
+                              {cpError[key] && (
+                                <span title={cpError[key]} className="shrink-0">
+                                  <AlertTriangle size={14} className="text-red-500" aria-label={cpError[key]} />
+                                </span>
+                              )}
+                            </div>
                           </td>
                         </>
                       ) : (
@@ -766,11 +845,12 @@ export default function DocumentoRuta() {
             className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 bg-white"
           />
           <button
-            onClick={() => cargar()}
-            className="flex items-center gap-1.5 text-sm font-semibold text-white bg-green-800 hover:bg-green-700 rounded-lg px-3 py-2 transition-all duration-200 active:scale-95 whitespace-nowrap"
+            onClick={async () => { setActualizando(true); await cargar(); setActualizando(false) }}
+            disabled={actualizando}
+            className="flex items-center gap-1.5 text-sm font-semibold text-white bg-green-800 hover:bg-green-700 rounded-lg px-3 py-2 transition-all duration-200 active:scale-95 whitespace-nowrap disabled:opacity-50"
           >
             <RefreshCw size={14} />
-            Actualizar
+            {actualizando ? 'Actualizando...' : 'Actualizar'}
           </button>
           <button
             onClick={exportar}
@@ -778,7 +858,7 @@ export default function DocumentoRuta() {
             className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 transition-all duration-200 whitespace-nowrap disabled:opacity-40"
           >
             <FileSpreadsheet size={14} />
-            Exportar a Excel
+            Exportar Excel
           </button>
         </div>
       </div>
@@ -835,63 +915,87 @@ export default function DocumentoRuta() {
         <p className="text-sm text-gray-400">Cargando documento...</p>
       ) : (
         <>
-          {doc.bloques.map((b, i) => (
+          {doc.bloques.map((b, i) => {
             // Externo puede aportar VARIOS bloques el mismo día (uno por carro), todos
             // con ruta==='Externo' -> la key no puede ser solo b.ruta (colisionaría). El orden
             // de doc.bloques es determinista, así que sumarle el índice es seguro.
-            <section key={`${b.ruta}-${i}`} className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5 space-y-4">
-              <div>
-                <h3 className="text-lg font-bold text-gray-900">{b.ruta}</h3>
-                {/* La tabla ES una fecha de entrega: va acá, en el encabezado, y no repetida
-                    por fila. Todo lo de abajo se entrega este día, se haya despachado cuando
-                    se haya despachado. */}
-                <p className="text-sm text-gray-500 first-letter:uppercase">Entrega {fechaLarga(doc.fechaEntrega)}</p>
-              </div>
+            const clave = claveBloque(b)
+            const plegada = seccionesPlegadas.has(clave)
+            return (
+              <section key={`${b.ruta}-${i}`} className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5 space-y-4">
+                {/* Cabecera clicable: pliega/despliega toda la sección, mismo patrón visual
+                    (chevron que rota) que el bloque de avisos de arriba. */}
+                <button
+                  type="button"
+                  onClick={() => toggleSeccion(clave)}
+                  className="w-full flex items-center justify-between gap-3 text-left"
+                >
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900">{b.ruta}</h3>
+                    {/* La tabla ES una fecha de entrega: va acá, en el encabezado, y no repetida
+                        por fila. Todo lo de abajo se entrega este día, se haya despachado cuando
+                        se haya despachado. */}
+                    <p className="text-sm text-gray-500 first-letter:uppercase">Entrega {fechaLarga(doc.fechaEntrega)}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {/* Eco del "Guardado ✓" global, pero de ESTA sección: mismo texto y color,
+                        para que confirme cerca de donde Rafa está mirando y no solo arriba. */}
+                    {guardadoOkClaves.has(clave) && (
+                      <span aria-live="polite" className="text-xs font-medium text-green-700">Guardado ✓</span>
+                    )}
+                    <ChevronDown size={18} className={`text-gray-400 transition-transform duration-200 ${plegada ? '' : 'rotate-180'}`} />
+                  </div>
+                </button>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3" onKeyDown={enterAlSiguienteCampo}>
-                {campoManual(b, 'conductor', 'Conductor')}
-                {campoManual(b, 'auxiliar', 'Auxiliar')}
-                {campoManual(b, 'horaProgramada', 'Hora programada')}
-                {campoManual(b, 'placa', 'Placa')}
-              </div>
+                {!plegada && (
+                  <>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3" onKeyDown={enterAlSiguienteCampo}>
+                      {campoManual(b, 'conductor', 'Conductor')}
+                      {campoManual(b, 'auxiliar', 'Auxiliar')}
+                      {campoManual(b, 'horaProgramada', 'Hora programada')}
+                      {campoManual(b, 'placa', 'Placa')}
+                    </div>
 
-              {/* Un carro externo lleva UN SOLO tipo de carne: se dibuja solo la sub-tabla que
-                  tiene filas, para que no aparezca la vacía al lado (eso es lo que se veía como
-                  "res y cerdo mezclados"). Las rutas con nombre sí muestran las dos aunque una
-                  esté vacía, que es como Rafa arma sus alineaciones. */}
-              {(b.ruta !== 'Externo' || b.bovinos.filas.length > 0) &&
-                tabla('Bovinos', b.bovinos, true, true, b.ruta, { carroId: b.carroId, tipoCarne: 'res' })}
-              {(b.ruta !== 'Externo' || b.porcinos.filas.length > 0) &&
-                tabla('Porcinos', b.porcinos, false, true, b.ruta, { carroId: b.carroId, tipoCarne: 'cerdo' })}
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Observación</label>
+                      <textarea
+                        rows={2}
+                        value={manualLocal[clave]?.observacion ?? ''}
+                        onChange={e => setCampoManual(b, 'observacion', e.target.value)}
+                        onBlur={e => guardarCampoManual(b, 'observacion', e.target.value)}
+                        className={inputCls}
+                      />
+                    </div>
 
-              {direccionesDelBloque(b).length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Direcciones de entrega</p>
-                  <ul className="text-sm text-gray-700 space-y-1">
-                    {direccionesDelBloque(b).map(d => (
-                      <li key={d.key}>
-                        <span className="font-mono font-semibold text-gray-900">{d.cod}</span>
-                        <span className="text-gray-500"> — </span>
-                        {d.direccion}
-                        <span className="text-gray-500"> — {d.cant}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+                    {/* Un carro externo lleva UN SOLO tipo de carne: se dibuja solo la sub-tabla que
+                        tiene filas, para que no aparezca la vacía al lado (eso es lo que se veía como
+                        "res y cerdo mezclados"). Las rutas con nombre sí muestran las dos aunque una
+                        esté vacía, que es como Rafa arma sus alineaciones. */}
+                    {(b.ruta !== 'Externo' || b.bovinos.filas.length > 0) &&
+                      tabla('Bovinos', b.bovinos, true, true, b.ruta, { carroId: b.carroId, tipoCarne: 'res' })}
+                    {(b.ruta !== 'Externo' || b.porcinos.filas.length > 0) &&
+                      tabla('Porcinos', b.porcinos, false, true, b.ruta, { carroId: b.carroId, tipoCarne: 'cerdo' })}
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Observación</label>
-                <textarea
-                  rows={2}
-                  value={manualLocal[claveBloque(b)]?.observacion ?? ''}
-                  onChange={e => setCampoManual(b, 'observacion', e.target.value)}
-                  onBlur={e => guardarCampoManual(b, 'observacion', e.target.value)}
-                  className={inputCls}
-                />
-              </div>
-            </section>
-          ))}
+                    {direccionesDelBloque(b).length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Direcciones de entrega</p>
+                        <ul className="text-sm text-gray-700 space-y-1">
+                          {direccionesDelBloque(b).map(d => (
+                            <li key={d.key}>
+                              <span className="font-mono font-semibold text-gray-900">{d.cod}</span>
+                              <span className="text-gray-500"> — </span>
+                              {d.direccion}
+                              <span className="text-gray-500"> — {d.cant}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </>
+                )}
+              </section>
+            )
+          })}
 
           {seccionSinRuta && (
             <section className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5 space-y-3">
