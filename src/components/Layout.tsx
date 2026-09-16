@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { ClipboardList, AlertTriangle, Package, Truck, LogOut, Download, Trash2, NotebookPen, FileText } from 'lucide-react'
-import logo from '../assets/logo.png'
 
 export default function Layout() {
   const [showResetModal, setShowResetModal] = useState(false)
@@ -118,23 +117,22 @@ export default function Layout() {
       {/* `no-imprimir` en el header y la nav: al imprimir (hoy solo la remisión)
           el cromo de la app no va al papel, y sobre todo no deja su alto en
           blanco arriba de la hoja. */}
-      <header className="no-imprimir bg-gray-900 px-3 sm:px-6 py-4 flex items-center justify-between shadow-lg">
+      <header className="no-imprimir bg-white px-3 sm:px-6 py-4 flex items-center justify-between shadow-sm border-b border-gray-200">
         <div className="flex items-center gap-3">
-          {/* Mismo icono que la PWA: la marca sobre el azul del propio logo. */}
           <img
-            src={logo}
+            src="/logo-frigorinus-color.png"
             alt="Frigorinus"
-            className="w-10 h-10 rounded-lg shrink-0"
+            className="w-10 h-10 rounded-lg shrink-0 object-contain"
           />
           <div>
-            <h1 className="text-base font-bold text-white tracking-wide leading-tight">Frigorinus</h1>
-            <p className="text-xs text-gray-400 leading-tight hidden sm:block">Logística de planta</p>
+            <h1 className="text-base font-bold text-gray-900 tracking-wide leading-tight">Frigorinus</h1>
+            <p className="text-xs text-gray-500 leading-tight hidden sm:block">Logística de planta</p>
           </div>
         </div>
         <div className="flex items-center gap-1 sm:gap-2">
           <button
             onClick={() => setShowResetModal(true)}
-            className="flex items-center gap-2 text-sm text-gray-500 hover:text-red-400 transition-all duration-200 active:scale-95 px-2 py-1.5 rounded-lg hover:bg-gray-800"
+            className="flex items-center gap-2 text-sm text-gray-500 hover:text-red-600 transition-all duration-200 active:scale-95 px-2 py-1.5 rounded-lg hover:bg-gray-100"
           >
             <Trash2 size={15} />
             <span className="hidden sm:inline text-xs font-medium">Resetear</span>
@@ -142,7 +140,7 @@ export default function Layout() {
           {installPrompt && (
             <button
               onClick={handleInstall}
-              className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-all duration-200 active:scale-95 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-gray-800"
+              className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-900 transition-all duration-200 active:scale-95 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-gray-100"
             >
               <Download size={15} />
               <span className="hidden sm:inline">Instalar app</span>
@@ -151,7 +149,7 @@ export default function Layout() {
           {showManualInstallBtn && (
             <button
               onClick={() => setShowPwaModal(true)}
-              className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-all duration-200 active:scale-95 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-gray-800"
+              className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-900 transition-all duration-200 active:scale-95 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-gray-100"
             >
               <Download size={15} />
               <span className="hidden sm:inline">Añadir a inicio</span>
@@ -159,7 +157,7 @@ export default function Layout() {
           )}
           <button
             onClick={handleLogout}
-            className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-all duration-200 active:scale-95 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-gray-800"
+            className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-900 transition-all duration-200 active:scale-95 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-gray-100"
           >
             <LogOut size={15} />
             <span className="hidden sm:inline">Salir</span>
