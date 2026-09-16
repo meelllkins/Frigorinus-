@@ -5,7 +5,7 @@ import { supabase } from './lib/supabase'
 import Login from './pages/Login'
 import Layout from './components/Layout'
 
-// Las siete pantallas se bajan CADA UNA en su propio archivo, la primera vez que
+// Las seis pantallas se bajan CADA UNA en su propio archivo, la primera vez que
 // Rafa entra a ella. Antes eran imports estáticos y el bundle inicial —2.19 MB—
 // traía todo: el editor de notas, el arrastrar/soltar del documento de ruta y las
 // dos librerías de planilla, antes de poder pintar la primera pantalla.
@@ -21,7 +21,6 @@ const Inventario = lazy(() => import('./pages/Inventario'))
 const Despachos = lazy(() => import('./pages/Despachos'))
 const Notas = lazy(() => import('./pages/Notas'))
 const DocumentoRuta = lazy(() => import('./pages/DocumentoRuta'))
-const Remisiones = lazy(() => import('./pages/Remisiones'))
 
 /** Lo que se ve mientras baja el archivo de una pantalla. Después de la primera
  *  visita queda en caché del navegador y del service worker, y ya no aparece. */
@@ -81,7 +80,6 @@ function App() {
         <Route path="despachos" element={pantalla(Despachos)} />
         <Route path="notas" element={pantalla(Notas)} />
         <Route path="documento" element={pantalla(DocumentoRuta)} />
-        <Route path="remisiones" element={pantalla(Remisiones)} />
       </Route>
     </Routes>
   )

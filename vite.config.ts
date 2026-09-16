@@ -8,9 +8,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      // El logo de la remisión va acá: workbox no precachea .jpg por defecto y
-      // sin esto la plantilla sale sin logo cuando la planta se queda sin señal.
-      includeAssets: ['favicon.png', 'icon-192.png', 'icon-512.png', 'logo-frigorinus.jpg'],
+      includeAssets: ['favicon.png', 'icon-192.png', 'icon-512.png'],
       workbox: {
         // El bundle de la app pasó los 2 MiB que workbox precachea por defecto, y ante eso
         // el plugin no avisa: aborta el build (así se cayó el deploy en Vercel).
