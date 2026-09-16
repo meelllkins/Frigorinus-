@@ -82,7 +82,7 @@ export default function CobrosFrio() {
       <h2 className="text-xl font-bold text-gray-900 mb-5">Cobros de frío pendientes</h2>
 
       {/* Subtabs */}
-      <div className="flex w-fit border border-gray-200 rounded-xl overflow-hidden shadow-sm mb-5">
+      <div className="flex w-fit border border-gray-200 rounded-xl overflow-hidden shadow-sm mb-3">
         {(['res', 'cerdo'] as const).map(tab => (
           <button
             key={tab}
@@ -157,7 +157,13 @@ export default function CobrosFrio() {
                     <td className="px-4 py-3 font-mono font-semibold text-gray-900">
                       {r.codigo_cliente}-{r.numero_animal}
                     </td>
-                    <td className="px-4 py-3 capitalize text-gray-700">{r.tipo_carne}</td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${
+                        r.tipo_carne === 'res' ? 'bg-amber-100 text-amber-700' : 'bg-pink-100 text-pink-700'
+                      }`}>
+                        {r.tipo_carne === 'res' ? 'Res' : 'Cerdo'}
+                      </span>
+                    </td>
                     <td className="px-4 py-3 text-gray-700">{r.fecha_beneficio}</td>
                     <td className="px-4 py-3">
                       <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all duration-200 ${urgenciaBadge(dias)} ${dias >= 5 ? 'animate-pulse' : ''}`}>

@@ -74,7 +74,7 @@ export default function Notas() {
   if (!editor) return null
 
   const btn = (active: boolean) =>
-    `p-1.5 rounded transition-all duration-150 active:scale-95 shrink-0 ${active ? 'bg-gray-600' : 'hover:bg-gray-700'}`
+    `p-2 rounded transition-all duration-150 active:scale-95 shrink-0 ${active ? 'bg-gray-600' : 'hover:bg-gray-700'}`
 
   const isRed = editor.isActive('textStyle', { color: RED_COLOR })
 
@@ -102,7 +102,7 @@ export default function Notas() {
 
       <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
         {/* Toolbar */}
-        <div className="bg-gray-800 px-2 py-2 flex items-center gap-1 overflow-x-auto">
+        <div className="bg-gray-800 px-2 py-2 flex items-center gap-1.5 overflow-x-auto">
           <button
             type="button"
             onClick={() => editor.chain().focus().toggleBold().run()}
