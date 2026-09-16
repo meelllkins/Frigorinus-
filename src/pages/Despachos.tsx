@@ -71,6 +71,7 @@ export default function Despachos() {
   const [revertConfirm, setRevertConfirm] = useState<string | null>(null)
   const [reverting, setReverting] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const [search, setSearch] = useState('')
   const [proximosAArchivar, setProximosAArchivar] = useState(0)
   const [showArchivo, setShowArchivo] = useState(false)
@@ -281,10 +282,12 @@ export default function Despachos() {
   }
 
   async function handleEliminar(d: DespachoCon) {
+    setDeleting(true)
     await supabase.from('inventario_visceras').delete().eq('registro_id', d.registro_id)
     await supabase.from('despachos').delete().eq('id', d.id)
     await supabase.from('registros_beneficio').delete().eq('id', d.registro_id)
     setDeleteConfirm(null)
+    setDeleting(false)
     fetchDespachos()
   }
 
@@ -523,9 +526,10 @@ export default function Despachos() {
                         <span className="text-xs text-gray-500">¿Eliminar?</span>
                         <button
                           onClick={() => handleEliminar(d)}
-                          className="text-xs font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg px-3 py-1.5 transition-colors"
+                          disabled={deleting}
+                          className="text-xs font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg px-3 py-1.5 transition-all duration-200 active:scale-95 disabled:opacity-50"
                         >
-                          Sí
+                          {deleting ? '...' : 'Sí'}
                         </button>
                         <button
                           onClick={() => setDeleteConfirm(null)}
@@ -538,7 +542,7 @@ export default function Despachos() {
                       <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => { setDeleteConfirm(d.id); setRevertConfirm(null) }}
-                          className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-all duration-200 hover:scale-105 active:scale-95"
+                          className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200 hover:scale-105 active:scale-95"
                           title="Eliminar"
                         >
                           <Trash2 size={13} />

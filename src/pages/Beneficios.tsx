@@ -200,7 +200,6 @@ export default function Beneficio() {
   const [batchForm, setBatchForm] = useState(getInitialBatchForm)
   const [batchSaving, setBatchSaving] = useState(false)
   const [batchError, setBatchError] = useState('')
-  const [batchSuccess, setBatchSuccess] = useState('')
   const batchErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Enter salta al campo siguiente, igual que en el formulario individual: código ->
   // inicial -> final -> enviar. La fecha queda fuera de la cadena, como allá, porque viene
@@ -257,6 +256,10 @@ export default function Beneficio() {
   // Desposte es POR ANIMAL: booleano en individual, set de ids marcados en múltiple.
   const [despDesposte, setDespDesposte] = useState(false)
   const [despDesposteIds, setDespDesposteIds] = useState<Set<string>>(new Set())
+  // Plegado del bloque de Desposte por código, mismo patrón que despVisceraAbiertos
+  // (ver PLEGAR_VISCERAS_DESDE): con pocos códigos se ve todo abierto, con muchos
+  // arranca plegado para no abrumar la pantalla.
+  const [despDesposteAbiertos, setDespDesposteAbiertos] = useState<Set<string>>(new Set())
   // Media canal: solo en el despacho INDIVIDUAL (es una decisión por animal).
   const [despMediaCanal, setDespMediaCanal] = useState(false)
   const [visceraModal, setVisceraModal] = useState<{
@@ -434,7 +437,6 @@ export default function Beneficio() {
     setSearch('')
     setSelected(new Set())
     setBatchError('')
-    setBatchSuccess('')
     cancelEdit()
     if (errorTimerRef.current) clearTimeout(errorTimerRef.current)
     if (batchErrorTimerRef.current) clearTimeout(batchErrorTimerRef.current)
@@ -575,6 +577,7 @@ export default function Beneficio() {
         showError('El animal se registró, pero sus vísceras no se crearon correctamente. Contacta al administrador.')
       }
     }
+    showToast(`${activeTab === 'res' ? 'Res' : 'Cerdo'} ${form.codigo_cliente.trim()}-${form.numero_animal.trim()} registrado.`)
     setForm(getInitialForm())
     setSearch('')
     fetchRegistros()
@@ -585,7 +588,6 @@ export default function Beneficio() {
   async function handleBatchSubmit(e: React.FormEvent) {
     e.preventDefault()
     setBatchError('')
-    setBatchSuccess('')
 
     const inicial = parseInt(batchForm.numero_inicial)
     const final = parseInt(batchForm.numero_final)
@@ -642,7 +644,7 @@ export default function Beneficio() {
       }
     }
 
-    setBatchSuccess(`Se registraron ${inserted.length} animales correctamente.`)
+    showToast(`Se registraron ${inserted.length} animales correctamente.`)
     setBatchForm(getInitialBatchForm())
     setSearch('')
     setBatchSaving(false)
@@ -664,6 +666,13 @@ export default function Beneficio() {
     setDespPatas('')
     setDespDesposte(false)
     setDespDesposteIds(new Set())
+    // Mismo criterio de arranque que despVisceraAbiertos: pocos códigos, todo abierto.
+    const codigosDesposte = [...new Set(
+      registros.filter(r => selected.has(r.id)).map(r => r.codigo_cliente)
+    )]
+    setDespDesposteAbiertos(
+      codigosDesposte.length <= PLEGAR_VISCERAS_DESDE ? new Set(codigosDesposte) : new Set()
+    )
     setDespCabezaPatasPorCodigo({})
     setDespMediaCanal(false)
     setDespDireccionPorCodigo({})
@@ -732,6 +741,32 @@ export default function Beneficio() {
    */
   function toggleDesposteTodos() {
     setDespDesposteIds(desposteTodos ? new Set() : new Set(rayasDelLote.map(r => r.id)))
+  }
+
+  /**
+   * Rayas del lote agrupadas por CÓDIGO de cliente, mismo criterio que
+   * visceraGruposLote: Rafa decide desposte código por código, así que ese es el
+   * renglón que se pliega. Puramente de presentación — no cambia qué se guarda.
+   */
+  const desposteGruposLote = (() => {
+    const mapa = new Map<string, RegistroBeneficio[]>()
+    for (const r of rayasDelLote) {
+      const grupo = mapa.get(r.codigo_cliente)
+      if (grupo) grupo.push(r)
+      else mapa.set(r.codigo_cliente, [r])
+    }
+    return sortCodigos([...mapa.keys()]).map(codigo => ({ codigo, rayas: mapa.get(codigo)! }))
+  })()
+
+  /** Marca o desmarca de un golpe todas las rayas de un código, en el bloque de Desposte. */
+  function toggleDesposteGrupo(rayas: RegistroBeneficio[]) {
+    const todasMarcadas = rayas.every(r => despDesposteIds.has(r.id))
+    const next = new Set(despDesposteIds)
+    for (const r of rayas) {
+      if (todasMarcadas) next.delete(r.id)
+      else next.add(r.id)
+    }
+    setDespDesposteIds(next)
   }
 
   /**
@@ -852,6 +887,14 @@ export default function Beneficio() {
     if (next.has(codigo)) next.delete(codigo)
     else next.add(codigo)
     setDespVisceraAbiertos(next)
+  }
+
+  /** Igual que toggleVisceraAbierto, para el plegado del bloque de Desposte. */
+  function toggleDesposteAbierto(codigo: string) {
+    const next = new Set(despDesposteAbiertos)
+    if (next.has(codigo)) next.delete(codigo)
+    else next.add(codigo)
+    setDespDesposteAbiertos(next)
   }
 
   /** Rayas (animales) de un código dentro del lote seleccionado. Una raya = un registro. */
@@ -1532,25 +1575,66 @@ export default function Beneficio() {
                   </span>
                 )}
               </label>
-              <div className="max-h-[35vh] overflow-y-auto pr-1 space-y-1.5">
-                {rayasDelLote.map(r => (
-                  <label key={r.id} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={despDesposteIds.has(r.id)}
-                      onChange={() =>
-                        setDespDesposteIds(prev => {
-                          const next = new Set(prev)
-                          if (next.has(r.id)) next.delete(r.id)
-                          else next.add(r.id)
-                          return next
-                        })
-                      }
-                      className="w-4 h-4 rounded accent-green-700 cursor-pointer"
-                    />
-                    <span className="font-mono">{r.codigo_cliente}-{r.numero_animal}</span>
-                  </label>
-                ))}
+              {/* Agrupado y plegable por código, mismo patrón que la lista de Vísceras de
+                  arriba: con el lote entero desplegado de a un animal por renglón, un
+                  código de muchas rayas competía por la atención con el resto del modal. */}
+              <div className="max-h-[35vh] overflow-y-auto pr-1 space-y-2">
+                {desposteGruposLote.map(g => {
+                  const marcadas = g.rayas.filter(r => despDesposteIds.has(r.id)).length
+                  const todas = marcadas === g.rayas.length
+                  const abierto = despDesposteAbiertos.has(g.codigo)
+                  return (
+                    <div key={g.codigo} className="border border-gray-200 rounded-lg overflow-hidden">
+                      <div className="flex items-center gap-2 px-2.5 py-2 bg-gray-50">
+                        <input
+                          type="checkbox"
+                          checked={todas}
+                          ref={el => { if (el) el.indeterminate = marcadas > 0 && !todas }}
+                          onChange={() => toggleDesposteGrupo(g.rayas)}
+                          className="w-4 h-4 rounded accent-green-700 cursor-pointer shrink-0"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => toggleDesposteAbierto(g.codigo)}
+                          className="flex-1 flex items-center justify-between gap-2 text-left min-w-0"
+                        >
+                          <span className="text-sm font-semibold text-gray-800 font-mono">{g.codigo}</span>
+                          <span className="flex items-center gap-1.5 shrink-0">
+                            <span className="text-xs font-semibold text-gray-500">
+                              {marcadas}/{g.rayas.length}
+                            </span>
+                            <ChevronDown
+                              size={14}
+                              className={`text-gray-400 transition-transform duration-200 ${abierto ? 'rotate-180' : ''}`}
+                            />
+                          </span>
+                        </button>
+                      </div>
+                      {abierto && (
+                        <div className="px-2.5 py-2 space-y-1.5 border-t border-gray-100">
+                          {g.rayas.map(r => (
+                            <label key={r.id} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={despDesposteIds.has(r.id)}
+                                onChange={() =>
+                                  setDespDesposteIds(prev => {
+                                    const next = new Set(prev)
+                                    if (next.has(r.id)) next.delete(r.id)
+                                    else next.add(r.id)
+                                    return next
+                                  })
+                                }
+                                className="w-4 h-4 rounded accent-green-700 cursor-pointer"
+                              />
+                              <span className="font-mono">{r.codigo_cliente}-{r.numero_animal}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             </div>
             <div className="flex gap-3 justify-end">
@@ -1746,7 +1830,7 @@ export default function Beneficio() {
                     disabled={visceraDispatching || !despRuta}
                     className="px-4 py-2 text-sm font-semibold text-gray-700 border border-gray-300 rounded-lg transition-all duration-200 hover:bg-gray-50 disabled:opacity-50"
                   >
-                    Despachar canal solamente
+                    {visceraDispatching ? 'Despachando...' : 'Despachar canal solamente'}
                   </button>
                   <button
                     onClick={handleDespacharCanalYVisceras}
@@ -1934,16 +2018,6 @@ export default function Beneficio() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Fecha de beneficio</label>
-                <input
-                  type="date"
-                  value={batchForm.fecha_beneficio}
-                  onChange={e => setBatchForm({ ...batchForm, fecha_beneficio: e.target.value })}
-                  className={inputClass}
-                  required
-                />
-              </div>
-              <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1.5">Número animal inicial</label>
                 <input
                   ref={batchInicialRef}
@@ -1975,6 +2049,16 @@ export default function Beneficio() {
                   required
                 />
               </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Fecha de beneficio</label>
+                <input
+                  type="date"
+                  value={batchForm.fecha_beneficio}
+                  onChange={e => setBatchForm({ ...batchForm, fecha_beneficio: e.target.value })}
+                  className={inputClass}
+                  required
+                />
+              </div>
 
               {batchCount !== null && (
                 <p className="sm:col-span-2 text-sm text-gray-600 font-medium">
@@ -1984,9 +2068,6 @@ export default function Beneficio() {
               )}
               {batchError && (
                 <p className="sm:col-span-2 text-sm text-red-600 font-medium">{batchError}</p>
-              )}
-              {batchSuccess && (
-                <p className="sm:col-span-2 text-sm text-green-700 font-semibold">{batchSuccess}</p>
               )}
 
               <div className="sm:col-span-2">
@@ -2218,7 +2299,7 @@ export default function Beneficio() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-col items-end gap-1">
-                          <div className="flex items-center justify-end gap-2">
+                          <div className="flex items-center justify-end gap-3 sm:gap-2">
                             {deleteConfirm === r.id ? (
                               <>
                                 <span className="text-xs text-gray-500">¿Eliminar?</span>
@@ -2253,7 +2334,7 @@ export default function Beneficio() {
                                 </button>
                                 <button
                                   onClick={() => handleDespachar(r)}
-                                  className="flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-2 sm:px-3 py-1.5 transition-all duration-200 hover:scale-105 active:scale-95"
+                                  className="flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg px-2.5 sm:px-3 py-2 transition-all duration-200 hover:scale-105 active:scale-95"
                                 >
                                   <Truck size={12} />
                                   <span className="hidden sm:inline">Despachar</span>
