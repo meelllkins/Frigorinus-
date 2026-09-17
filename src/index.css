@@ -221,9 +221,9 @@
   }
 
   /* Las firmas van pegadas al cuadro, no empujadas con el margen de pantalla:
-     con las 5 filas base todo entra en una sola hoja horizontal. El
-     margin-top en cm va más abajo, junto con el resto de los ajustes para
-     que quepa en una sola hoja. */
+     con las 5 filas base todo entra en una sola hoja. El margin-top en cm va
+     más abajo, junto con el resto de los ajustes para que quepa en una sola
+     hoja. */
   #remision-imprimible .firmas-remision {
     page-break-inside: avoid;
     break-inside: avoid;
@@ -320,11 +320,18 @@
     margin-top: 0.6cm !important;
   }
 
-  /* Carta HORIZONTAL: es como Rafa imprime el talonario. Chromium (donde corre
-     la PWA) lo respeta y deja el diálogo ya en apaisado; Firefox históricamente
-     ignora `size`, y ahí hay que elegir horizontal a mano. */
+  /* Carta VERTICAL. Antes era apaisada (así imprimía Rafa el talonario) y se
+     volvió a vertical a pedido. Chromium (donde corre la PWA) respeta `size` y
+     deja el diálogo ya en vertical; Firefox históricamente lo ignora, pero ahí
+     vertical es el valor por defecto, así que tampoco hay que tocar nada.
+
+     El cambio es solo de orientación: la plantilla es la misma y la tabla, que
+     es `width: 100%` sin ancho mínimo en papel, se reacomoda sola a los ~20.4cm
+     útiles (antes ~26.7cm). Lo que se gana es alto —~26.7cm útiles contra
+     ~20.4cm—, así que las 6 filas por hoja de FILAS_POR_HOJA siguen entrando
+     sobradas: la hoja queda con aire abajo, nunca corta. */
   @page {
-    size: letter landscape;
+    size: letter portrait;
     margin: 0.6cm;
   }
 }
