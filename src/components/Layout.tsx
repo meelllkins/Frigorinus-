@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { Link, NavLink, Outlet } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { ClipboardList, AlertTriangle, Package, Truck, LogOut, Download, Trash2, NotebookPen, FileText } from 'lucide-react'
 
@@ -119,11 +119,13 @@ export default function Layout() {
           blanco arriba de la hoja. */}
       <header className="no-imprimir bg-white px-3 sm:px-6 py-3 flex items-center justify-between shadow-sm border-b border-gray-200">
         <div className="flex items-center gap-3">
-          <img
-            src="/logo-frigorinus-header.png"
-            alt="Frigorinus"
-            className="h-14 w-auto shrink-0"
-          />
+          <Link to="/" className="shrink-0">
+            <img
+              src="/logo-frigorinus-header.png"
+              alt="Frigorinus"
+              className="h-14 w-auto"
+            />
+          </Link>
           <div>
             <h1 className="text-base font-bold text-gray-900 tracking-wide leading-tight">Frigorinus</h1>
             <p className="text-xs text-gray-500 leading-tight hidden sm:block">Logística de planta</p>
