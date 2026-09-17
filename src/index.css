@@ -302,8 +302,8 @@
 
   /* ── Achicar el encabezado y el pie ───────────────────────────────────────
      Cuanto más chico el encabezado+pie repetidos, más filas entran por hoja
-     antes de necesitar una hoja nueva (ver FILAS_POR_HOJA_IMPRESION en
-     Remisiones.tsx, calculado justo con estas medidas). Los `mb-5`/`gap-3`
+     antes de necesitar una hoja nueva (ver FILAS_POR_HOJA en lib/remisiones.ts,
+     calculado justo con estas medidas). Los `mb-5`/`gap-3`
      de Tailwind (pensados para pantalla) no se tocan fuera de acá: en papel
      se acortan para ganar ese margen. */
   #remision-imprimible .encabezado-logo-remision,

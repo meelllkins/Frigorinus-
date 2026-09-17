@@ -17,9 +17,10 @@ import {
   contarFilasPorRemision,
   crearRemision,
   eliminarRemision,
+  FILAS_POR_HOJA,
   listarRemisiones,
   obtenerRemision,
-  proximoNumero,
+  proximoFolio,
   puedeEditarse,
   type Remision,
   type RemisionCompleta,
@@ -51,7 +52,10 @@ const FILAS_INICIALES = 5
 // completo mide ~7.6cm y el pie (TOTAL + firmas) ~3.3cm, sobran ~9.5cm — un
 // poco más de 6 filas a 1.2cm cada una. Se deja en 6 y no en el máximo
 // (7.9) para tener margen si alguna celda envuelve a dos líneas.
-const FILAS_POR_HOJA_IMPRESION = 6
+//
+// Vive en lib/remisiones.ts y se importa acá: es el MISMO número con el que se
+// reserva el rango de folios al crear, así que no puede haber dos copias en el
+// frontend. (La tercera copia inevitable está en el RPC, del lado de la base.)
 
 /** Parte un array en bloques de a lo sumo `porBloque` elementos, para armar
  *  una hoja impresa por bloque. Nunca vacío: sin filas, igual hay que
@@ -332,20 +336,21 @@ function CeldaFila({
 interface PropsModal {
   /** null = remisión nueva. */
   existente: RemisionCompleta | null
-  /** Solo para la nueva: número sugerido, o null si es la primera del talonario. */
-  numeroSugerido: number | null
+  /** Solo para la nueva: folio con el que arrancaría, o null si es la primera
+   *  de la historia y hay que pedírselo a Rafa. */
+  folioSugerido: number | null
   onCerrar: () => void
   onGuardado: (texto: string) => void
   onError: (texto: string) => void
   onInfo: (texto: string) => void
 }
 
-function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onError, onInfo }: PropsModal) {
+function ModalRemision({ existente, folioSugerido, onCerrar, onGuardado, onError, onInfo }: PropsModal) {
   const filasExistentes = existente?.filas.filter(f => !f.es_total) ?? []
   const totalExistente = existente?.filas.find(f => f.es_total) ?? null
 
-  const [numeroTexto, setNumeroTexto] = useState(
-    existente ? String(existente.remision.numero) : numeroSugerido != null ? String(numeroSugerido) : ''
+  const [folioTexto, setFolioTexto] = useState(
+    existente ? String(existente.remision.folio_inicio) : folioSugerido != null ? String(folioSugerido) : ''
   )
   const [fecha, setFecha] = useState(existente?.remision.fecha ?? HOY())
   const [conductor, setConductor] = useState(existente?.remision.conductor ?? '')
@@ -364,16 +369,17 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
   // El candado de R1: una remisión solo se toca el mismo día. Una nueva siempre
   // es de hoy, así que siempre entra editable.
   const editable = existente ? puedeEditarse(existente.remision.fecha) : true
-  // El número solo se teclea en la PRIMERA remisión de la historia: ahí
-  // proximoNumero() devuelve null y el folio lo pone Rafa desde su talonario.
-  const numeroEditable = !existente && numeroSugerido == null
+  // El folio solo se teclea en la PRIMERA remisión de la historia: ahí el
+  // contador todavía no está sembrado, proximoFolio() devuelve null y el
+  // número lo pone Rafa desde su talonario. El RPC siembra el contador con él.
+  const folioEditable = !existente && folioSugerido == null
 
   // Al abrir una archivada, se explica por qué no se puede tocar. Se avisa una
   // sola vez, al montar.
   useEffect(() => {
     if (existente && !puedeEditarse(existente.remision.fecha)) {
       onInfo(
-        `La remisión N° ${existente.remision.numero} es del ${existente.remision.fecha} y solo se podía modificar ese mismo día. Se puede ver e imprimir, pero no editar ni borrar.`
+        `La remisión N° ${existente.remision.folio_inicio} es del ${existente.remision.fecha} y solo se podía modificar ese mismo día. Se puede ver e imprimir, pero no editar ni borrar.`
       )
     }
   }, [existente, onInfo])
@@ -392,7 +398,7 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
   // Una hoja impresa por bloque de filas: ver la nota sobre `.hoja-impresion`
   // más abajo, donde se explica por qué esto se arma a mano en vez de
   // confiarle la repetición del encabezado/pie a thead/tfoot.
-  const bloquesImpresion = enBloques(filas, FILAS_POR_HOJA_IMPRESION)
+  const bloquesImpresion = enBloques(filas, FILAS_POR_HOJA)
 
   function aEntradas(): RemisionFilaEntrada[] {
     return [
@@ -415,24 +421,24 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
         firma_conductor: firmaConductor,
         filas: aEntradas(),
       })
-      if (r.ok) onGuardado(`Remisión N° ${existente.remision.numero} guardada.`)
+      if (r.ok) onGuardado(`Remisión N° ${existente.remision.folio_inicio} guardada.`)
       else onError(r.mensaje)
       return
     }
 
-    // Nueva. Con el campo editable (primera del talonario) el número es
-    // obligatorio: sin él no hay de dónde sacar el correlativo.
-    let numero: number | null = null
-    if (numeroEditable) {
-      const n = Number(numeroTexto.trim())
+    // Nueva. Con el campo editable (primera de la historia) el folio es
+    // obligatorio: sin él el contador no tiene con qué sembrarse.
+    let folioInicial: number | null = null
+    if (folioEditable) {
+      const n = Number(folioTexto.trim())
       if (!Number.isInteger(n) || n <= 0) {
         onError('Escribí el número de la remisión: es la primera y no hay correlativo anterior.')
         return
       }
-      numero = n
+      folioInicial = n
     }
     const r = await crearRemision({
-      numero,
+      folio_inicial: folioInicial,
       fecha,
       conductor,
       cedula,
@@ -441,7 +447,7 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
       firma_conductor: firmaConductor,
       filas: aEntradas(),
     })
-    if (r.ok) onGuardado(`Remisión N° ${r.numero} creada.`)
+    if (r.ok) onGuardado(`Remisión N° ${r.folio_inicio} creada.`)
     else onError(r.mensaje)
   }
 
@@ -449,22 +455,34 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
     if (!existente) return
     const r = await eliminarRemision(existente.remision.id)
     setConfirmandoBorrado(false)
-    if (r.ok) onGuardado(`Remisión N° ${existente.remision.numero} eliminada.`)
+    if (r.ok) onGuardado(`Remisión N° ${existente.remision.folio_inicio} eliminada.`)
     else onError(r.mensaje)
   }
 
-  const numeroMostrado = existente ? existente.remision.numero : numeroSugerido
+  const folioMostrado = existente ? existente.remision.folio_inicio : folioSugerido
 
-  // Folio de cada hoja impresa: la remisión guarda UN solo número (`numero`
-  // en la base), pero en papel cada hoja que Rafa arranca del talonario para
-  // una misma remisión larga es una hoja física distinta, con el siguiente
-  // número del talonario — no el mismo repetido. Por eso la hoja N (0 = la
-  // primera) imprime `folioBase + N`. Es solo para lo que se ve en el papel:
-  // no cambia el `numero` guardado ni lo que calcula proximoNumero() para la
-  // PRÓXIMA remisión, así que si esta remisión ocupa varias hojas, quien siga
-  // cargando datos debe tenerlo en cuenta al usar el talonario (el folio
-  // siguiente en la app puede coincidir con uno ya mostrado acá impreso).
-  const folioBaseImpresion = numeroEditable ? Number(numeroTexto) || null : numeroMostrado
+  // Folio de cada hoja impresa. En papel cada hoja que Rafa arranca del
+  // talonario para una misma remisión larga es una hoja física distinta, con
+  // el siguiente número — no el mismo repetido. Por eso la hoja N (0 = la
+  // primera) lleva `folio_inicio + N`.
+  //
+  // Para una remisión GUARDADA el folio sale de la base, del rango que se le
+  // reservó al crearla. Para una nueva todavía sin guardar es una vista previa
+  // con el folio sugerido: la reserva real la hace el RPC recién al guardar, y
+  // si en el medio entró otra remisión, el folio definitivo será otro.
+  const folioBaseImpresion = folioEditable ? Number(folioTexto) || null : folioMostrado
+
+  // Hojas efectivamente reservadas (null en una remisión nueva, que todavía no
+  // tiene reserva). El candado de actualizarRemision() impide que las filas
+  // crezcan más allá del rango, así que bloquesImpresion.length nunca debería
+  // superarlo; si por algún camino lo hiciera, la hoja de más se imprime SIN
+  // folio en vez de inventar uno que le pertenece a otra remisión.
+  const hojasReservadas = existente?.remision.hojas_reservadas ?? null
+  const folioDeHoja = (indice: number): number | null => {
+    if (folioBaseImpresion == null) return null
+    if (hojasReservadas != null && indice >= hojasReservadas) return null
+    return folioBaseImpresion + indice
+  }
 
   return (
     <div
@@ -519,17 +537,17 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
             </h2>
             <div className="flex items-center justify-center gap-1.5 text-red-600 sm:justify-end">
               <span className="text-lg font-bold">N°</span>
-              {numeroEditable ? (
+              {folioEditable ? (
                 <input
                   type="number"
                   min={1}
-                  value={numeroTexto}
-                  onChange={e => setNumeroTexto(e.target.value)}
+                  value={folioTexto}
+                  onChange={e => setFolioTexto(e.target.value)}
                   placeholder="folio"
                   className="folio-remision w-24 rounded-lg border-2 border-red-300 px-2 py-1 text-lg text-red-600 focus:border-red-500 focus:outline-none"
                 />
               ) : (
-                <span className="folio-remision text-lg">{numeroMostrado ?? '—'}</span>
+                <span className="folio-remision text-lg">{folioMostrado ?? '—'}</span>
               )}
             </div>
           </div>
@@ -664,7 +682,7 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
 
                Por eso se arma A MANO: cada `.hoja-impresion` de acá abajo es
                un bloque completo e independiente —encabezado entero + hasta
-               FILAS_POR_HOJA_IMPRESION filas + TOTAL + firmas— con un salto
+               FILAS_POR_HOJA filas + TOTAL + firmas— con un salto
                de página forzado entre bloques (ver @media print en
                index.css). Así el encabezado y el pie SIEMPRE salen enteros en
                cada hoja real, sin depender de ningún límite del navegador.
@@ -699,7 +717,7 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
                 <div className="flex items-center justify-center gap-1.5 text-red-600 sm:justify-end">
                   <span className="text-lg font-bold">N°</span>
                   <span className="folio-remision text-lg">
-                    {folioBaseImpresion != null ? folioBaseImpresion + iHoja : '—'}
+                    {folioDeHoja(iHoja) ?? '—'}
                   </span>
                 </div>
               </div>
@@ -805,7 +823,7 @@ function ModalRemision({ existente, numeroSugerido, onCerrar, onGuardado, onErro
 
       {confirmandoBorrado && existente && (
         <ModalConfirmar
-          titulo={`¿Eliminar la remisión N° ${existente.remision.numero}?`}
+          titulo={`¿Eliminar la remisión N° ${existente.remision.folio_inicio}?`}
           mensaje="Se borra el encabezado y todas sus filas. Esta acción no se puede deshacer."
           textoConfirmar="Sí, eliminar"
           onCancelar={() => setConfirmandoBorrado(false)}
@@ -823,7 +841,7 @@ export default function Remisiones() {
   const [conteos, setConteos] = useState<Record<string, number>>({})
   const [abierta, setAbierta] = useState<RemisionCompleta | null>(null)
   const [creando, setCreando] = useState(false)
-  const [numeroSugerido, setNumeroSugerido] = useState<number | null>(null)
+  const [folioSugerido, setFolioSugerido] = useState<number | null>(null)
   const [avisos, setAvisos] = useState<Aviso[]>([])
 
   const cerrarAviso = useCallback((id: number) => {
@@ -862,7 +880,7 @@ export default function Remisiones() {
   async function abrirNueva() {
     // Se consulta al abrir y no al montar: entre que se cargó la lista y que
     // Rafa hace click pudo entrar otra remisión desde otro dispositivo.
-    setNumeroSugerido(await proximoNumero())
+    setFolioSugerido(await proximoFolio())
     setCreando(true)
   }
 
@@ -954,7 +972,14 @@ export default function Remisiones() {
               <tbody className="divide-y divide-gray-100">
                 {lista.map((r, i) => (
                   <tr key={r.id} className={i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}>
-                    <td className="px-4 py-3 font-mono font-bold text-gray-900">{r.numero}</td>
+                    {/* El rango entero, no solo el primero: una remisión de
+                        varias hojas se llevó varios folios del talonario y
+                        desde la lista tiene que verse cuáles. */}
+                    <td className="px-4 py-3 font-mono font-bold text-gray-900">
+                      {r.hojas_reservadas > 1
+                        ? `${r.folio_inicio}–${r.folio_inicio + r.hojas_reservadas - 1}`
+                        : r.folio_inicio}
+                    </td>
                     <td className="px-4 py-3 text-gray-700">{r.fecha}</td>
                     <td className="px-4 py-3 text-gray-700">{r.conductor || '—'}</td>
                     <td className="px-4 py-3 text-gray-700">{r.placa || '—'}</td>
@@ -990,7 +1015,7 @@ export default function Remisiones() {
           // esto React reusa la instancia y quedan los campos de la anterior.
           key={abierta?.remision.id ?? 'nueva'}
           existente={abierta}
-          numeroSugerido={numeroSugerido}
+          folioSugerido={folioSugerido}
           onCerrar={cerrarModal}
           onGuardado={trasGuardar}
           onError={avisoError}

@@ -13,14 +13,21 @@ import { supabase } from './supabase'
 // como "V. Blancas 3 V. Rojas 3 Cabezas 3"). Ninguna se parsea como número.
 //
 // Dos reglas de negocio viven acá y no en la base:
-//   · el correlativo (ver proximoNumero / crearRemision);
+//   · el correlativo (ver proximoFolio / crearRemision);
 //   · el candado de edición: solo se puede tocar la remisión de HOY
 //     (ver puedeEditarse). Es lo único en este módulo que impide escribir.
 
 /** Encabezado de una remisión, tal como vuelve de la consulta. */
 export type Remision = {
   id: string
-  numero: number
+  /**
+   * PRIMER folio del rango que ocupa esta remisión. La hoja N impresa lleva
+   * `folio_inicio + N`, y el rango entero es
+   * [folio_inicio, folio_inicio + hojas_reservadas - 1].
+   */
+  folio_inicio: number
+  /** Cuántas hojas se le reservaron al crearla. No se recalcula nunca. */
+  hojas_reservadas: number
   fecha: string // YYYY-MM-DD
   conductor: string | null
   /** Cédula del conductor. TEXT: en el papel es un renglón a mano. */
@@ -63,12 +70,14 @@ export type RemisionFilaEntrada = {
 
 /**
  * Lo que escribe la pantalla para el encabezado + sus filas.
- * `numero` null = "asignalo vos": crearRemision() lo resuelve con
- * proximoNumero() justo antes de insertar. Con un número puesto, se respeta
- * (es el caso del arranque del talonario, donde Rafa teclea el folio).
+ *
+ * `folio_inicial` solo se usa en la PRIMERA remisión de la historia, cuando
+ * todavía no hay contador y Rafa teclea el folio de su talonario. De ahí en
+ * adelante va null y el folio lo asigna el contador del lado de la base — la
+ * pantalla ya no elige número.
  */
 export type RemisionEntrada = {
-  numero: number | null
+  folio_inicial: number | null
   fecha: string // YYYY-MM-DD
   conductor?: string | null
   cedula?: string | null
@@ -89,9 +98,39 @@ export type RemisionCompleta = { remision: Remision; filas: RemisionFila[] }
 export type ResultadoRemision = { ok: true } | { ok: false; mensaje: string }
 
 const COLS_ENCABEZADO =
-  'id, numero, fecha, conductor, cedula, placa, firma_responsable, firma_conductor, created_at'
+  'id, folio_inicio, hojas_reservadas, fecha, conductor, cedula, placa, firma_responsable, firma_conductor, created_at'
 const COLS_FILA =
   'id, remision_id, orden, cliente, producto, und_kg, canastillas, destino, firma_recibido, es_total'
+
+/**
+ * Cuántas filas de datos entran en una hoja impresa junto con el encabezado y
+ * el pie completos. La plantilla parte las filas en bloques de este tamaño —un
+ * bloque = una hoja— y la reserva de folios cuenta las hojas con el mismo
+ * número.
+ *
+ * ⚠️ Está DUPLICADO en remision_crear_con_folio() (SQL's/migracion_folios_
+ * remision.sql), que es quien reserva el rango del lado de la base. Si cambia
+ * el alto del encabezado o del pie y entra otra cantidad de filas por hoja,
+ * hay que cambiarlo en los dos lados o la reserva deja de coincidir con lo que
+ * sale en papel.
+ */
+export const FILAS_POR_HOJA = 6
+
+/**
+ * Cuántas hojas ocupa una remisión con esa cantidad de filas de CLIENTE (la
+ * fila TOTAL no cuenta: va en el pie, que se repite entero en cada hoja).
+ *
+ * Nunca menos de 1: una remisión sin filas igual se imprime, con su encabezado
+ * y sus firmas.
+ */
+export function hojasNecesarias(filasDeCliente: number): number {
+  return Math.max(1, Math.ceil(filasDeCliente / FILAS_POR_HOJA))
+}
+
+/** Las filas de cliente de un arreglo de entrada (sin la fila TOTAL). */
+function contarFilasDeCliente(filas: RemisionFilaEntrada[]): number {
+  return filas.filter(f => !f.es_total).length
+}
 
 /**
  * "Hoy" en fecha LOCAL, como YYYY-MM-DD. Misma función que usan Beneficios,
@@ -122,39 +161,39 @@ function mensajeCandado(fecha: string): string {
 }
 
 /**
- * El siguiente número del talonario, o null si todavía no hay ninguna remisión.
+ * El folio con el que arrancaría la próxima remisión, o null si el contador
+ * todavía no está sembrado (no se creó ninguna remisión nunca).
  *
- * El null es información, no un fallo: le dice a R2 que esta es la PRIMERÍSIMA
- * remisión y que tiene que mostrar el campo del número editable para que Rafa
- * teclee el folio donde va su talonario de papel. De ahí en adelante devuelve
- * MAX+1 y el campo va de solo lectura. Ningún número inicial está hardcodeado
- * ni acá ni en la base: el primero lo pone Rafa.
+ * El null es información, no un fallo: le dice a la pantalla que esta es la
+ * PRIMERÍSIMA remisión y que tiene que pedirle a Rafa el folio de su talonario
+ * de papel. De ahí en adelante el contador ya existe, el campo va de solo
+ * lectura y el número lo asigna la base. Ningún folio inicial está hardcodeado
+ * ni acá ni en la migración: el primero lo pone Rafa.
  *
- * Si la consulta FALLA también devuelve null, y eso es deliberado: es el
- * comportamiento seguro. Con null, R2 pide el número a mano en vez de asignar
- * uno inventado que podría pisar el correlativo real. El fallo queda en el log.
+ * Es solo para MOSTRAR. El folio de verdad lo reserva el RPC al crear, sobre
+ * la fila del contador bloqueada — entre que esto se consulta y que se guarda,
+ * otra remisión pudo llevarse el rango, y en ese caso lo que se guarda es el
+ * folio correcto, no este.
+ *
+ * Si la consulta falla también devuelve null: la pantalla pide el número a
+ * mano en vez de mostrar uno inventado. El fallo queda en el log.
  */
-export async function proximoNumero(): Promise<number | null> {
-  // order + limit 1 en vez de un MAX() agregado: PostgREST no expone agregados
-  // sin una vista o RPC, y el UNIQUE de `numero` ya tiene el índice que hace
-  // esta consulta instantánea.
+export async function proximoFolio(): Promise<number | null> {
   const { data, error } = await supabase
-    .from('remisiones')
-    .select('numero')
-    .order('numero', { ascending: false })
-    .limit(1)
+    .from('contador_folios')
+    .select('siguiente_folio')
+    .maybeSingle()
 
   if (error) {
-    console.error('[remisiones] Error consultando el último número:', error)
+    console.error('[remisiones] Error consultando el contador de folios:', error)
     return null
   }
 
-  const ultimo = data?.[0]?.numero
-  return typeof ultimo === 'number' ? ultimo + 1 : null
+  return (data as { siguiente_folio: number } | null)?.siguiente_folio ?? null
 }
 
 /**
- * Lista de encabezados (sin filas) ordenada por numero DESC, para la vista
+ * Lista de encabezados (sin filas) ordenada por folio DESC, para la vista
  * lista/archivo de R2/R3. El filtro de fechas es inclusivo en los dos extremos
  * y cada extremo es opcional: sin filtro trae todo el archivo.
  *
@@ -170,7 +209,7 @@ export async function listarRemisiones(
   if (filtro?.desde) q = q.gte('fecha', filtro.desde)
   if (filtro?.hasta) q = q.lte('fecha', filtro.hasta)
 
-  const { data, error } = await q.order('numero', { ascending: false })
+  const { data, error } = await q.order('folio_inicio', { ascending: false })
 
   if (error) {
     console.error('[remisiones] Error listando remisiones:', error)
@@ -259,26 +298,6 @@ function celdasFila(f: RemisionFilaEntrada, orden: number) {
   }
 }
 
-function filasParaInsertar(remisionId: string, filas: RemisionFilaEntrada[]) {
-  return filas.map((f, orden) => ({ remision_id: remisionId, ...celdasFila(f, orden) }))
-}
-
-/** Inserta las filas de una remisión ya creada. Devuelve el mensaje si falla. */
-async function insertarFilas(
-  remisionId: string,
-  filas: RemisionFilaEntrada[]
-): Promise<string | null> {
-  if (filas.length === 0) return null
-  const { error } = await supabase
-    .from('remisiones_filas')
-    .insert(filasParaInsertar(remisionId, filas))
-  if (error) {
-    console.error('[remisiones] Error insertando las filas:', error)
-    return error.message
-  }
-  return null
-}
-
 /**
  * Reemplaza TODAS las filas de una remisión ya creada, en una sola
  * transacción del lado de Postgres (RPC `remision_reemplazar_filas`, ver
@@ -306,103 +325,57 @@ async function reemplazarFilas(
   return null
 }
 
-/** Código de Postgres para violación de UNIQUE — el choque del correlativo. */
-const COD_UNIQUE_VIOLADO = '23505'
-
 /**
- * Crea una remisión: encabezado + filas.
+ * Crea una remisión —encabezado, filas y reserva del rango de folios— en UNA
+ * sola transacción del lado de Postgres (RPC `remision_crear_con_folio`, ver
+ * SQL's/migracion_folios_remision.sql).
  *
- * El correlativo: si `numero` viene null se resuelve con proximoNumero() justo
- * antes de insertar (no antes, para que la ventana sea lo más corta posible).
- * Si la tabla está vacía y además viene null, no hay de dónde sacarlo y se
- * rechaza pidiendo el número a mano — es el caso del arranque del talonario, y
- * R2 no debería llegar acá porque proximoNumero() ya le dijo que lo pregunte.
+ * EL RANGO DE FOLIOS: la remisión no ocupa un número sino un tramo, porque en
+ * papel cada hoja que Rafa arranca del talonario es un folio distinto. El RPC
+ * cuenta las filas de cliente, calcula las hojas con el mismo criterio que
+ * hojasNecesarias() de acá arriba, y avanza el contador ese tanto — todo con
+ * la fila del contador bloqueada (FOR UPDATE), así que dos creaciones
+ * simultáneas no pueden llevarse el mismo tramo.
  *
- * LA CARRERA DEL CORRELATIVO: MAX+1 se lee y después se inserta, así que dos
- * guardados casi simultáneos pueden calcular el mismo número. El UNIQUE de la
- * base es el árbitro —el segundo INSERT falla con 23505 en vez de duplicar— y
- * acá se reintenta UNA vez recalculando. Con un solo usuario (Rafa, una
- * remisión a la vez, un dispositivo) la ventana real es de milisegundos y solo
- * se abriría con dos pestañas guardando juntas; el reintento la absorbe sin que
- * él vea nada. Si hiciera falta más, el paso sería una SEQUENCE o un RPC que
- * inserte con el MAX+1 calculado del lado del servidor.
+ * Por eso ya no hay MAX+1 ni reintento por choque de UNIQUE: no hay carrera
+ * que perder. Y tampoco hay rollback manual del encabezado —como cuando esto
+ * eran dos llamadas separadas—, porque si las filas fallan Postgres deshace la
+ * transacción entera, incluido el avance del contador.
  *
- * Si el encabezado entra y las filas fallan, se borra el encabezado: una
- * remisión sin filas es un número quemado del talonario y un documento vacío en
- * el archivo. Mejor que el guardado falle entero y Rafa lo repita.
+ * El folio inicial solo viaja en la PRIMERA remisión de la historia, cuando el
+ * contador todavía no está sembrado; el RPC lo usa para sembrarlo. De ahí en
+ * adelante `datos.folio_inicial` va null y el número lo decide la base.
  *
  * No lanza: el fallo vuelve en el resultado.
  */
 export async function crearRemision(
   datos: RemisionEntrada
-): Promise<{ ok: true; id: string; numero: number } | { ok: false; mensaje: string }> {
-  const base = {
-    fecha: datos.fecha,
-    conductor: datos.conductor || null,
-    cedula: datos.cedula || null,
-    placa: datos.placa || null,
-    firma_responsable: datos.firma_responsable || null,
-    firma_conductor: datos.firma_conductor || null,
+): Promise<
+  | { ok: true; id: string; folio_inicio: number; hojas_reservadas: number }
+  | { ok: false; mensaje: string }
+> {
+  const { data, error } = await supabase.rpc('remision_crear_con_folio', {
+    p_fecha: datos.fecha,
+    p_filas: datos.filas.map((f, orden) => celdasFila(f, orden)),
+    p_conductor: datos.conductor || null,
+    p_cedula: datos.cedula || null,
+    p_placa: datos.placa || null,
+    p_firma_responsable: datos.firma_responsable || null,
+    p_firma_conductor: datos.firma_conductor || null,
+    p_folio_inicial: datos.folio_inicial ?? null,
+  })
+
+  if (error) {
+    console.error('[remisiones] Error creando la remisión:', error)
+    return { ok: false, mensaje: error.message }
   }
 
-  // Dos intentos: el segundo es para el choque de UNIQUE descrito arriba.
-  for (let intento = 0; intento < 2; intento++) {
-    let numero = datos.numero
-    if (numero == null) {
-      numero = await proximoNumero()
-      if (numero == null) {
-        return {
-          ok: false,
-          mensaje:
-            'No hay remisiones anteriores de donde sacar el número. Escribí el número de la primera remisión del talonario.',
-        }
-      }
-    }
-
-    const { data, error } = await supabase
-      .from('remisiones')
-      .insert({ ...base, numero })
-      .select('id, numero')
-      .single()
-
-    if (error) {
-      // Solo reintentar si el número lo puso la app: si Rafa lo tecleó y ya
-      // existe, reintentar le cambiaría el folio por debajo sin avisarle.
-      const choque = error.code === COD_UNIQUE_VIOLADO
-      if (choque && datos.numero == null && intento === 0) {
-        console.warn('[remisiones] El número', numero, 'ya existía; recalculando y reintentando.')
-        continue
-      }
-      console.error('[remisiones] Error creando la remisión:', error)
-      return {
-        ok: false,
-        mensaje: choque
-          ? `La remisión número ${numero} ya existe.`
-          : error.message,
-      }
-    }
-
-    const creada = data as { id: string; numero: number }
-    const errFilas = await insertarFilas(creada.id, datos.filas)
-    if (errFilas) {
-      // Rollback manual: las filas que hayan entrado se van por CASCADE.
-      const { error: errLimpieza } = await supabase.from('remisiones').delete().eq('id', creada.id)
-      if (errLimpieza) {
-        console.error(
-          '[remisiones] Las filas fallaron y tampoco se pudo deshacer el encabezado',
-          creada.numero,
-          errLimpieza
-        )
-      }
-      return { ok: false, mensaje: errFilas }
-    }
-
-    return { ok: true, id: creada.id, numero: creada.numero }
-  }
-
+  const creada = data as { id: string; folio_inicio: number; hojas_reservadas: number }
   return {
-    ok: false,
-    mensaje: 'No se pudo asignar un número libre para la remisión. Volvé a intentar.',
+    ok: true,
+    id: creada.id,
+    folio_inicio: creada.folio_inicio,
+    hojas_reservadas: creada.hojas_reservadas,
   }
 }
 
@@ -422,15 +395,22 @@ export async function crearRemision(
  * si el insert de las filas nuevas fallara, el delete de las viejas también
  * se deshace, y no puede quedar a medias de forma inconsistente.
  *
- * `numero` no se toca nunca: el folio ya está escrito en el papel.
+ * `folio_inicio` y `hojas_reservadas` no se tocan NUNCA: el rango se reservó
+ * al crear y los folios ya podrían estar impresos en papel.
+ *
+ * EL SEGUNDO CANDADO: si las filas nuevas necesitaran más hojas de las
+ * reservadas, se rechaza. No se amplía el rango porque los folios que siguen
+ * ya se los llevó otra remisión —el contador avanzó— y estirarlo pisaría hojas
+ * ajenas. Quitar filas sí se permite: deja hojas reservadas sin usar, que es el
+ * precio aceptado de reservar por adelantado.
  */
 export async function actualizarRemision(
   id: string,
-  datos: Omit<RemisionEntrada, 'numero'>
+  datos: Omit<RemisionEntrada, 'folio_inicial'>
 ): Promise<ResultadoRemision> {
   const { data: actual, error: errLectura } = await supabase
     .from('remisiones')
-    .select('fecha')
+    .select('fecha, hojas_reservadas')
     .eq('id', id)
     .maybeSingle()
 
@@ -440,12 +420,24 @@ export async function actualizarRemision(
   }
   if (!actual) return { ok: false, mensaje: 'La remisión ya no existe.' }
 
-  const fechaGuardada = (actual as { fecha: string }).fecha
-  if (!puedeEditarse(fechaGuardada)) {
+  const guardada = actual as { fecha: string; hojas_reservadas: number }
+  if (!puedeEditarse(guardada.fecha)) {
     // Rechazo, no error de sistema: es la regla funcionando. Sale como warn
     // para que no se confunda con un fallo en el log.
-    console.warn('[remisiones] Edición bloqueada por fecha:', id, fechaGuardada)
-    return { ok: false, mensaje: mensajeCandado(fechaGuardada) }
+    console.warn('[remisiones] Edición bloqueada por fecha:', id, guardada.fecha)
+    return { ok: false, mensaje: mensajeCandado(guardada.fecha) }
+  }
+
+  const hojas = hojasNecesarias(contarFilasDeCliente(datos.filas))
+  if (hojas > guardada.hojas_reservadas) {
+    console.warn(
+      '[remisiones] Edición bloqueada por hojas:', id,
+      'necesita', hojas, 'reservadas', guardada.hojas_reservadas
+    )
+    return {
+      ok: false,
+      mensaje: `Esta remisión ya tiene ${guardada.hojas_reservadas} ${guardada.hojas_reservadas === 1 ? 'hoja reservada' : 'hojas reservadas'} — para más filas, creá una remisión nueva.`,
+    }
   }
 
   const { error: errCab } = await supabase
