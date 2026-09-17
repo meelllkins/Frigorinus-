@@ -117,12 +117,12 @@ export default function Layout() {
       {/* `no-imprimir` en el header y la nav: al imprimir (hoy solo la remisión)
           el cromo de la app no va al papel, y sobre todo no deja su alto en
           blanco arriba de la hoja. */}
-      <header className="no-imprimir bg-white px-3 sm:px-6 py-4 flex items-center justify-between shadow-sm border-b border-gray-200">
+      <header className="no-imprimir bg-white px-3 sm:px-6 py-3 flex items-center justify-between shadow-sm border-b border-gray-200">
         <div className="flex items-center gap-3">
           <img
-            src="/logo-frigorinus-color.png"
+            src="/logo-frigorinus-header.png"
             alt="Frigorinus"
-            className="w-10 h-10 rounded-lg shrink-0 object-contain"
+            className="h-14 w-auto shrink-0"
           />
           <div>
             <h1 className="text-base font-bold text-gray-900 tracking-wide leading-tight">Frigorinus</h1>
@@ -166,7 +166,7 @@ export default function Layout() {
       </header>
 
       <nav className="no-imprimir bg-white shadow-sm border-b border-gray-200 px-1 sm:px-6">
-        <div className="flex">
+        <div className="flex justify-center">
           {[
             { to: '/', label: 'Inventario Actual', icon: ClipboardList },
             { to: '/cobros', label: 'Cobros de Frío', icon: AlertTriangle },
