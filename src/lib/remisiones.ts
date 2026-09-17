@@ -246,9 +246,8 @@ export async function obtenerRemision(id: string): Promise<RemisionCompleta | nu
 }
 
 /** Normaliza las celdas de entrada a las columnas de la tabla. '' -> null. */
-function filasParaInsertar(remisionId: string, filas: RemisionFilaEntrada[]) {
-  return filas.map((f, orden) => ({
-    remision_id: remisionId,
+function celdasFila(f: RemisionFilaEntrada, orden: number) {
+  return {
     orden, // la posición en el arreglo ES el orden; la pantalla no lo manda
     cliente: f.cliente || null,
     producto: f.producto || null,
@@ -257,7 +256,11 @@ function filasParaInsertar(remisionId: string, filas: RemisionFilaEntrada[]) {
     destino: f.destino || null,
     firma_recibido: f.firma_recibido || null,
     es_total: f.es_total ?? false,
-  }))
+  }
+}
+
+function filasParaInsertar(remisionId: string, filas: RemisionFilaEntrada[]) {
+  return filas.map((f, orden) => ({ remision_id: remisionId, ...celdasFila(f, orden) }))
 }
 
 /** Inserta las filas de una remisión ya creada. Devuelve el mensaje si falla. */
@@ -271,6 +274,33 @@ async function insertarFilas(
     .insert(filasParaInsertar(remisionId, filas))
   if (error) {
     console.error('[remisiones] Error insertando las filas:', error)
+    return error.message
+  }
+  return null
+}
+
+/**
+ * Reemplaza TODAS las filas de una remisión ya creada, en una sola
+ * transacción del lado de Postgres (RPC `remision_reemplazar_filas`, ver
+ * SQL's/migracion_remisiones_reemplazar_filas.sql).
+ *
+ * Por qué RPC y no un delete()+insert() desde acá: supabase-js no expone
+ * BEGIN/COMMIT al cliente, cada llamada es su propia transacción. Si el
+ * borrado entrara y el insert fallara a mitad de camino en dos llamadas
+ * separadas, la remisión quedaría sin filas. Empaquetado en una función, si
+ * el INSERT lanza excepción Postgres deshace también el DELETE: no se pierde
+ * lo que ya estaba.
+ */
+async function reemplazarFilas(
+  remisionId: string,
+  filas: RemisionFilaEntrada[]
+): Promise<string | null> {
+  const { error } = await supabase.rpc('remision_reemplazar_filas', {
+    p_remision_id: remisionId,
+    p_filas: filas.map((f, orden) => celdasFila(f, orden)),
+  })
+  if (error) {
+    console.error('[remisiones] Error reemplazando las filas:', error)
     return error.message
   }
   return null
@@ -385,11 +415,12 @@ export async function crearRemision(
  * mandar una fecha vieja no puede saltarse el candado, y cambiarla tampoco lo
  * reabre (se valida contra la fecha guardada antes de tocar nada).
  *
- * Las filas se reemplazan (borrar + insertar) y no se hace diff: son texto
- * libre sin identidad propia —una celda corregida y una fila nueva son lo
- * mismo— y el orden se recalcula entero. Es la misma decisión que
- * guardarOrdenSeccion() en ordenDocumento.ts: reescribir todo es una sola
- * escritura y no puede quedar a medias de forma inconsistente.
+ * Las filas se reemplazan (borrar + insertar, ver reemplazarFilas) y no se
+ * hace diff: son texto libre sin identidad propia —una celda corregida y una
+ * fila nueva son lo mismo— y el orden se recalcula entero. El reemplazo pasa
+ * entero por una función de Postgres (RPC) para que sea una sola transacción:
+ * si el insert de las filas nuevas fallara, el delete de las viejas también
+ * se deshace, y no puede quedar a medias de forma inconsistente.
  *
  * `numero` no se toca nunca: el folio ya está escrito en el papel.
  */
@@ -434,18 +465,7 @@ export async function actualizarRemision(
     return { ok: false, mensaje: errCab.message }
   }
 
-  const { error: errBorrado } = await supabase
-    .from('remisiones_filas')
-    .delete()
-    .eq('remision_id', id)
-
-  if (errBorrado) {
-    // Se corta acá: seguir con el insert duplicaría las filas en pantalla.
-    console.error('[remisiones] Error borrando las filas viejas:', errBorrado)
-    return { ok: false, mensaje: errBorrado.message }
-  }
-
-  const errFilas = await insertarFilas(id, datos.filas)
+  const errFilas = await reemplazarFilas(id, datos.filas)
   if (errFilas) return { ok: false, mensaje: errFilas }
 
   return { ok: true }
