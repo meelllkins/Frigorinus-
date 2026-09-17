@@ -66,3 +66,265 @@
   animation: slideDown 200ms ease-out;
 }
 
+/* ── Tipografía del formato de remisión ────────────────────────────────────
+   FUERA del @media print a propósito: el formato tiene que verse igual en
+   pantalla que en el papel.
+
+   Los stacks son de fuentes que ya están en cualquier Windows o Mac: el equipo
+   de Rafa no instala nada, y si la primera no estuviera cae a la genérica del
+   final sin cambiar la maqueta. */
+#remision-imprimible {
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* El folio va en Courier Bold y no en Arial: el número de un talonario está
+   impreso con matriz, y el ancho fijo de la monoespaciada es lo que le da ese
+   aire. El rojo lo pone la clase de Tailwind en el componente. */
+.folio-remision {
+  font-family: 'Courier New', Courier, monospace;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+/* La versión de solo lectura de la plantilla, paginada a mano para imprimir
+   (ver la nota grande en Remisiones.tsx sobre `.hoja-impresion`): no va en
+   pantalla, donde se ve y se llena la plantilla interactiva de arriba. Se
+   muestra únicamente dentro de @media print, más abajo. */
+.solo-impresion {
+  display: none;
+}
+
+/* ── Impresión de la remisión ──────────────────────────────────────────────
+   Al imprimir tiene que salir SOLO la plantilla, sin el header, la nav, la
+   lista ni los botones del modal.
+
+   Se oculta con `visibility` y no con `display: none`: display sacaría los
+   contenedores del flujo y la tabla de la plantilla —que vive adentro de
+   varios de ellos— perdería su ancho y su layout. Con visibility los
+   ancestros siguen ocupando su lugar pero no pintan nada, y después se
+   vuelven visibles solo la plantilla y su contenido.
+
+   El contenedor se posiciona en el origen para que no arrastre el margen
+   que tenía el modal en pantalla. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  #remision-imprimible,
+  #remision-imprimible * {
+    visibility: visible;
+  }
+
+  /* El overlay del modal es `fixed`, y un elemento fijo se imprime SOLO en la
+     primera página: una remisión con muchas filas saldría cortada. En papel se
+     lo devuelve al flujo normal, junto con su scroll y su fondo. */
+  .overlay-remision {
+    position: static !important;
+    display: block !important;
+    overflow: visible !important;
+    background: none !important;
+    padding: 0 !important;
+  }
+
+  #remision-imprimible {
+    position: static;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    border-radius: 0;
+    box-shadow: none;
+    max-height: none;
+    overflow: visible;
+  }
+
+  /* El `<div class="min-h-screen">` de Layout.tsx envuelve TODA la app y
+     fuerza `min-height: 100vh` (una hoja completa) incluso al imprimir.
+     Header, nav y la lista de remisiones se ocultan con `.no-imprimir`
+     (display:none), pero ese alto mínimo del contenedor RAÍZ seguía
+     reservado por dentro, como sobrante en blanco después de la plantilla —
+     y ese sobrante era lo que arrastraba una segunda hoja vacía aunque la
+     remisión entrara sobrada en una sola. Confirmado armando la plantilla
+     real en Edge headless: con esto en 0, 5 filas imprimen en una sola hoja.
+     Va acá y no en Layout.tsx (fuera del alcance de este cambio) porque
+     alcanza con anular la clase solo durante la impresión. */
+  .min-h-screen {
+    min-height: 0 !important;
+  }
+
+  /* Lo que no va al papel: el header y la nav de la app, el título y la lista
+     de remisiones, y dentro de la plantilla los botones de acción, el
+     "+ Agregar fila" y la X de cerrar.
+
+     Va con `display: none` y no con `visibility`: ocultar por visibilidad deja
+     el hueco: el header, la nav y la lista seguían reservando su alto y
+     empujaban la plantilla a media hoja y a una segunda página. Acá sí se puede
+     sacar del flujo porque son HERMANOS de la plantilla, no ancestros suyos:
+     los contenedores que le dan el ancho quedan intactos. */
+  .no-imprimir {
+    display: none !important;
+  }
+
+  /* El <main> del Layout: su padding y su ancho máximo son de pantalla. En papel
+     el área útil ya la define @page y no hace falta acotarla otra vez. */
+  main {
+    padding: 0 !important;
+    max-width: none !important;
+  }
+
+  /* Los inputs se imprimen como texto: sin borde de control ni fondo gris. Se
+     les deja un respiro horizontal para que lo escrito no toque la raya de la
+     celda; vertical no, de eso se encarga el alto de renglón. */
+  #remision-imprimible input {
+    border: none !important;
+    background: transparent !important;
+    padding: 0 0.15cm !important;
+    color: #000 !important;
+  }
+
+  /* Una fila del cuadro nunca se parte entre hojas. */
+  #remision-imprimible tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* ── Una hoja impresa por bloque de filas ────────────────────────────────
+     Probamos que un <thead>/<tfoot> que se repita solo en cada hoja (vía
+     `display: table-header-group`/`table-footer-group`) deja de funcionar en
+     Chromium cuando el grupo repetido supera ~4cm de alto: lo confirmamos
+     armando la plantilla real en Edge headless e imprimiéndola a PDF, y el
+     encabezado completo (logo + datos + título + campos) mide ~7,6cm — muy
+     por encima de ese límite. El navegador simplemente lo pinta una vez y
+     sigue de largo, sin avisar.
+
+     Por eso Remisiones.tsx arma cada `.hoja-impresion` A MANO: un bloque
+     completo e independiente por cada tanda de filas (encabezado entero +
+     filas + TOTAL + firmas), y acá solo hace falta forzar el salto de
+     página ENTRE bloques — el navegador ya no tiene que repetir nada solo. */
+  .solo-impresion {
+    display: block;
+  }
+
+  .hoja-impresion {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    page-break-after: always;
+    break-after: page;
+  }
+
+  /* Sin esto, la última hoja deja una página en blanco después: el salto de
+     página de arriba es ENTRE bloques, no un cierre después del último. */
+  .hoja-impresion:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+
+  /* Las firmas van pegadas al cuadro, no empujadas con el margen de pantalla:
+     con las 5 filas base todo entra en una sola hoja horizontal. El
+     margin-top en cm va más abajo, junto con el resto de los ajustes para
+     que quepa en una sola hoja. */
+  #remision-imprimible .firmas-remision {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* ── Que llene la hoja ────────────────────────────────────────────────────
+     Las medidas van en cm y pt, no en vw/vh: en papel son medidas físicas y
+     dan el mismo resultado siempre, mientras que Chromium resuelve las
+     unidades de viewport contra la ventana de pantalla al imprimir y el
+     tamaño cambia según cómo esté la ventana. */
+
+  /* El scroll horizontal del cuadro es de pantalla chica; en papel estorba,
+     porque recortaría la tabla en vez de dejarla fluir. */
+  #remision-imprimible .overflow-x-auto {
+    overflow: visible !important;
+  }
+
+  #remision-imprimible table {
+    width: 100%;
+    min-width: 0;
+    page-break-inside: auto;
+  }
+
+  /* Los fondos grises del encabezado del cuadro y de la fila TOTAL son parte
+     del formulario, no decoración: sin esto el navegador los descarta. */
+  #remision-imprimible {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  /* Alto de renglón: MÍNIMO y no fijo, para que una celda con texto largo
+     (p. ej. Canastillas envuelto en dos líneas) pueda crecer en vez de
+     recortarse — igual que en pantalla (ver CeldaFila en Remisiones.tsx).
+     1.2cm es también el alto que hace falta para escribir a mano encima. */
+  .hoja-impresion tbody td {
+    min-height: 1.2cm;
+  }
+
+  .celda-impresion {
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+
+  /* Tipografías en pt, que es la unidad del papel. */
+  #remision-imprimible th {
+    font-size: 9.5pt;
+  }
+
+  #remision-imprimible td,
+  #remision-imprimible input {
+    font-size: 11pt;
+  }
+
+  #remision-imprimible h2 {
+    font-size: 16pt;
+  }
+
+  /* El aviso al conductor dentro de la fila TOTAL: chico a propósito, es letra
+     de pie de formulario. */
+  #remision-imprimible td p {
+    font-size: 8pt;
+  }
+
+  /* El logo. A 3.6cm impresos (bajado de 4.5cm) todavía da ~400 dpi y sale
+     nítido, y libera alto de hoja para que 5 filas o menos entren en una
+     sola página junto con el resto del encabezado y las firmas. */
+  .logo-remision {
+    width: 3.6cm !important;
+    height: auto;
+  }
+
+  /* El folio impreso, del tamaño de un número de talonario. */
+  #remision-imprimible .folio-remision {
+    font-size: 15pt;
+  }
+
+  /* ── Achicar el encabezado y el pie ───────────────────────────────────────
+     Cuanto más chico el encabezado+pie repetidos, más filas entran por hoja
+     antes de necesitar una hoja nueva (ver FILAS_POR_HOJA_IMPRESION en
+     Remisiones.tsx, calculado justo con estas medidas). Los `mb-5`/`gap-3`
+     de Tailwind (pensados para pantalla) no se tocan fuera de acá: en papel
+     se acortan para ganar ese margen. */
+  #remision-imprimible .encabezado-logo-remision,
+  #remision-imprimible .titulo-remision,
+  #remision-imprimible .campos-remision {
+    margin-bottom: 0.25cm !important;
+  }
+
+  #remision-imprimible .campos-remision {
+    gap: 0.15cm !important;
+  }
+
+  #remision-imprimible .firmas-remision {
+    margin-top: 0.6cm !important;
+  }
+
+  /* Carta HORIZONTAL: es como Rafa imprime el talonario. Chromium (donde corre
+     la PWA) lo respeta y deja el diálogo ya en apaisado; Firefox históricamente
+     ignora `size`, y ahí hay que elegir horizontal a mano. */
+  @page {
+    size: letter landscape;
+    margin: 0.6cm;
+  }
+}
