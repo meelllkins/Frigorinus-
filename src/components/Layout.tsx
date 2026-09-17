@@ -3,6 +3,48 @@ import { Link, NavLink, Outlet } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { ClipboardList, AlertTriangle, Package, Truck, LogOut, Download, Trash2, NotebookPen, FileText, FileSignature } from 'lucide-react'
 
+const NAV_ITEMS = [
+  { to: '/', label: 'Inventario Actual', icon: ClipboardList },
+  { to: '/cobros', label: 'Cobros de Frío', icon: AlertTriangle },
+  { to: '/inventario', label: 'Vísceras', icon: Package },
+  { to: '/despachos', label: 'Despachos', icon: Truck },
+  { to: '/notas', label: 'Notas', icon: NotebookPen },
+  { to: '/documento', label: 'Documento de ruta', icon: FileText },
+  { to: '/remisiones', label: 'Remisiones', icon: FileSignature },
+]
+
+/**
+ * Los 7 links de navegación, compartidos entre la barra de mobile/tablet (su
+ * propia franja de ancho completo, debajo del header) y la fila fusionada de
+ * desktop (columna central de un grid). El texto del label recién aparece
+ * desde `xl` (1280px): con las 7 etiquetas completas + logo + acciones no
+ * entran en una sola fila por debajo de eso (ver la fila fusionada más abajo);
+ * de mobile a `lg` el nav se guía solo por ícono.
+ */
+function NavLinks() {
+  return (
+    <>
+      {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
+        <NavLink
+          key={to}
+          to={to}
+          end={to === '/'}
+          className={({ isActive }) =>
+            `flex items-center gap-1.5 px-2 xl:px-3 py-3.5 text-sm font-semibold border-b-2 whitespace-nowrap transition-all duration-200 ${
+              isActive
+                ? 'border-green-700 text-green-800 bg-green-50'
+                : 'border-transparent text-gray-500 hover:text-gray-800 hover:bg-gray-50'
+            }`
+          }
+        >
+          <Icon size={15} />
+          <span className="hidden xl:inline">{label}</span>
+        </NavLink>
+      ))}
+    </>
+  )
+}
+
 export default function Layout() {
   const [showResetModal, setShowResetModal] = useState(false)
   const [confirmText, setConfirmText] = useState('')
@@ -53,6 +95,47 @@ export default function Layout() {
   }
 
   const canReset = confirmText === 'RESETEAR'
+
+  /** Los 4 botones de acción del header, iguales en el bloque de mobile/tablet
+   *  y en la fila fusionada de desktop — evita mantener dos copias del JSX. */
+  function renderAcciones() {
+    return (
+      <>
+        <button
+          onClick={() => setShowResetModal(true)}
+          className="flex items-center gap-2 text-sm text-gray-500 hover:text-red-600 transition-all duration-200 active:scale-95 px-2 py-1.5 rounded-lg hover:bg-gray-100"
+        >
+          <Trash2 size={15} />
+          <span className="hidden sm:inline text-xs font-medium">Resetear</span>
+        </button>
+        {installPrompt && (
+          <button
+            onClick={handleInstall}
+            className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-900 transition-all duration-200 active:scale-95 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-gray-100"
+          >
+            <Download size={15} />
+            <span className="hidden sm:inline">Instalar app</span>
+          </button>
+        )}
+        {showManualInstallBtn && (
+          <button
+            onClick={() => setShowPwaModal(true)}
+            className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-900 transition-all duration-200 active:scale-95 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-gray-100"
+          >
+            <Download size={15} />
+            <span className="hidden sm:inline">Añadir a inicio</span>
+          </button>
+        )}
+        <button
+          onClick={handleLogout}
+          className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-900 transition-all duration-200 active:scale-95 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-gray-100"
+        >
+          <LogOut size={15} />
+          <span className="hidden sm:inline">Salir</span>
+        </button>
+      </>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gray-100 font-sans">
@@ -116,86 +199,65 @@ export default function Layout() {
 
       {/* `no-imprimir` en el header y la nav: al imprimir (hoy solo la remisión)
           el cromo de la app no va al papel, y sobre todo no deja su alto en
-          blanco arriba de la hoja. */}
-      <header className="no-imprimir bg-white px-3 sm:px-6 py-3 flex items-center justify-between shadow-sm border-b border-gray-200">
-        <div className="flex items-center gap-3">
-          <Link to="/" className="shrink-0">
-            <img
-              src="/logo-frigorinus-header.png"
-              alt="Frigorinus"
-              className="h-14 w-auto"
-            />
-          </Link>
-          <div>
-            <h1 className="text-base font-bold text-gray-900 tracking-wide leading-tight">Frigorinus</h1>
-            <p className="text-xs text-gray-500 leading-tight hidden sm:block">Logística de planta</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-1 sm:gap-2">
-          <button
-            onClick={() => setShowResetModal(true)}
-            className="flex items-center gap-2 text-sm text-gray-500 hover:text-red-600 transition-all duration-200 active:scale-95 px-2 py-1.5 rounded-lg hover:bg-gray-100"
-          >
-            <Trash2 size={15} />
-            <span className="hidden sm:inline text-xs font-medium">Resetear</span>
-          </button>
-          {installPrompt && (
-            <button
-              onClick={handleInstall}
-              className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-900 transition-all duration-200 active:scale-95 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-gray-100"
-            >
-              <Download size={15} />
-              <span className="hidden sm:inline">Instalar app</span>
-            </button>
-          )}
-          {showManualInstallBtn && (
-            <button
-              onClick={() => setShowPwaModal(true)}
-              className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-900 transition-all duration-200 active:scale-95 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-gray-100"
-            >
-              <Download size={15} />
-              <span className="hidden sm:inline">Añadir a inicio</span>
-            </button>
-          )}
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-900 transition-all duration-200 active:scale-95 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-gray-100"
-          >
-            <LogOut size={15} />
-            <span className="hidden sm:inline">Salir</span>
-          </button>
-        </div>
-      </header>
+          blanco arriba de la hoja.
 
-      <nav className="no-imprimir bg-white shadow-sm border-b border-gray-200 px-1 sm:px-6">
-        <div className="flex justify-center">
-          {[
-            { to: '/', label: 'Inventario Actual', icon: ClipboardList },
-            { to: '/cobros', label: 'Cobros de Frío', icon: AlertTriangle },
-            { to: '/inventario', label: 'Vísceras', icon: Package },
-            { to: '/despachos', label: 'Despachos', icon: Truck },
-            { to: '/notas', label: 'Notas', icon: NotebookPen },
-            { to: '/documento', label: 'Documento de ruta', icon: FileText },
-            { to: '/remisiones', label: 'Remisiones', icon: FileSignature },
-          ].map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === '/'}
-              className={({ isActive }) =>
-                `flex items-center gap-1.5 px-2 sm:px-5 py-3.5 text-sm font-semibold border-b-2 transition-all duration-200 ${
-                  isActive
-                    ? 'border-green-700 text-green-800 bg-green-50'
-                    : 'border-transparent text-gray-500 hover:text-gray-800 hover:bg-gray-50'
-                }`
-              }
-            >
-              <Icon size={15} />
-              <span className="hidden sm:inline">{label}</span>
-            </NavLink>
-          ))}
+          Dos bloques en vez de uno responsivo: con 7 items, el nav completo
+          (logo + nav + acciones) solo entra en una fila desde ~1280px armando
+          el ancho justo (ver la fila fusionada de abajo). Por debajo de `md`
+          el nav vuelve a tener el ancho COMPLETO de la pantalla en su propia
+          franja — ahí los 7 íconos entran sobrados, y es el mismo diseño de
+          siempre. Fusionarlo todo en una sola fila también en mobile dejaba
+          2-3 íconos del nav fuera de la vista sin scroll visible (el logo +
+          botones no dejan suficiente ancho). */}
+
+      {/* ─ Mobile / tablet (<md): header y nav como dos franjas, como antes ─ */}
+      <div className="md:hidden">
+        <header className="no-imprimir bg-white px-3 py-3 flex items-center justify-between shadow-sm border-b border-gray-200">
+          <div className="flex items-center gap-3">
+            <Link to="/" className="shrink-0">
+              <img src="/logo-frigorinus-header.png" alt="Frigorinus" className="h-14 w-auto" />
+            </Link>
+            <div>
+              <h1 className="text-base font-bold text-gray-900 tracking-wide leading-tight">Frigorinus</h1>
+              <p className="text-xs text-gray-500 leading-tight hidden sm:block">Logística de planta</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1 sm:gap-2">{renderAcciones()}</div>
+        </header>
+
+        <nav className="no-imprimir bg-white shadow-sm border-b border-gray-200 px-1">
+          <div className="flex justify-center">
+            <NavLinks />
+          </div>
+        </nav>
+      </div>
+
+      {/* ─ Desktop (md+): header y nav fusionados en una fila, grid de 3
+          columnas — el nav queda centrado respecto al header COMPLETO sin
+          depender de cuánto pese el logo o las acciones a cada lado, en vez
+          de centrarse solo dentro de su propia franja. El texto junto al
+          logo ("Frigorinus / Logística de planta") se oculta acá para ganar
+          el espacio que necesitan las 7 etiquetas del nav — el logo ya trae
+          escrito "FRIGORINUS", así que no se pierde información. */}
+      <header className="no-imprimir hidden md:grid bg-white px-6 shadow-sm border-b border-gray-200 grid-cols-[auto_1fr_auto] items-center gap-2">
+        <div className="flex items-center py-3">
+          <Link to="/" className="shrink-0">
+            <img src="/logo-frigorinus-header.png" alt="Frigorinus" className="h-14 w-auto" />
+          </Link>
         </div>
-      </nav>
+
+        {/* self-stretch + items-end: el nav ocupa todo el alto de la fila pero
+            sus items quedan pegados abajo, para que el border-b-2 del activo
+            se vea flush contra el límite con el contenido, como una pestaña
+            —igual que cuando el nav era su propia franja—. */}
+        <nav className="no-imprimir self-stretch flex items-end justify-center overflow-x-auto">
+          <div className="flex">
+            <NavLinks />
+          </div>
+        </nav>
+
+        <div className="flex items-center gap-2 py-3 justify-self-end">{renderAcciones()}</div>
+      </header>
 
       <main className="p-6 max-w-6xl mx-auto">
         <Outlet />
