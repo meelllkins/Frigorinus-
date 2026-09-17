@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { lazy, Suspense, useEffect, useState, type ComponentType, type LazyExoticComponent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './lib/supabase'
+import { RolProvider } from './lib/rol'
 import Login from './pages/Login'
 import Layout from './components/Layout'
 
@@ -72,18 +73,20 @@ function App() {
   }
 
   return (
-    <Routes>
-      <Route path="/login" element={!session ? <Login /> : <Navigate to="/" />} />
-      <Route path="/" element={session ? <Layout /> : <Navigate to="/login" />}>
-        <Route index element={pantalla(Beneficio)} />
-        <Route path="cobros" element={pantalla(CobrosFrio)} />
-        <Route path="inventario" element={pantalla(Inventario)} />
-        <Route path="despachos" element={pantalla(Despachos)} />
-        <Route path="notas" element={pantalla(Notas)} />
-        <Route path="documento" element={pantalla(DocumentoRuta)} />
-        <Route path="remisiones" element={pantalla(Remisiones)} />
-      </Route>
-    </Routes>
+    <RolProvider session={session}>
+      <Routes>
+        <Route path="/login" element={!session ? <Login /> : <Navigate to="/" />} />
+        <Route path="/" element={session ? <Layout /> : <Navigate to="/login" />}>
+          <Route index element={pantalla(Beneficio)} />
+          <Route path="cobros" element={pantalla(CobrosFrio)} />
+          <Route path="inventario" element={pantalla(Inventario)} />
+          <Route path="despachos" element={pantalla(Despachos)} />
+          <Route path="notas" element={pantalla(Notas)} />
+          <Route path="documento" element={pantalla(DocumentoRuta)} />
+          <Route path="remisiones" element={pantalla(Remisiones)} />
+        </Route>
+      </Routes>
+    </RolProvider>
   )
 }
 

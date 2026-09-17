@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo } from 'react'
-import { Link, NavLink, Outlet } from 'react-router-dom'
+import { useState, useEffect, useMemo, type ReactNode } from 'react'
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { useRol } from '../lib/rol'
 import { ClipboardList, AlertTriangle, Package, Truck, LogOut, Download, Trash2, NotebookPen, FileText, FileSignature } from 'lucide-react'
 
 const NAV_ITEMS = [
@@ -45,7 +46,56 @@ function NavLinks() {
   )
 }
 
+/**
+ * Envuelve el contenido de una pantalla para el rol 'remisiones': no aplica
+ * ningún efecto visual por defecto —se ve exactamente igual que para admin—,
+ * y recién al detectar el PRIMER clic en cualquier parte de ese contenido
+ * (no solo botones de guardar: este rol no debe poder interactuar con nada
+ * ahí, solo mirar) le pone blur y muestra el modal de aviso. Al cerrarlo se
+ * quita el blur — nada queda bloqueado de forma persistente, es un aviso por
+ * intento, no un candado visual permanente.
+ *
+ * onClickCapture (fase de captura, de afuera hacia adentro) en vez de onClick
+ * (fase de bubble): así el clic se detecta ACÁ antes de que cualquier
+ * elemento interno llegue a manejarlo, aunque ese elemento haga
+ * stopPropagation() en su propio onClick — eso pasa en la fase de bubble,
+ * que ocurre después de que esta captura ya corrió. No hay ningún
+ * createPortal en el proyecto, así que todo lo que se ve en pantalla —
+ * incluidos los modales de cada página— es descendiente DOM real de este
+ * wrapper.
+ */
+function ContenidoBloqueado({ children }: { children: ReactNode }) {
+  const [bloqueado, setBloqueado] = useState(false)
+
+  return (
+    <div onClickCapture={() => setBloqueado(true)}>
+      <div className={bloqueado ? 'blur-sm' : undefined}>{children}</div>
+
+      {bloqueado && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 animate-scaleIn">
+            <h3 className="text-base font-bold text-gray-900 mb-3">Solo lectura</h3>
+            <p className="text-sm text-gray-600 mb-5">
+              Tienes que ser usuario principal (Rafa) para modificar este espacio.
+            </p>
+            <div className="flex justify-end">
+              <button
+                onClick={() => setBloqueado(false)}
+                className="px-4 py-2 text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-all duration-200"
+              >
+                Entendido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Layout() {
+  const { rol, cargando: cargandoRol } = useRol()
+  const location = useLocation()
   const [showResetModal, setShowResetModal] = useState(false)
   const [confirmText, setConfirmText] = useState('')
   const [resetting, setResetting] = useState(false)
@@ -95,6 +145,12 @@ export default function Layout() {
   }
 
   const canReset = confirmText === 'RESETEAR'
+
+  // Gateado por `cargandoRol`: hasta no saber el rol REAL no se envuelve el
+  // contenido en ningún wrapper (ni siquiera uno sin efecto visual) — así un
+  // admin nunca corre el riesgo de que un clic caiga, por un instante, dentro
+  // de un onClickCapture que después se desmonta al resolverse el rol.
+  const bloqueoActivo = !cargandoRol && rol === 'remisiones' && location.pathname !== '/remisiones'
 
   /** Los 4 botones de acción del header, iguales en el bloque de mobile/tablet
    *  y en la fila fusionada de desktop — evita mantener dos copias del JSX. */
@@ -260,7 +316,17 @@ export default function Layout() {
       </header>
 
       <main className="p-6 max-w-6xl mx-auto">
-        <Outlet />
+        {bloqueoActivo ? (
+          // key={pathname}: si no, el wrapper no se desmonta al cambiar de
+          // pestaña (misma posición en el árbol) y el `bloqueado` de una
+          // pantalla anterior seguiría activo en la nueva sin que hiciera
+          // falta ningún clic ahí.
+          <ContenidoBloqueado key={location.pathname}>
+            <Outlet />
+          </ContenidoBloqueado>
+        ) : (
+          <Outlet />
+        )}
       </main>
     </div>
   )
