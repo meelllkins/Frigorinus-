@@ -691,8 +691,41 @@ export function armarDocumento(
     }
   }
 
-  // Ítems con su ruta/tipoCarne para poder distribuirlos en bloques/secciones.
-  const items = [...grupos.values()].map(g => ({ ruta: g.ruta, tipoCarne: g.tipoCarne, evento: g.evento, fila: grupoAFila(g) }))
+  // ── ADELANTO PURO: un grupo SIN NINGUNA canal no sale en el cuadro ──────────
+  // Regla de Rafa: el adelanto de vísceras se comunica SOLO por la observación de abajo
+  // ("ENVIAR N PAQ DE VISCERAS DE ADELANTO COD 151-2-3 PARA COD 602", ver lineasDeAdelanto
+  // en adelantoVisceras.ts, que se arma con las vísceras del despacho y NO con estos
+  // grupos). En la tabla de códigos en secuencia nunca debe aparecer como fila propia.
+  //
+  // El caso: las vísceras de un animal cuya canal se quedó en cava heredan el destino de
+  // las otras canales de su código (ver destinoPorCodigo más arriba) y así se fusionan en
+  // la fila normal. Pero el destino es UNO SOLO de los ocho componentes de claveGrupo, y
+  // los demás —desposte, media canal, dirección y el carro de Externo— se heredan por
+  // `registro_id` (despostePorRegistro, mediaCanalPorRegistro, direccionPorRegistro,
+  // carroDelCanalExterno): como ese animal no tiene canal en el documento, NO hay de quién
+  // heredarlos y caen en su valor por defecto. Si la canal del código lleva desposte, o es
+  // media canal, o tiene dirección (Nacional), o va por Externo, la clave deja de coincidir
+  // y la víscera se queda en un grupo aparte que sale como "151" sin raya, CANT 0 y las
+  // V/B–V/R del adelanto. Lo mismo si el código no despachó NINGUNA canal ese día, o si sus
+  // canales van a destinos distintos (ahí destinoPorCodigo devuelve null a propósito).
+  // Eso es el "a veces" que reportó Rafa: depende de cómo sea la canal del código, no del
+  // adelanto en sí.
+  //
+  // En vez de perseguir cada componente de la clave, se corta acá: sin canal no hay fila.
+  // `despachoIdsCanal` solo lo llenan las filas de tipo_despacho==='canal', así que está
+  // vacío exactamente cuando el grupo es puro adelanto (equivale a cant === 0, porque toda
+  // canal suma su fracción, que siempre es > 0).
+  //
+  // Ojo con lo que se pierde: las V/B y V/R de un grupo así no se suman en ninguna fila.
+  // Eso pasa SOLO en los grupos que ya no lograban fusionarse —los que hoy salen como fila
+  // fantasma—; cuando la fusión funciona, la víscera cae en la fila del canal y esas
+  // columnas siguen contando todo, adelantos incluidos, como manda la regla.
+  //
+  // Un grupo CON al menos una canal no se toca: el caso normal, el de destino ambiguo y el
+  // de media canal siguen exactamente igual.
+  const items = [...grupos.values()]
+    .filter(g => g.despachoIdsCanal.length > 0)
+    .map(g => ({ ruta: g.ruta, tipoCarne: g.tipoCarne, evento: g.evento, fila: grupoAFila(g) }))
 
   // Datos manuales por (ruta + carro). `manuales` ya viene filtrado a ESTA fecha de entrega,
   // así que la clave no la lleva. Las rutas con nombre usan carro_id '' -> una sola fila por
