@@ -1,47 +1,49 @@
 -- ============================================================================
--- REMISIONES: 8 filas por hoja (era 6) — hoja VERTICAL
+-- REMISIONES: 10 filas por hoja (eran 8) — espaciado del cuadro apretado
 -- ----------------------------------------------------------------------------
 -- Ejecutar MANUALMENTE en el SQL Editor de Supabase. No la corre la app.
 --
--- ⚠️ SUPERADA: el 8 de este archivo quedó viejo. Se apretó el espaciado del
---    cuadro impreso (sin tocar la tipografía) y ahora entran 10 filas por hoja
---    — el valor vigente lo deja SQL's/migracion_filas_por_hoja_10.sql, que
---    reemplaza la misma función. Este archivo se deja tal como corrió, como
---    registro histórico: no se vuelve a ejecutar ni se edita su SQL.
---
--- ⚠️ OBLIGATORIA. Sin correrla, el frontend arma bloques de 8 filas por hoja
---    pero el RPC sigue reservando folios de a 6: una remisión de 8 filas
+-- ⚠️ OBLIGATORIA. Sin correrla, el frontend arma bloques de 10 filas por hoja
+--    pero el RPC sigue reservando folios de a 8: una remisión de 10 filas
 --    imprimiría UNA hoja y se llevaría DOS folios, y a partir de ahí el número
 --    impreso en el papel deja de coincidir con el rango reservado. Va junto con
 --    el deploy del frontend.
 --
 -- ── QUÉ CAMBIA ──────────────────────────────────────────────────────────────
 -- Solo el divisor del cálculo de hojas dentro de remision_crear_con_folio():
--- CEIL(filas / 6) pasa a CEIL(filas / 8). Nada más. No toca tablas, columnas,
--- policies ni el contador de folios — todo eso lo dejó
--- SQL's/migracion_folios_remision.sql, que ya corrió y no se vuelve a tocar.
+-- CEIL(filas / 8) pasa a CEIL(filas / 10). Nada más. No toca tablas, columnas,
+-- policies ni el contador de folios. La estructura la dejó
+-- SQL's/migracion_folios_remision.sql y el valor anterior
+-- SQL's/migracion_filas_por_hoja.sql; las dos ya corrieron y no se vuelven a
+-- tocar.
 --
 -- Se reemplaza la función ENTERA con CREATE OR REPLACE (Postgres no permite
 -- parchear el cuerpo) y se re-otorga el GRANT, que el REPLACE no conserva.
 --
--- ── POR QUÉ 8 ───────────────────────────────────────────────────────────────
--- La remisión pasó de imprimirse apaisada a VERTICAL, y el alto útil de la
--- hoja subió de ~20.4cm a 26.74cm (carta, márgenes de 0.6cm). Midiendo la
--- plantilla real impresa a PDF con Edge headless:
---   · celdas de una línea: entran hasta 12 filas
---   · las 6 columnas envueltas a dos líneas en TODAS las filas: entran 8
---     (25.19cm contra 26.74cm; la novena se pasa por 0.20cm)
--- Se toma el peor caso. Si un bloque no entra en su hoja, el navegador lo parte
--- al medio y esa hoja física de más NO tiene folio reservado.
+-- ── POR QUÉ 10 ──────────────────────────────────────────────────────────────
+-- Rafa pidió aprovechar mejor el papel: al pasar de una hoja, la segunda
+-- quedaba con pocas filas y mucho blanco. Se apretó el espaciado del cuadro
+-- impreso SIN tocar el tamaño de fuente (padding de celda 0.25 -> 0.15rem,
+-- line-height 1.375 -> 1.25, y los márgenes entre encabezado, cuadro y firmas;
+-- ver @media print en src/index.css).
 --
--- El 8 tiene que ser el MISMO que FILAS_POR_HOJA en src/lib/remisiones.ts, que
+-- Midiendo la plantilla real impresa a PDF con Edge headless, en el peor caso
+-- —las 6 columnas envueltas a dos líneas en TODAS las filas— contra los 26.74cm
+-- útiles de la hoja carta vertical:
+--   · antes:   8 filas = 25.29cm -> sobraban 1.44cm  (9 se pasaban por 0.30cm)
+--   · ahora:  10 filas = 25.56cm -> sobran  1.18cm  (11 se pasan por 0.35cm)
+-- No se estira a 11: ahí el sobrante cae a 0.02cm, y si un bloque no entra en
+-- su hoja el navegador lo parte al medio — esa hoja física de más NO tiene
+-- folio reservado.
+--
+-- El 10 tiene que ser el MISMO que FILAS_POR_HOJA en src/lib/remisiones.ts, que
 -- es con el que la plantilla arma los bloques `.hoja-impresion`.
 --
 -- ── LAS REMISIONES YA CREADAS NO SE TOCAN ───────────────────────────────────
 -- `hojas_reservadas` se fijó al crear cada remisión y no se recalcula nunca —
 -- ni acá ni en la app. Como el número SUBE, una remisión vieja necesita ahora
 -- MENOS hojas que las que tiene reservadas, nunca más: no puede quedar corta ni
--- pisar el rango de la siguiente. Una de 8 filas creada con el valor viejo
+-- pisar el rango de la siguiente. Una de 10 filas creada con el valor viejo
 -- reservó 2 hojas y ahora reimprime en 1; el segundo folio queda reservado sin
 -- usar, que es el caso que el diseño ya acepta (ver la nota sobre el rango en
 -- migracion_folios_remision.sql).
@@ -71,15 +73,15 @@ BEGIN
   -- Solo las filas de CLIENTE cuentan para las hojas. La fila TOTAL viaja en
   -- el mismo arreglo (marcada con es_total) pero no ocupa lugar en el cuadro:
   -- va en el pie, que se repite entero en cada hoja. Contarla correría todo
-  -- una posición y reservaría una hoja de más cada 8 filas.
+  -- una posición y reservaría una hoja de más cada 10 filas.
   SELECT COUNT(*) INTO v_filas
     FROM jsonb_array_elements(COALESCE(p_filas, '[]'::jsonb)) e
    WHERE COALESCE((e->>'es_total')::BOOLEAN, FALSE) = FALSE;
 
-  -- ⚠️ EL 8: ver la nota de la cabecera. Tiene que coincidir con FILAS_POR_HOJA
-  -- en src/lib/remisiones.ts. El GREATEST es el caso de la remisión sin filas,
-  -- que igual se imprime en una hoja.
-  v_hojas := GREATEST(CEIL(v_filas::NUMERIC / 8)::INTEGER, 1);
+  -- ⚠️ EL 10: ver la nota de la cabecera. Tiene que coincidir con
+  -- FILAS_POR_HOJA en src/lib/remisiones.ts. El GREATEST es el caso de la
+  -- remisión sin filas, que igual se imprime en una hoja.
+  v_hojas := GREATEST(CEIL(v_filas::NUMERIC / 10)::INTEGER, 1);
 
   -- Acá se serializa todo el que esté creando una remisión al mismo tiempo.
   SELECT siguiente_folio INTO v_folio FROM contador_folios WHERE id FOR UPDATE;
@@ -141,8 +143,8 @@ COMMIT;
 -- ============================================================================
 -- VERIFICACIÓN (opcional, no modifica nada)
 -- ============================================================================
---   -- 1) El divisor quedó en 8 dentro de la función:
---   SELECT prosrc LIKE '%NUMERIC / 8%' AS quedo_en_8
+--   -- 1) El divisor quedó en 10 dentro de la función:
+--   SELECT prosrc LIKE '%NUMERIC / 10%' AS quedo_en_10
 --   FROM pg_proc WHERE proname = 'remision_crear_con_folio';
 --   -- Esperado: true
 --
@@ -163,16 +165,21 @@ COMMIT;
 -- PRUEBAS MANUALES (desde la app; las filas de prueba llevan "TESTQA" en
 -- cliente para poder borrarlas después a mano)
 -- ============================================================================
--- 1. Crear una remisión con 8 filas -> reserva 1 hoja (antes eran 2); imprime
---    UNA sola hoja, sin cortar el cuadro ni dejar una página en blanco atrás.
--- 2. Crear otra con 9 filas -> reserva 2 hojas; imprime 2, con folios
+-- 1. Crear una remisión con 10 filas de texto LARGO (nombres de cliente y
+--    productos que envuelvan a dos líneas) -> reserva 1 hoja (antes eran 2);
+--    imprime UNA sola hoja, sin cortar el cuadro ni dejar una página en blanco
+--    atrás, y con el texto legible.
+-- 2. Crear otra con 11 filas -> reserva 2 hojas; imprime 2, con folios
 --    consecutivos (N y N+1) y el encabezado completo en las dos.
 -- 3. Crear una tercera enseguida -> su folio_inicio debe ser el que sigue al
 --    rango de la segunda, sin pisarlo.
--- 4. Editar la de 9 filas agregando hasta pasar de 16 -> el guardado se rechaza
---    con el aviso y NADA cambia en la base (verificar con la consulta 3).
+-- 4. Editar la de 11 filas agregando hasta pasar de 20 -> el guardado se
+--    rechaza con el aviso y NADA cambia en la base (verificar con la consulta 3).
 -- 5. Reimprimir una remisión creada ANTES de esta migración -> no se rompe: sale
 --    con los mismos folios, en igual o menos hojas que las que reservó.
+-- 6. Crear una con 10 filas de texto CORTO -> la hoja se ve prolija, con los
+--    renglones a 1.3cm (alto suficiente para firmar a mano en la última
+--    columna), no amontonados.
 --
 -- Limpieza de las de prueba (borra el encabezado; las filas se van por
 -- CASCADE). El contador NO se retrocede a propósito: esos folios se

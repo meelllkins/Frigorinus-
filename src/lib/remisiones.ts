@@ -109,25 +109,32 @@ const COLS_FILA =
  * número.
  *
  * Medido sobre la hoja carta VERTICAL con márgenes de 0.6cm (26.74cm útiles de
- * alto), imprimiendo la plantilla real a PDF con Edge headless:
- *   · celdas de una línea (fila al mínimo de 1.2cm): entran hasta 12
- *   · las 6 columnas envolviendo a dos líneas en TODAS las filas: entran 8
- * Se toma el PEOR caso —8— porque es el que Rafa produce cuando escribe
- * nombres de cliente y productos largos, y todavía deja 1.55cm libres (1.02cm
- * de sobra le quedarían a 12 filas solo si nada envuelve nunca).
+ * alto), imprimiendo la plantilla real a PDF con Edge headless. El peor caso
+ * es el que manda: las 6 columnas envolviendo a dos líneas en TODAS las filas,
+ * que es lo que sale cuando Rafa escribe nombres de cliente y productos largos.
  *
- * No se estira más a propósito: si un bloque no entra en su hoja, el navegador
- * lo parte al medio y la hoja física de más NO tiene folio reservado — el
- * número impreso deja de corresponder al papel. Ese riesgo es peor que dejar
- * unos centímetros en blanco.
+ * Pasó de 8 a 10 al apretar el espaciado del cuadro (ver la nota grande en
+ * index.css, dentro de @media print). El tamaño de fuente NO se tocó: lo que
+ * se achicó es padding de celda (0.25 -> 0.15rem), line-height (1.375 -> 1.25)
+ * y los márgenes entre encabezado, cuadro y firmas.
+ *   · antes:   8 filas = 25.29cm -> sobraban 1.44cm  (9 se pasaban por 0.30cm)
+ *   · ahora:  10 filas = 25.56cm -> sobran  1.18cm  (11 se pasan por 0.35cm)
+ * Con celdas de una línea entrarían bastantes más, pero ese número solo aguanta
+ * mientras nada envuelva; el colchón de 1.18cm son ~2 líneas extra, para que
+ * una celda que envuelva a TRES siga entrando.
+ *
+ * No se estira a 11 a propósito: ahí el sobrante cae a 0.02cm, y si un bloque
+ * no entra en su hoja el navegador lo parte al medio — esa hoja física de más
+ * NO tiene folio reservado y el número impreso deja de corresponder al papel.
+ * Ese riesgo es peor que dejar unos centímetros en blanco.
  *
  * ⚠️ Está DUPLICADO en remision_crear_con_folio() (el valor vigente lo deja
- * SQL's/migracion_filas_por_hoja.sql), que es quien reserva el rango del lado
- * de la base. Si cambia el alto del encabezado o del pie y entra otra cantidad
- * de filas por hoja, hay que cambiarlo en los dos lados o la reserva deja de
- * coincidir con lo que sale en papel.
+ * SQL's/migracion_filas_por_hoja_10.sql), que es quien reserva el rango del
+ * lado de la base. Si cambia el alto del encabezado o del pie y entra otra
+ * cantidad de filas por hoja, hay que cambiarlo en los dos lados o la reserva
+ * deja de coincidir con lo que sale en papel.
  */
-export const FILAS_POR_HOJA = 8
+export const FILAS_POR_HOJA = 10
 
 /**
  * Cuántas hojas ocupa una remisión con esa cantidad de filas de CLIENTE (la

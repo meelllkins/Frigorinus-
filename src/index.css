@@ -254,17 +254,83 @@
     -webkit-print-color-adjust: exact;
   }
 
-  /* Alto de renglón: MÍNIMO y no fijo, para que una celda con texto largo
-     (p. ej. Canastillas envuelto en dos líneas) pueda crecer en vez de
-     recortarse — igual que en pantalla (ver CeldaFila en Remisiones.tsx).
-     1.2cm es también el alto que hace falta para escribir a mano encima. */
-  .hoja-impresion tbody td {
-    min-height: 1.2cm;
+  /* ── Alto de renglón ──────────────────────────────────────────────────────
+     MÍNIMO y no fijo, para que una celda con texto largo (p. ej. Canastillas
+     envuelto en dos líneas) pueda crecer en vez de recortarse — igual que en
+     pantalla (ver CeldaFila en Remisiones.tsx). El alto importa porque Rafa
+     FIRMA A MANO sobre el papel, en la columna "Firma recibido cliente": una
+     fila más baja que ~1.2cm no deja lugar para escribir encima.
+
+     Va con `height` y no con `min-height`: acá esto es una celda de tabla
+     (`display: table-cell`), y ahí Chromium IGNORA min-height — medido con
+     --dump-dom, la fila de una línea daba 48px (1.27cm) por el padding y el
+     line-height, no por el min-height de 1.2cm que estaba declarado. O sea que
+     esa regla nunca hizo nada, y al achicar el padding el renglón se habría ido
+     a 1.08cm sin que nadie lo notara. En CSS de tablas `height` SÍ se comporta
+     como mínimo (la fila crece si el contenido no entra), que es justo lo que
+     se quería. Se sube a 1.3cm, un pelo más que el 1.27cm que daba de hecho:
+     no cuesta ninguna fila por hoja, porque en el peor caso el renglón ya mide
+     ~1.53cm y este mínimo ni se toca (verificado a 1.2 / 1.3 / 1.35cm: el
+     bloque completo mide 966px en los tres).
+
+     `:not(:last-child)` deja afuera la fila TOTAL, que es pie de cuadro y no
+     se firma: sin eso el `height` también se la aplicaría y crecería de gusto. */
+  .hoja-impresion tbody tr:not(:last-child) td {
+    height: 1.3cm;
   }
 
   .celda-impresion {
     white-space: pre-wrap;
     overflow-wrap: break-word;
+  }
+
+  /* ── Espaciado del cuadro: más filas por hoja SIN tocar la tipografía ─────
+     Pedido de Rafa: aprovechar mejor el papel, porque al pasar de una hoja la
+     segunda quedaba con pocas filas y mucho blanco. El tamaño de fuente NO se
+     toca (td 11pt, th 9.5pt, más abajo): todo lo que se gana sale de padding,
+     line-height y márgenes.
+
+     Medido igual que la orientación: PDF real con Edge headless, peor caso
+     (las 6 columnas envueltas a dos líneas en TODAS las filas). Antes y después,
+     con el bloque completo contra los 26.74cm útiles de la hoja vertical:
+       · antes:   8 filas = 25.29cm -> sobran 1.44cm   (9 filas se pasaban)
+       · después: 10 filas = 25.56cm -> sobran 1.18cm  (11 filas se pasan)
+     O sea +2 filas por hoja conservando prácticamente el mismo colchón que
+     había. 1.18cm son ~2 líneas de texto extra: el margen para que una celda
+     que envuelva a TRES líneas —más pesimista todavía que el peor caso medido—
+     siga entrando.
+
+     No se estira a 11: ahí el sobrante cae a 0.02cm, y un bloque que no entra
+     en su hoja lo parte el navegador al medio — esa hoja física de más no tiene
+     folio reservado y el número impreso deja de corresponder al papel.
+
+     Legibilidad: revisado en imagen a tamaño real, no solo "que quepa". El
+     line-height 1.25 es `leading-tight` de Tailwind, un valor normal de lectura,
+     y el padding de 0.15rem deja el texto despegado de la raya de la celda. */
+  #remision-imprimible .celda-impresion {
+    padding-top: 0.15rem;
+    padding-bottom: 0.15rem;
+    line-height: 1.25;
+  }
+
+  #remision-imprimible thead th {
+    padding-top: 0.2rem;
+    padding-bottom: 0.2rem;
+  }
+
+  /* La fila TOTAL: el padding va sobre la celda en dos columnas (TOTAL y el
+     aviso al conductor) y sobre el div interno en las otras dos, según cómo
+     esté armada en Remisiones.tsx — por eso las dos reglas. */
+  #remision-imprimible tbody tr:last-child td {
+    padding-top: 0.15rem;
+    padding-bottom: 0.15rem;
+  }
+
+  #remision-imprimible tbody tr:last-child td > div,
+  #remision-imprimible tbody tr:last-child td > p {
+    padding-top: 0.15rem;
+    padding-bottom: 0.15rem;
+    line-height: 1.25;
   }
 
   /* Tipografías en pt, que es la unidad del papel. */
@@ -305,19 +371,24 @@
      antes de necesitar una hoja nueva (ver FILAS_POR_HOJA en lib/remisiones.ts,
      calculado justo con estas medidas). Los `mb-5`/`gap-3`
      de Tailwind (pensados para pantalla) no se tocan fuera de acá: en papel
-     se acortan para ganar ese margen. */
+     se acortan para ganar ese margen.
+
+     Estas tres medidas se apretaron junto con el espaciado del cuadro (ver la
+     nota de arriba): 0.25 -> 0.14cm de margen, 0.15 -> 0.08cm de gap y
+     0.6 -> 0.4cm antes de las firmas. Es espacio en blanco entre bloques, no
+     texto: se gana alto sin tocar nada que se lea. */
   #remision-imprimible .encabezado-logo-remision,
   #remision-imprimible .titulo-remision,
   #remision-imprimible .campos-remision {
-    margin-bottom: 0.25cm !important;
+    margin-bottom: 0.14cm !important;
   }
 
   #remision-imprimible .campos-remision {
-    gap: 0.15cm !important;
+    gap: 0.08cm !important;
   }
 
   #remision-imprimible .firmas-remision {
-    margin-top: 0.6cm !important;
+    margin-top: 0.4cm !important;
   }
 
   /* Carta VERTICAL. Antes era apaisada (así imprimía Rafa el talonario) y se

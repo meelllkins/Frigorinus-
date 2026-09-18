@@ -47,18 +47,15 @@ const FILAS_INICIALES = 5
 
 // Cuántas filas de datos entran por hoja impresa junto con el encabezado y el
 // pie completos (ver la nota grande sobre `.hoja-impresion` más abajo, donde
-// se arma cada bloque). Era 6 con la hoja APAISADA, que daba ~20.4cm útiles de
-// alto; con la hoja VERTICAL (@page en index.css) suben a 26.74cm y entran 8.
+// se arma cada bloque). Fue 6 con la hoja APAISADA (~20.4cm útiles de alto),
+// 8 al pasar a VERTICAL (26.74cm) y hoy 10, tras apretar el espaciado del
+// cuadro SIN tocar el tamaño de fuente (ver @media print en index.css).
 //
-// El 8 está medido, no estimado: imprimiendo la plantilla real a PDF con Edge
-// headless, el bloque de 8 filas mide 25.19cm con TODAS las celdas envueltas a
-// dos líneas —el peor caso— contra 26.74cm de hoja. La novena se pasa por
-// 0.20cm. Con celdas de una línea entrarían 12, pero ese número solo aguanta
+// El 10 está medido, no estimado: imprimiendo la plantilla real a PDF con Edge
+// headless, el bloque de 10 filas mide 25.56cm con TODAS las celdas envueltas
+// a dos líneas —el peor caso— contra 26.74cm de hoja. La once se pasa por
+// 0.35cm. Con celdas de una línea entrarían más, pero ese número solo aguanta
 // mientras nada envuelva.
-//
-// Vive en lib/remisiones.ts y se importa acá: es el MISMO número con el que se
-// reserva el rango de folios al crear, así que no puede haber dos copias en el
-// frontend. (La tercera copia inevitable está en el RPC, del lado de la base.)
 //
 // Vive en lib/remisiones.ts y se importa acá: es el MISMO número con el que se
 // reserva el rango de folios al crear, así que no puede haber dos copias en el
