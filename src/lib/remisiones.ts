@@ -108,13 +108,26 @@ const COLS_FILA =
  * bloque = una hoja— y la reserva de folios cuenta las hojas con el mismo
  * número.
  *
- * ⚠️ Está DUPLICADO en remision_crear_con_folio() (SQL's/migracion_folios_
- * remision.sql), que es quien reserva el rango del lado de la base. Si cambia
- * el alto del encabezado o del pie y entra otra cantidad de filas por hoja,
- * hay que cambiarlo en los dos lados o la reserva deja de coincidir con lo que
- * sale en papel.
+ * Medido sobre la hoja carta VERTICAL con márgenes de 0.6cm (26.74cm útiles de
+ * alto), imprimiendo la plantilla real a PDF con Edge headless:
+ *   · celdas de una línea (fila al mínimo de 1.2cm): entran hasta 12
+ *   · las 6 columnas envolviendo a dos líneas en TODAS las filas: entran 8
+ * Se toma el PEOR caso —8— porque es el que Rafa produce cuando escribe
+ * nombres de cliente y productos largos, y todavía deja 1.55cm libres (1.02cm
+ * de sobra le quedarían a 12 filas solo si nada envuelve nunca).
+ *
+ * No se estira más a propósito: si un bloque no entra en su hoja, el navegador
+ * lo parte al medio y la hoja física de más NO tiene folio reservado — el
+ * número impreso deja de corresponder al papel. Ese riesgo es peor que dejar
+ * unos centímetros en blanco.
+ *
+ * ⚠️ Está DUPLICADO en remision_crear_con_folio() (el valor vigente lo deja
+ * SQL's/migracion_filas_por_hoja.sql), que es quien reserva el rango del lado
+ * de la base. Si cambia el alto del encabezado o del pie y entra otra cantidad
+ * de filas por hoja, hay que cambiarlo en los dos lados o la reserva deja de
+ * coincidir con lo que sale en papel.
  */
-export const FILAS_POR_HOJA = 6
+export const FILAS_POR_HOJA = 8
 
 /**
  * Cuántas hojas ocupa una remisión con esa cantidad de filas de CLIENTE (la

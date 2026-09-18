@@ -47,16 +47,18 @@ const FILAS_INICIALES = 5
 
 // Cuántas filas de datos entran por hoja impresa junto con el encabezado y el
 // pie completos (ver la nota grande sobre `.hoja-impresion` más abajo, donde
-// se arma cada bloque). El 6 se calculó con la hoja APAISADA, que daba ~20.4cm
-// útiles de alto: encabezado ~7.6cm + pie (TOTAL + firmas) ~3.3cm dejaban
-// ~9.5cm, un poco más de 6 filas a 1.2cm, y se dejó en 6 y no en el máximo
-// (7.9) para tener margen si alguna celda envuelve a dos líneas.
+// se arma cada bloque). Era 6 con la hoja APAISADA, que daba ~20.4cm útiles de
+// alto; con la hoja VERTICAL (@page en index.css) suben a 26.74cm y entran 8.
 //
-// Ahora la hoja se imprime VERTICAL (@page en index.css) y el alto útil sube a
-// ~26.7cm, así que 6 filas entran con aire de sobra. Se deja igual a propósito:
-// subirlo llenaría más la hoja pero cambia cuántos folios reserva una remisión,
-// y el número está también en el RPC del lado de la base (ver FILAS_POR_HOJA en
-// lib/remisiones.ts) — es un cambio aparte, con su migración.
+// El 8 está medido, no estimado: imprimiendo la plantilla real a PDF con Edge
+// headless, el bloque de 8 filas mide 25.19cm con TODAS las celdas envueltas a
+// dos líneas —el peor caso— contra 26.74cm de hoja. La novena se pasa por
+// 0.20cm. Con celdas de una línea entrarían 12, pero ese número solo aguanta
+// mientras nada envuelva.
+//
+// Vive en lib/remisiones.ts y se importa acá: es el MISMO número con el que se
+// reserva el rango de folios al crear, así que no puede haber dos copias en el
+// frontend. (La tercera copia inevitable está en el RPC, del lado de la base.)
 //
 // Vive en lib/remisiones.ts y se importa acá: es el MISMO número con el que se
 // reserva el rango de folios al crear, así que no puede haber dos copias en el

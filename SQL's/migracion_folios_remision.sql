@@ -30,7 +30,13 @@
 --     amplía el rango: los folios que siguen ya se los llevó otra remisión.
 --
 -- ── LAS 6 FILAS POR HOJA ────────────────────────────────────────────────────
--- El 6 de acá abajo tiene que ser el MISMO que FILAS_POR_HOJA en
+-- ⚠️ SUPERADO: el 6 de esta migración quedó viejo. La remisión pasó a
+--    imprimirse VERTICAL y ahora entran 8 filas por hoja — el valor vigente lo
+--    deja SQL's/migracion_filas_por_hoja.sql, que reemplaza la función de más
+--    abajo. Este archivo se deja tal como corrió, como registro histórico: no
+--    se vuelve a ejecutar ni se edita su SQL.
+--
+-- El número de acá abajo tiene que ser el MISMO que FILAS_POR_HOJA en
 -- src/lib/remisiones.ts (que a su vez es el que usa la plantilla al armar los
 -- bloques `.hoja-impresion`). Si alguna vez cambia el alto del encabezado o
 -- del pie impreso y entra otra cantidad de filas por hoja, hay que cambiarlo
