@@ -956,17 +956,6 @@ export default function DocumentoRuta() {
                       {campoManual(b, 'placa', 'Placa')}
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Observación</label>
-                      <textarea
-                        rows={2}
-                        value={manualLocal[clave]?.observacion ?? ''}
-                        onChange={e => setCampoManual(b, 'observacion', e.target.value)}
-                        onBlur={e => guardarCampoManual(b, 'observacion', e.target.value)}
-                        className={inputCls}
-                      />
-                    </div>
-
                     {/* Un carro externo lleva UN SOLO tipo de carne: se dibuja solo la sub-tabla que
                         tiene filas, para que no aparezca la vacía al lado (eso es lo que se veía como
                         "res y cerdo mezclados"). Las rutas con nombre sí muestran las dos aunque una
@@ -991,6 +980,17 @@ export default function DocumentoRuta() {
                         </ul>
                       </div>
                     )}
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Observación</label>
+                      <textarea
+                        rows={2}
+                        value={manualLocal[clave]?.observacion ?? ''}
+                        onChange={e => setCampoManual(b, 'observacion', e.target.value)}
+                        onBlur={e => guardarCampoManual(b, 'observacion', e.target.value)}
+                        className={inputCls}
+                      />
+                    </div>
                   </>
                 )}
               </section>
